@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "derputils",
+]
+
+
+[workspace.package]
+authors = [ "MidAutumnMoon" ]
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/MidAutumnMoon/TeapotInOri"
+
+
+[workspace.dependencies]
+anyhow = "1"
+
+
+[profile.release]
+lto = "thin"
+panic = "abort"
+strip = true

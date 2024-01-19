@@ -1,0 +1,32 @@
+name: "CI tests"
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+
+jobs:
+
+    test:
+        name: Run tests
+        runs-on: ubuntu-latest
+
+        steps:
+
+        - uses: actions/checkout@v4
+
+        - uses: dtolnay/rust-toolchain@stable
+
+        - uses: Swatinem/rust-cache@v2
+
+        - uses: taiki-e/install-action@v2
+          with:
+              tool: nextest
+
+        - run: |
+            sudo apt update -y
+            sudo apt install -y libsdl2-2.0-0 libsdl2-dev
+
+        - run: |
+            cargo nextest run --all-features
