@@ -19,4 +19,4 @@ anyhow = "1"
 [profile.release]
 lto = "thin"
 panic = "abort"
-strip = true
+strip = "debuginfo"
