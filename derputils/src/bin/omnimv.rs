@@ -4,7 +4,6 @@
 //! for fetching files from the download directory
 //! to CWD, so "omnifetch" may be a more
 //! proper name but... whatever.
-//!
 
 use std::path::PathBuf;
 
@@ -13,14 +12,10 @@ use tracing::{
     debug_span,
 };
 
-use anyhow::bail;
+use anyhow::ensure;
 
 use itertools::Itertools;
 
-
-//
-// CmdOpts struct
-//
 
 /// Move files from other places to current
 /// working directory.
@@ -46,23 +41,19 @@ struct CmdOpts {
     /// Note: in case of files presented
     /// in multiple search directories,
     /// only the first one will be moved.
-    #[argh( positional )]
-    filenames: Vec<PathBuf>,
+    #[argh( positional, arg_name = "filenames" )] // arg_name undocumented
+    files_to_move: Vec<PathBuf>,
 }
 
 impl CmdOpts {
 
-    fn new()
-        -> anyhow::Result<Self>
-    {
+    fn new() -> anyhow::Result<Self> {
         let opts = argh::from_env::<Self>();
 
-        if opts.searchdirs.is_empty() {
-            bail!(
-                "At least one --dir must be specified.\
-                \n\n\
-                Run omnimv --help for more information."
-            )
+        ensure! { ! opts.searchdirs.is_empty(),
+            "At least one --dir must be specified.\
+            \n\n\
+            Run omnimv --help for more information."
         }
 
         // dedup searchdirs
@@ -70,11 +61,7 @@ impl CmdOpts {
             .into_iter()
             .unique()
             .collect_vec();
-
-        Ok( Self {
-            searchdirs,
-            ..opts
-        } )
+        Ok( Self { searchdirs, ..opts } )
     }
 
 }
@@ -89,7 +76,7 @@ fn main() -> anyhow::Result<()> {
     let opts = CmdOpts::new()?;
 
     let CmdOpts {
-        filenames,
+        files_to_move,
         searchdirs,
         ..
     } = &opts;
@@ -125,28 +112,23 @@ fn main() -> anyhow::Result<()> {
     //
 
     if opts.listing {
-
         let _span = debug_span!( "listing" ).entered();
 
         debug!( "Listing files" );
 
         // "70" is an arbitrary value based on
-        // the current count of files in my download
-        // folder :P, but crucially it's also about
-        // the average based on my experience.
+        // the current number of files in my download
+        // folder :P, and also it's about the average amount.
         let mut collected =
             Vec::<String>::with_capacity( 70 );
 
-        for dir in searchdirs {
-            let _span =
-                debug_span!( "dir", path = dir.to_str() )
-                .entered();
+        for srchdir in searchdirs {
+            let _span = debug_span!( "inside", ?srchdir ).entered();
 
-            debug!( ?dir, "Read directory" );
+            debug!( "Try read_dir" );
 
-            for entry in dir.read_dir()? {
-                let _span = debug_span!( "", ?entry )
-                    .entered();
+            for entry in srchdir.read_dir()? {
+                let _span = debug_span!( "on_entry", ?entry ).entered();
 
                 let entry = entry?;
                 let ftype = &entry.file_type()?;
@@ -162,9 +144,7 @@ fn main() -> anyhow::Result<()> {
                 let fname = entry.file_name()
                     .to_string_lossy()
                     .into_owned();
-
                 debug!( ?fname, "Found file" );
-
                 collected.push( fname );
             }
         }
@@ -176,7 +156,6 @@ fn main() -> anyhow::Result<()> {
         println!( "{output}" );
 
         return Ok(())
-
     }
 
 
@@ -184,10 +163,10 @@ fn main() -> anyhow::Result<()> {
     // Actually moving files
     //
 
-    let _span = debug_span!( "moving" )
-        .entered();
+    let _span = debug_span!( "moving" ).entered();
 
-    debug!( ?filenames, "Files to move" );
+
+    debug!( ?files_to_move, "Files to move" );
 
     debug!( "Try to get CWD" );
 
@@ -196,71 +175,65 @@ fn main() -> anyhow::Result<()> {
     debug!( ?cwd );
 
 
-    if filenames.is_empty() {
+    if files_to_move.is_empty() {
         debug!( "No files to move" )
     }
 
-
-    for fname in filenames {
-
-        let _span = debug_span!( "for_file", ?fname )
-            .entered();
+    for filename in files_to_move {
+        let _span = debug_span!( "for_name", ?filename ).entered();
 
 
-        let destination = cwd.join( fname );
+        let mv_dest = cwd.join( filename );
 
-        debug!( "Check for existence in CWD" );
+        debug!( "Ensure no collinsion" );
 
-        if destination.try_exists()? {
-            bail!( format!(
-                "\"{}\" already exists in CWD \"{}\"",
-                fname.display(),
-                cwd.display(),
-            ) )
+        ensure! { ! mv_dest.try_exists()?,
+            "\"{}\" already exists under CWD",
+            filename.display(),
         }
 
 
         let mut collected = Vec::<PathBuf>::new();
 
-        for dir in searchdirs {
-            let _span = debug_span!( "search_in", ?dir )
-                .entered();
+        for srchdir in searchdirs {
+            let _span = debug_span!( "search_in", ?srchdir ).entered();
 
-            let fullpath = dir.join( fname );
+            let path = srchdir.join( filename );
 
-            debug!( ?fullpath );
+            debug!( ?path, "Try path" );
 
-            if fullpath.try_exists()? {
-                collected.push( fullpath )
+            if path.try_exists()? {
+                debug!( ?path, "Found" );
+                collected.push( path )
             } else {
                 debug!( "Not exists" )
             }
         }
 
-        debug!( ?collected, "Check founds" );
+        debug!( ?collected, "Collected source files" );
 
-        if collected.is_empty() {
-            bail!( format!(
-                "\"{}\" not found in specified directories.",
-                fname.display()
-            ) )
+
+        ensure! { ! collected.is_empty(),
+            "\"{}\" not found in specified directories.",
+            filename.display()
         }
 
         if collected.len() > 1 {
-            debug!(
-                "Found multiple same-named files, take first"
-            )
+            debug!( "Found duplicated files, take first" )
         }
 
         // Safety: bails when empty, so "collected"
         // guaranteed to hold at least one item
-        let origin = &collected.first().unwrap();
+        let mv_orig = &collected.first().unwrap();
 
-        debug!( ?origin, ?destination, "Ready to move" );
 
-        println!(
-            "Move {} -> CWD ({})",
-            &origin.display(),
+        let _span_from_to = debug_span!( "from_to", ?mv_orig, ?mv_dest )
+            .entered();
+
+        debug!( "Ready to move" );
+
+        println!( "Move {} -> CWD ({})",
+            &mv_orig.display(),
             &cwd.display()
         );
 
@@ -278,27 +251,24 @@ fn main() -> anyhow::Result<()> {
         // available.
         //
         // 3) Some deadly wild animals sneaking behind
-        // the read() and write() syscall.
+        // the read() and write() syscalls.
 
         use std::process::Command;
 
-        debug!( "Launch mv" );
+        debug!( "Calling mv to move files" );
 
         let output = Command::new( "mv" )
             .args([ "--verbose", "--no-clobber" ])
-            .arg( origin )
-            .arg( destination )
+            .arg( mv_orig )
+            .arg( mv_dest )
             .output()?;
 
-        debug!( ?output );
+        debug!( ?output, "mv output" );
 
-        if ! &output.status.success() {
-            bail!( format!(
-                "Move failed.\n\n{}",
-                String::from_utf8_lossy( &output.stderr ).trim()
-            ) )
+        ensure! { output.status.success(),
+            "Move failed.\n\n{}",
+            String::from_utf8_lossy( &output.stderr ).trim()
         }
-
     }
 
 
