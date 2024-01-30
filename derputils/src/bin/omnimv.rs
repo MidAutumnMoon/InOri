@@ -32,10 +32,6 @@ struct CmdOpts {
     #[argh( switch, short = 'l' )]
     listing: bool,
 
-    /// enable debug logging
-    #[argh( switch )]
-    debug: bool,
-
     /// names of files to be moved,
     /// use "--" to escape special filenames.
     /// Note: in case of files presented
@@ -47,8 +43,11 @@ struct CmdOpts {
 
 impl CmdOpts {
 
+    #[tracing::instrument]
     fn new() -> anyhow::Result<Self> {
         let opts = argh::from_env::<Self>();
+
+        debug!( ?opts, "Parsed cmdopts" );
 
         ensure! { ! opts.searchdirs.is_empty(),
             "At least one --dir must be specified.\
@@ -61,6 +60,9 @@ impl CmdOpts {
             .into_iter()
             .unique()
             .collect_vec();
+
+        debug!( ?searchdirs, "Deduped search dirs" );
+
         Ok( Self { searchdirs, ..opts } )
     }
 
@@ -68,6 +70,13 @@ impl CmdOpts {
 
 
 fn main() -> anyhow::Result<()> {
+
+    //
+    // Enable tracing
+    //
+
+    ino_tracing::init_tracing_subscriber();
+
 
     //
     // Get cmd options
@@ -80,31 +89,6 @@ fn main() -> anyhow::Result<()> {
         searchdirs,
         ..
     } = &opts;
-
-
-    //
-    // Enable tracing
-    //
-
-    {
-        use tracing::Level;
-        use tracing_subscriber::fmt::fmt;
-
-        let level = match opts.debug {
-            true => Level::TRACE,
-            false => Level::WARN,
-        };
-
-        fmt()
-            .with_writer( std::io::stderr )
-            .with_ansi( true )
-            .with_max_level( level )
-            .init();
-    }
-
-    debug!( ?opts, "Commandline options" );
-
-    debug!( ?searchdirs, "Deduped" );
 
 
     //

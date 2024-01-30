@@ -105,13 +105,13 @@ version = "24.1.0"
 dependencies = [
  "anyhow",
  "argh",
+ "ino_tracing",
  "itertools",
  "once_cell",
  "qrcode-generator",
  "rand",
  "sdl2",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -170,6 +170,14 @@ dependencies = [
  "color_quant",
  "num-traits",
  "png",
+]
+
+[[package]]
+name = "ino_tracing"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
