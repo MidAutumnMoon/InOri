@@ -1,4 +1,5 @@
 /// Init custom tracing_subscriber configuration.
+#[inline( always )]
 pub fn init_tracing_subscriber() {
 
     use tracing::Level;
