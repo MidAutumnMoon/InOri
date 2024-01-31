@@ -1,8 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "derputils",
     "libs/*",
+    "derputils",
+    "syalp",
 ]
 
 
