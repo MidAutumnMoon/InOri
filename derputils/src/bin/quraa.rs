@@ -1,241 +1,202 @@
-use sdl2::{
-    event::Event,
-    keyboard::Keycode,
-    pixels::Color,
-    rect::Rect,
-    render::WindowCanvas
-};
+use sdl2::pixels::Color;
 
-use qrcode_generator::{
-    self as qr_gen,
-    QrCodeEcc,
-    QRCodeError,
+use tracing::debug;
+
+use anyhow::{
+    bail,
+    Error as AnyErr,
 };
 
 
-const PROGRAM_NAME: &str = "quraa";
-
-/// Guards the minimum window size in case calculation went wrong
-const MINIMUM_WINDOW_SIZE: usize = 128;
-
-
-struct Colorscheme;
-
-impl Colorscheme {
-    const ON: Color = Color::BLACK;
-    const OFF: Color = Color::WHITE;
-    /// #353535 a nice grey for background
-    const BG: Color = Color::RGB( 35, 35, 35 );
-}
-
-
-/// Generate QrCode
-#[derive( argh::FromArgs, Debug )]
-struct CmdOptions {
-    /// read contents of clipboard as Qr Code payload (default)
+/// Generate QR Code. Hint: window can also be closed
+/// by pressing Q or ESC.
+#[derive( argh::FromArgs, Debug, Clone, Copy )]
+struct CmdOpts {
+    /// use the content of clipboard as QR Code
     #[argh( switch, short = 'c' )]
     clipboard: bool,
 
-    /// read stdin as Qr Code payload
+    /// read stdin as Qr Code
     #[argh( switch, short = 's' )]
     stdin: bool,
 }
 
-#[derive( Debug )]
-enum Source {
-    Stdin,
-    Clipboard,
-}
 
-impl CmdOptions {
-    fn source( &self ) -> Result<Source, String> {
-        match self {
-            Self { clipboard: true, stdin: true, } => Err(
-                "Clipboard and Stdin are mutually exclusive".into()
-            ),
-            Self { clipboard: true, .. } => Ok( Source::Clipboard ),
-            Self { stdin: true, .. } => Ok( Source::Stdin ),
-            _ => Ok( Source::Clipboard ),
-        }
-    }
+struct GuiOpts;
+
+impl GuiOpts {
+    const QRCODE_CELL_SIZE: usize = 8;
+
+    const MINIMUM_WINDOW_SIZE: usize =
+        8 * Self::QRCODE_CELL_SIZE;
+
+    const COLOR_QR_ON: Color = Color::BLACK;
+    const COLOR_QR_OFF: Color = Color::WHITE;
+
+    /// #353535 is a nice grey for background
+    const COLOR_BG: Color = Color::RGB( 35, 35, 35 );
 }
 
 
-#[derive( Debug )]
-struct QrCode {
-    matrix: Vec<Vec<bool>>
-}
+// The vast APIs of sdl2 crate use [`String`] as Err,
+// making the error handling a big mess :(
+fn main() -> anyhow::Result<()> {
 
-impl QrCode {
-    /// The size in pixels each dot of a qrcode takes.
-    /// (dot: the little square which is either black or white)
-    const DOT_SIZE: usize = 8;
+    // Enable tracing
 
-    fn from_data<A>( data: A ) -> Result<Self, QRCodeError>
-        where A: AsRef<[u8]>
-    {
-        let matrix = qr_gen::to_matrix( data, QrCodeEcc::Low )?;
-        Ok( Self { matrix } )
-    }
-
-    /// Estimate the size in pixels of this qrcode.
-    /// Since QrCode is guaranteed to be a square,
-    /// using the length of one vector sure is enough.
-    fn estimate_pixels( &self ) -> usize {
-        self.matrix.len() * Self::DOT_SIZE
-    }
-}
+    ino_tracing::init_tracing_subscriber();
 
 
-// Unfortunately vast sdl2 apis use String as Err,
-// causing Result<_, String> creeping all over the place.
-fn main() -> Result<(), String> {
-
-    //
     // Deal with inputs
-    //
 
-    let cmd_opts: CmdOptions = argh::from_env();
+    let opts: CmdOpts = argh::from_env();
+
+    debug!( ?opts, "Command line options" );
 
 
-    //
     // SDL initialization
-    //
 
-    let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
+    debug!( "Initialize SDL" );
+
+    let sdl_context = sdl2::init()
+        .map_err( AnyErr::msg )?;
+
+    let video_subsystem = sdl_context.video()
+        .map_err( AnyErr::msg )?;
 
 
-    //
     // Generate Qrcode
-    //
+
+    debug!( "Convert input data into QR Code" );
 
     let qrcode = {
-        let data = match cmd_opts.source()? {
-            Source::Stdin => {
-                dbg!( "Source is stdin" );
-                qrutil::stdin_string().map_err( |e| e.to_string() )?
-            }
-            Source::Clipboard => {
-                dbg!( "Source is clipboard" );
+        use CmdOpts as O;
+
+        let data = match opts {
+            O { clipboard: true, stdin: true } =>
+                bail!( "--clipboard and --stdin can't be specified \
+                       at the same time" ),
+
+            O { clipboard: false, stdin: false } =>
+                bail!( "Not enough options. Run with --help \
+                       to see usage." ),
+
+            O { clipboard: true, stdin: false } => {
+                debug!( "Source is clipboard" );
+                debug!( "Use SDL to read clipboard" );
                 let cb = &video_subsystem.clipboard();
-                cb.clipboard_text()?
+                cb.clipboard_text().map_err( AnyErr::msg )?
+            }
+
+            O { clipboard: false, stdin: true } => {
+                debug!( "Source is stdin" );
+                use std::io::{ self, Read };
+                let mut buffer = String::new();
+                io::stdin().lock()
+                    .read_to_string( &mut buffer )?;
+                buffer
             }
         };
 
-        QrCode::from_data( data )
-            .map_err( |e| e.to_string() )?
+        debug!( ?data, "Input data" );
+
+        use qrcode_generator::{
+            to_matrix,
+            QrCodeEcc,
+        };
+
+        to_matrix( data.as_bytes(), QrCodeEcc::Medium )?
     };
 
 
-    let window_size = {
-        let estimated = qrcode.estimate_pixels();
-        if estimated < MINIMUM_WINDOW_SIZE {
-            MINIMUM_WINDOW_SIZE
-        } else {
-            estimated
-        }
+    // Create a window
+
+    debug!( "Create window" );
+
+    let sdl_window = {
+        // A QR Code is guaranteed to be an square,
+        // meaning the size can estimated by using only the length
+        // of the outer vec, which is the total columns.
+        let winsize = std::cmp::max(
+            GuiOpts::MINIMUM_WINDOW_SIZE,
+            qrcode.len() * GuiOpts::QRCODE_CELL_SIZE
+        ).try_into()?;
+
+        let title = format!( "QR Code {winsize}x{winsize}" );
+
+        video_subsystem.window( &title, winsize, winsize )
+            .position_centered()
+            .opengl()
+            .build()?
     };
 
-    let window = video_subsystem
-        .window(
-            PROGRAM_NAME,
-            window_size as u32,
-            window_size as u32,
-        )
-        .position_centered()
-        .opengl()
-        .build()
-        .map_err( |e| e.to_string() )?;
 
-
-    //
     // Drawing on canvas
-    //
 
-    let mut canvas = window
-        .into_canvas()
-        .build()
-        .map_err( |e| e.to_string() )?;
+    debug!( "Prepare canvase to draw QR Code" );
 
-    canvas.set_draw_color( Colorscheme::BG );
+    let mut canvas = sdl_window.into_canvas().build()?;
+
+    canvas.set_draw_color( GuiOpts::COLOR_BG );
     canvas.clear();
 
-    // |-----------------------Window---------------------|
+    // |-----------------------Noice----------------------|
     // |                          |                       |
-    // |                        y | row_index * DOT_SIZE  |
+    // |                        y | row_index * CELL_SIZE |
     // |                          |                       |
-    // |  col_index * DOT_SIZE    |                       |
+    // |  col_index * CELL_SIZE   |                       |
     // |--------------------------````                    |
-    // |             x            ```` DOT_SIZE           |
+    // |             x            ```` CELL_SIZE          |
     // |                          ````                    |
     // |                                                  |
     // |--------------------------------------------------|
-    //
-    // Here ought be bugs, but ECC can do the heavy lifting.
-    fn draw_rect(
-        canvas: &mut WindowCanvas,
-        row_index: usize,
-        col_index: usize
-    ) -> Result<(), String>
-    {
-        canvas.fill_rect( Rect::new(
-            ( col_index * QrCode::DOT_SIZE ) as i32,
-            ( row_index * QrCode::DOT_SIZE ) as i32,
-            QrCode::DOT_SIZE as u32,
-            QrCode::DOT_SIZE as u32,
-        ) )?;
-        Ok(())
-    }
 
-    for ( row_index, column ) in qrcode.matrix.iter().enumerate() {
-        for ( col_index, dot ) in column.iter().enumerate() {
-            canvas.set_draw_color(
-                if *dot { Colorscheme::ON } else { Colorscheme::OFF }
+    debug!( "Draw QR Code" );
+
+    for ( row_index, column ) in qrcode.iter().enumerate() {
+        for ( col_index, cell_state ) in column.iter().enumerate() {
+            canvas.set_draw_color( match *cell_state {
+                true => GuiOpts::COLOR_QR_ON,
+                false => GuiOpts::COLOR_QR_OFF,
+            } );
+
+            let cell_size = GuiOpts::QRCODE_CELL_SIZE;
+            let x = col_index * cell_size;
+            let y = row_index * cell_size;
+
+            let rect = sdl2::rect::Rect::new(
+                x.try_into()?,
+                y.try_into()?,
+                cell_size.try_into()?,
+                cell_size.try_into()?
             );
-            draw_rect( &mut canvas, row_index, col_index )?;
+
+            canvas.fill_rect( rect ).map_err( AnyErr::msg )?;
         }
     }
+
+    debug!( "QR Code drawn, show window" );
 
     canvas.present();
 
 
-    //
     // Wait for quit
-    //
 
-    let mut event_pump = sdl_context.event_pump()?;
+    debug!( "Waiting for quit event" );
 
-    // No need for redrawing once the qrcode is renderred
+    let mut event_pump = sdl_context.event_pump()
+        .map_err( AnyErr::msg )?;
+
     for event in event_pump.wait_iter() {
+        use sdl2::event::Event as E;
+        use sdl2::keyboard::Keycode as K;
         match event {
-            Event::Quit { .. } => break,
-            Event::KeyDown {
-                keycode: Some( Keycode::Q | Keycode::Escape ), ..
-            } => break,
+            E::Quit { .. } => break,
+            E::KeyDown { keycode: Some(K::Q | K::Escape), .. } => break,
             _ => continue
         }
     }
 
-
     Ok(())
-
-}
-
-
-mod qrutil {
-
-    use std::io::{
-        self,
-        Read,
-    };
-
-    pub fn stdin_string()
-        -> io::Result<String>
-    {
-        let mut buffer = String::new();
-        io::stdin().lock().read_to_string( &mut buffer )?;
-        Ok( buffer )
-    }
 
 }
