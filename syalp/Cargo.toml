@@ -8,4 +8,4 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-slint = "1.4.0"
+slint = "1.4.1"
