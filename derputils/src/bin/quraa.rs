@@ -139,6 +139,7 @@ fn main() -> anyhow::Result<()> {
 
     canvas.set_draw_color( GuiOpts::COLOR_BG );
     canvas.clear();
+    canvas.present();
 
     // |-----------------------Noice----------------------|
     // |                          |                       |
