@@ -1,4 +1,9 @@
-use tracing::debug;
+use tracing::{
+    debug,
+    debug_span,
+    info,
+    info_span,
+};
 
 use anyhow::{
     bail,
@@ -48,12 +53,12 @@ fn main() -> anyhow::Result<()> {
 
     let opts: CmdOpts = argh::from_env();
 
-    debug!( ?opts, "Command line options" );
+    debug!( ?opts, "command options" );
 
 
     // SDL initialization
 
-    debug!( "Initialize SDL" );
+    info!( "initialize SDL" );
 
     let sdl_context = sdl2::init()
         .map_err( AnyErr::msg )?;
@@ -64,9 +69,11 @@ fn main() -> anyhow::Result<()> {
 
     // Generate Qrcode
 
-    debug!( "Convert input data into QR Code" );
+    info!( "generate Qr Code" );
 
     let qrcode = {
+        let _span = info_span!( "qr_gen" ).entered();
+
         use CmdOpts as O;
 
         let data = match opts {
@@ -79,15 +86,15 @@ fn main() -> anyhow::Result<()> {
                        to see usage." ),
 
             O { clipboard: true, stdin: false } => {
-                debug!( "Source is clipboard" );
-                debug!( "Use SDL to read clipboard" );
+                info!( "data source is clipboard" );
+                info!( "use SDL to read clipboard" );
                 let cb = &video_subsystem.clipboard();
                 cb.clipboard_text().map_err( AnyErr::msg )?
             }
 
             O { clipboard: false, stdin: true } => {
-                debug!( "Source is stdin" );
                 use std::io::{ self, Read };
+                info!( "data source is stdin" );
                 let mut buffer = String::new();
                 io::stdin().lock()
                     .read_to_string( &mut buffer )?;
@@ -95,7 +102,7 @@ fn main() -> anyhow::Result<()> {
             }
         };
 
-        debug!( ?data, "Input data" );
+        debug!( ?data );
 
         use qrcode_generator::{
             to_matrix,
@@ -108,9 +115,11 @@ fn main() -> anyhow::Result<()> {
 
     // Create a window
 
-    debug!( "Create window" );
-
     let sdl_window = {
+        let _span = info_span!( "make_win" ).entered();
+
+        info!( "create window" );
+
         // A QR Code is guaranteed to be an square,
         // meaning the size can estimated by using only the length
         // of the outer vec, which is the total columns.
@@ -118,6 +127,8 @@ fn main() -> anyhow::Result<()> {
             gui_opts::MIN_WINSIZE,
             qrcode.len() * gui_opts::QR_CELL_SIZE
         ).try_into()?;
+
+        debug!( ?winsize );
 
         let title = format!( "QR Code {winsize}x{winsize}" );
 
@@ -130,7 +141,10 @@ fn main() -> anyhow::Result<()> {
 
     // Drawing on canvas
 
-    debug!( "Prepare canvase to draw QR Code" );
+    let _span_draw = info_span!( "draw" );
+    let _span_draw_guard = _span_draw.enter();
+
+    info!( "prepare canvas" );
 
     let mut canvas = sdl_window.into_canvas().build()?;
 
@@ -149,7 +163,7 @@ fn main() -> anyhow::Result<()> {
     // |                                                  |
     // |--------------------------------------------------|
 
-    debug!( "Draw QR Code" );
+    info!( "draw QR Code" );
 
     for ( row_index, column ) in qrcode.iter().enumerate() {
         for ( col_index, cell_state ) in column.iter().enumerate() {
@@ -173,14 +187,16 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    debug!( "QR Code drawn, show window" );
+    info!( "done drawing" );
 
     canvas.present();
+
+    drop( _span_draw_guard );
 
 
     // Wait for quit
 
-    debug!( "Waiting for quit event" );
+    info!( "waiting for quit event" );
 
     let mut event_pump = sdl_context.event_pump()
         .map_err( AnyErr::msg )?;
@@ -194,6 +210,8 @@ fn main() -> anyhow::Result<()> {
             _ => continue
         }
     }
+
+    info!( "quit" );
 
     Ok(())
 
