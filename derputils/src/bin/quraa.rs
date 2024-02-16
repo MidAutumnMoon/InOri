@@ -1,5 +1,3 @@
-use sdl2::pixels::Color;
-
 use tracing::debug;
 
 use anyhow::{
@@ -22,19 +20,18 @@ struct CmdOpts {
 }
 
 
-struct GuiOpts;
+mod gui_opts {
+    use sdl2::pixels::Color;
 
-impl GuiOpts {
-    const QRCODE_CELL_SIZE: usize = 8;
+    pub const MIN_WINSIZE: usize = 8 * QR_CELL_SIZE;
 
-    const MINIMUM_WINDOW_SIZE: usize =
-        8 * Self::QRCODE_CELL_SIZE;
+    pub const QR_CELL_SIZE: usize = 8;
 
-    const COLOR_QR_ON: Color = Color::BLACK;
-    const COLOR_QR_OFF: Color = Color::WHITE;
+    pub const QR_COLOR_ON: Color = Color::BLACK;
+    pub const QR_COLOR_OFF: Color = Color::WHITE;
 
     /// #353535 is a nice grey for background
-    const COLOR_BG: Color = Color::RGB( 35, 35, 35 );
+    pub const COLOR_BG: Color = Color::RGB( 35, 35, 35 );
 }
 
 
@@ -118,8 +115,8 @@ fn main() -> anyhow::Result<()> {
         // meaning the size can estimated by using only the length
         // of the outer vec, which is the total columns.
         let winsize = std::cmp::max(
-            GuiOpts::MINIMUM_WINDOW_SIZE,
-            qrcode.len() * GuiOpts::QRCODE_CELL_SIZE
+            gui_opts::MIN_WINSIZE,
+            qrcode.len() * gui_opts::QR_CELL_SIZE
         ).try_into()?;
 
         let title = format!( "QR Code {winsize}x{winsize}" );
@@ -137,7 +134,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut canvas = sdl_window.into_canvas().build()?;
 
-    canvas.set_draw_color( GuiOpts::COLOR_BG );
+    canvas.set_draw_color( gui_opts::COLOR_BG );
     canvas.clear();
     canvas.present();
 
@@ -157,11 +154,11 @@ fn main() -> anyhow::Result<()> {
     for ( row_index, column ) in qrcode.iter().enumerate() {
         for ( col_index, cell_state ) in column.iter().enumerate() {
             canvas.set_draw_color( match *cell_state {
-                true => GuiOpts::COLOR_QR_ON,
-                false => GuiOpts::COLOR_QR_OFF,
+                true => gui_opts::QR_COLOR_ON,
+                false => gui_opts::QR_COLOR_OFF,
             } );
 
-            let cell_size = GuiOpts::QRCODE_CELL_SIZE;
+            let cell_size = gui_opts::QR_CELL_SIZE;
             let x = col_index * cell_size;
             let y = row_index * cell_size;
 
