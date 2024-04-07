@@ -1,6 +1,5 @@
 use tracing::{
     debug,
-    debug_span,
     info,
     info_span,
 };
