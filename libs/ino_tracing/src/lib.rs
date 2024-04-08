@@ -1,5 +1,5 @@
 /// Init custom tracing_subscriber configuration.
-#[inline( always )]
+#[ inline( always ) ]
 pub fn init_tracing_subscriber() {
 
     use tracing::Level;
@@ -19,7 +19,7 @@ pub fn init_tracing_subscriber() {
         ;
 
     let env_layer = EnvFilter::builder()
-        .with_default_directive( Level::WARN.into() )
+        .with_default_directive( Level::INFO.into() )
         .from_env_lossy()
         ;
 
