@@ -14,7 +14,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-argh = "0.1"
+argh.workspace = true
 ino_tracing.workspace = true
 itertools = "0.12.0"
 once_cell = "1"
