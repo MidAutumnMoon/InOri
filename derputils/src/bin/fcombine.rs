@@ -1,5 +1,7 @@
-use std::path::PathBuf;
-use std::fs::File;
+use std::{
+    path::PathBuf,
+    fs::File,
+};
 
 use anyhow::{
     ensure,
@@ -8,17 +10,19 @@ use anyhow::{
 
 use tracing::debug;
 
+use clap::Parser;
+
 
 /// Dump contents of <input_files> into <output>
 /// without a shell.
-#[derive( argh::FromArgs, Debug )]
-struct CmdOptions {
+#[ derive( Parser, Debug ) ]
+struct CmdOpts {
     /// file to write into, can't be an existsing one
-    #[argh( positional )]
+    #[ arg() ]
     output: PathBuf,
 
     /// source of read contents
-    #[argh( positional )]
+    #[ arg() ]
     input_files: Vec<PathBuf>
 }
 
@@ -32,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 
     // Acquire command line options.
 
-    let CmdOptions { output, input_files } = argh::from_env();
+    let CmdOpts { output, input_files } = CmdOpts::parse();
 
     debug!( ?output, ?input_files );
 

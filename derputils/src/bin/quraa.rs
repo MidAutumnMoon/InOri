@@ -9,17 +9,19 @@ use anyhow::{
     Error as AnyErr,
 };
 
+use clap::Parser;
+
 
 /// Generate QR Code. Hint: window can also be closed
 /// by pressing Q or ESC.
-#[derive( argh::FromArgs, Debug, Clone, Copy )]
+#[derive( Parser, Debug, Clone, Copy )]
 struct CmdOpts {
     /// use the content of clipboard as QR Code
-    #[argh( switch, short = 'c' )]
+    #[ arg( short, exclusive = true ) ]
     clipboard: bool,
 
     /// read stdin as Qr Code
-    #[argh( switch, short = 's' )]
+    #[ arg( short, exclusive = true ) ]
     stdin: bool,
 }
 
@@ -50,7 +52,7 @@ fn main() -> anyhow::Result<()> {
 
     // Deal with inputs
 
-    let opts: CmdOpts = argh::from_env();
+    let opts = CmdOpts::parse();
 
     debug!( ?opts, "command options" );
 
@@ -77,8 +79,10 @@ fn main() -> anyhow::Result<()> {
 
         let data = match opts {
             O { clipboard: true, stdin: true } =>
-                bail!( "--clipboard and --stdin can't be specified \
-                       at the same time" ),
+                // bail!( "--clipboard and --stdin can't be specified \
+                //        at the same time" ),
+                // exclusive when defining clap options
+                unreachable!(),
 
             O { clipboard: false, stdin: false } =>
                 bail!( "Not enough options. Run with --help \

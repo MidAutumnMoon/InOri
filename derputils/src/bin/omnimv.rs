@@ -22,6 +22,8 @@ use anyhow::{
 
 use itertools::Itertools;
 
+use clap::Parser;
+
 
 /// Arbitrary value based on the current amount
 /// of files in my download folder :P
@@ -30,31 +32,33 @@ const AVERAGE_AMOUNT: usize = 70;
 
 /// Move files from other places to current
 /// working directory.
-#[derive( Debug, argh::FromArgs )]
+#[ derive( Debug, clap::Parser ) ]
 struct CmdOpts {
     /// directory to search from.
     /// can be specified multiple times.
-    #[argh( option, long = "dir", short = 'd' )]
+    #[ arg( long = "dir", short = 'd' ) ]
     searchdirs: Vec<PathBuf>,
 
     /// list filenames in configured directories,
     /// useful for doing shell completion.
-    #[argh( switch, short = 'l' )]
+    #[ arg( long, short = 'l' ) ]
     listing: bool,
 
     /// names of files to be moved,
     /// use "--" to escape special filenames.
+    ///
     /// Note: in case of files presented
     /// in multiple search directories,
     /// only the first one will be moved.
-    #[argh( positional, arg_name = "filenames" )] // arg_name undocumented
+    #[ arg( id = "filenames" ) ]
+    // arg_name undocumented
     feedle_names: Vec<String>,
 }
 
 impl CmdOpts {
-    #[tracing::instrument]
+    #[ tracing::instrument ]
     fn new() -> anyhow::Result<Self> {
-        let opts = argh::from_env::<Self>();
+        let opts = Self::parse();
 
         debug!( ?opts, "cmdopts" );
 
