@@ -5,7 +5,7 @@ description = """\
     A set of utils which deserve questioning \
     what's purpose of their existence in the first place.\
     """
-license = "MIT"
+license.workspace = true
 authors.workspace = true
 edition.workspace = true
 repository.workspace = true
