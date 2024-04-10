@@ -1,3 +1,9 @@
+///!
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
+
 use tracing::{
     debug,
     info,
@@ -5,25 +11,19 @@ use tracing::{
 
 use std::net::SocketAddr;
 
+use clap::Parser;
+
 mod asset;
 mod mime;
 
 
-const LISTEN: SocketAddr = {
-    use std::net::{IpAddr, Ipv4Addr};
-    SocketAddr::new(
-        IpAddr::V4( Ipv4Addr::new( 127, 0, 0, 1 ) ),
-        3000
-    )
-};
-
-
 /// The thing that powers https://418.im/
-#[ derive( argh::FromArgs, Debug ) ]
+#[ derive( Parser, Debug ) ]
+#[ command( version = clap::crate_version!() ) ]
 struct CmdOpts {
-    // listen
-    // #[ argh( option, default="Some(LISTEN)" ) ]
-    // listen: Option<SocketAddr>,
+    /// Address that the server will listen on.
+    #[ arg( long, short, default_value = "127.0.0.1:3000" ) ]
+    listen: Option<SocketAddr>,
 }
 
 
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Command line options
 
-    let cmd_opts = argh::from_env::<CmdOpts>();
+    let cmd_opts = CmdOpts::parse();
 
     debug!( ?cmd_opts );
 
@@ -82,10 +82,16 @@ async fn main() -> anyhow::Result<()> {
 
     use tokio::net::TcpListener;
 
-    let listener =
-        TcpListener::bind( "127.0.0.1:3000" ).await?;
+    debug!( ?cmd_opts.listen, "listen address" );
 
-    info!( "listen on http://127.0.0.1:3000" );
+    let listener =
+        // Safety: clap has default set
+        TcpListener::bind( &cmd_opts.listen.unwrap() ).await?;
+
+    info! {
+        "server started on http://{}/",
+        cmd_opts.listen.unwrap()
+    };
 
     axum::serve( listener, app ).await?;
 
