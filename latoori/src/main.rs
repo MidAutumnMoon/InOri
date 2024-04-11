@@ -55,12 +55,7 @@ async fn main() -> anyhow::Result<()> {
         use asset::ALL_ASSETS;
 
         let handle_404 = {
-            let fof_page = ALL_ASSETS.get( "404 page" );
-            anyhow::ensure! {
-                fof_page.is_some(),
-                "Static asset \"404.html\" not found"
-            }
-            let fof_page = fof_page.unwrap();
+            let fof_page = asset::TEAPOT_CAT;
             move || async {
                 ( StatusCode::NOT_FOUND, fof_page.as_response() )
             }

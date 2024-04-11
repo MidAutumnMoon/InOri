@@ -10,6 +10,42 @@ use tracing::{
 use crate::mime;
 
 
+/// asset! {
+///     ( A, "mime", "file", [] )
+///     ...
+/// }
+///
+/// ===>
+///
+/// pub static A = &AssetRoute { ... };
+/// ...
+/// pub static ALL_ASSETS = AllAssets { &[A ...] };
+macro_rules! assets {
+    (
+        $( ( $id:ident, $mime:expr, $file:expr, $routes:expr ) )*
+    ) => {
+        $(
+            pub static $id: &AssetRoute = &AssetRoute {
+                name: std::stringify!( $id ),
+                mime: $mime,
+                data: include_bytes!( $file ),
+                routes: &$routes
+            };
+        )*
+        pub static ALL_ASSETS: AllAssets = AllAssets {
+            inner: &[ $( $id ),* ]
+        };
+    }
+}
+
+assets! {
+    ( FAVICON,    mime::FAVICON, "favicon.ico", [ "/favicon.ico" ] )
+    ( NOT_FOUND,  mime::HTML,    "404.html",    [] )
+    ( TEAPOT_CAT, mime::JPEG,    "418.jpg",     [ "/" ] )
+}
+
+
+
 /// A single static asset with one or more routes.
 #[ derive( Debug ) ]
 pub struct AssetRoute {
@@ -69,50 +105,19 @@ impl AssetRoute {
 }
 
 
-macro_rules! asset_routes {
-    (
-        $( ( $id:literal, $mime:expr, $file:expr, $routes:expr ) )*
-    ) => {
-        pub static ALL_ASSETS: AllAssets = AllAssets {
-            inner: phf::phf_map! {
-                $( $id => AssetRoute {
-                    name: $id,
-                    mime: $mime,
-                    data: include_bytes!( $file ),
-                    routes: &$routes
-                } ),*
-            } // end inner phf_map
-        }; // end pub static ALL_ASSETS
-    }
-}
-
-asset_routes! {
-    ( "418 cat", mime::JPEG, "418.jpg", [ "/" ] )
-    ( "favicon", mime::FAVICON, "favicon.ico", [ "/favicon.ico" ] )
-
-    ( "404 page", mime::HTML, "404.html", [] )
-}
-
 /// All static assets.
 #[ derive( Debug ) ]
 pub struct AllAssets {
-    inner: phf::Map<&'static str, AssetRoute>
+    inner: &'static [&'static AssetRoute]
 }
 
 impl AllAssets {
-    /// Create a [`Router`]
     #[ tracing::instrument( skip(self) )]
     pub fn as_router( &'static self ) -> Router {
         let mut router = Router::new();
-        for ar in self.inner.values() {
+        for ar in self.inner {
             router = router.merge( ar.as_router() )
         }
         router
-    }
-
-    pub fn get( &'static self, name: &str )
-        -> Option<&AssetRoute>
-    {
-        self.inner.get( name )
     }
 }
