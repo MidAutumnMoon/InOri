@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "libs/*",
     "derputils",
-    "latoori",
+    "latoori", "rpgdemake",
 ]
 
 
@@ -21,14 +21,15 @@ repository = "https://github.com/MidAutumnMoon/TeapotInOri"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = [ "derive", "cargo" ] }
+colored = "2"
+futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 # Homemade crates
 ino_tracing = { path = "./libs/ino_tracing" }
 
-
-[workspace.dependencies."jemallocator"]
+[workspace.dependencies."jemalloc"]
 package = "tikv-jemallocator"
 version = "0"
 features = [ "background_threads" ]
@@ -40,6 +41,14 @@ features = [
     "macros",
     "net",
     "rt-multi-thread",
+    "sync",
+    "time",
+]
+
+[workspace.dependencies."tokio-util"]
+version = "0"
+features = [
+    "rt"
 ]
 
 

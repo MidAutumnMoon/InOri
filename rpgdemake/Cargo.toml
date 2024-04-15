@@ -1,0 +1,30 @@
+[package]
+name = "rpgdemake"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+colored.workspace = true
+futures.workspace = true
+hex = "0.4.3"
+ino_tracing.workspace = true
+itertools = "0.12.1"
+jemalloc.workspace = true
+rlimit = "0.10.1"
+serde_json = "1"
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+walkdir = "2.5.0"
+
+[dev-dependencies]
+assert_cmd = "2.0.14"
+assert_fs = "1.1.1"
+dir-diff = "0.3.3"
