@@ -12,10 +12,14 @@ pub fn init_tracing_subscriber() {
         registry
     };
 
+    use is_terminal::IsTerminal;
+
+
+    let output = std::io::stderr;
 
     let fmt_layer = fmt::layer()
-        .with_writer( std::io::stderr )
-        .with_ansi( true )
+        .with_writer( output )
+        .with_ansi( output().is_terminal() )
         ;
 
     let env_layer = EnvFilter::builder()

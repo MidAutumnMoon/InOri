@@ -9,5 +9,6 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+is-terminal = "0"
 tracing.workspace = true
 tracing-subscriber.workspace = true
