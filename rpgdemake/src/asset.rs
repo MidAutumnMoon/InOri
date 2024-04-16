@@ -54,9 +54,10 @@ pub struct Asset {
 }
 
 impl Asset {
+
     /// Construct [`Asset`] containing decrypted data.
     #[ tracing::instrument ]
-    pub async fn from_file(
+    pub fn from_file(
         path: &Path,
         key: &crate::key::EncryptionKey,
     ) -> anyhow::Result<Self>
@@ -81,8 +82,8 @@ impl Asset {
         debug!( "read file" );
 
         let decrypted = DecryptAsset::new(
-            tokio::fs::read( &path ).await?,
-            &key
+            std::fs::read( path )?,
+            key
         )?;
 
         Ok( Self {
@@ -97,14 +98,14 @@ impl Asset {
         skip_all,
         fields( ?self.origin, ?self.target )
     ) ]
-    pub async fn write_decrypted( &self )
+    pub fn write_decrypted( &self )
         -> anyhow::Result<()>
     {
         debug!( "write decrypted file" );
-        tokio::fs::write(
+        std::fs::write(
             &self.target,
-            &self.decrypted.get()
-        ).await?;
+            self.decrypted.get()
+        )?;
         Ok(())
     }
 
@@ -137,13 +138,14 @@ impl Asset {
             _ => None
         }
     }
+
 }
 
 
 
 #[ derive( Debug ) ]
 pub struct DecryptAsset {
-    decrypted: Vec<u8>,
+    data: Vec<u8>,
 }
 
 impl DecryptAsset {
@@ -163,7 +165,9 @@ impl DecryptAsset {
             }
         };
 
-        Self::verify_rpgmv_header( &encrypted )?;
+        if encrypted[..RPGMV_HEADER_LEN] != RPGMV_HEADER {
+            bail!( "Invalid RPGMV file header" )
+        }
 
         let mut content = encrypted
             .drain( RPGMV_HEADER_LEN.. )
@@ -172,25 +176,12 @@ impl DecryptAsset {
         key.get().iter().enumerate()
             .for_each( |(i, mask)| content[i] ^= mask );
 
-        Ok( Self { decrypted: content } )
+        Ok( Self { data: content } )
     }
 
-    #[ tracing::instrument( skip_all ) ]
-    pub fn verify_rpgmv_header( data: &[u8] )
-        ->  anyhow::Result<()>
-    {
-        ensure! { data.len() >= RPGMV_HEADER_LEN,
-            "Data is too small to contain RPGMV header"
-        }
-        if ! ( &data[..RPGMV_HEADER_LEN] == RPGMV_HEADER ) {
-            bail!( "Invalid RPGMV header" )
-        } else {
-            Ok(())
-        }
-    }
 
     pub fn get( &self ) -> &[u8] {
-        &self.decrypted
+        &self.data
     }
 }
 

@@ -51,8 +51,6 @@ mod walkdir;
 /// As its name says, it's eyeballed.
 const EYEBALLED_AVERAGE: usize = 1024;
 
-const CONCURRENT_TASKS: usize  = 1024;
-
 
 /// A simple CLI tool for batch decrypting
 /// RPG Maker MV/MZ/XP assets.
@@ -79,9 +77,7 @@ struct DemakePlan {
 }
 
 
-
-#[ tokio::main ]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
 
     // Initialize tracing
 
@@ -153,8 +149,7 @@ async fn main() -> anyhow::Result<()> {
     debug!( "read encryption key" );
 
     let key = {
-        use std::sync::Arc;
-        use tokio::fs::read_to_string;
+        use std::fs::read_to_string;
         use key::EncryptionKey;
 
         ensure!{ &plan.system_json.is_file(),
@@ -162,15 +157,13 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let key = EncryptionKey::parse_json( {
-            &read_to_string( &plan.system_json ).await?
+            &read_to_string( &plan.system_json )?
         } )?;
 
-        let key = match key {
+        match key {
             Some( k ) => k,
             None => bail!( "No key found, maybe not encrypted?" ),
-        };
-
-        Arc::new( key )
+        }
     };
 
     debug!( ?key );
@@ -185,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
             Vec::with_capacity( 2 * EYEBALLED_AVERAGE );
         for sd in &plan.search_dirs {
             files.append(
-                &mut walkdir::find_all( &sd )?
+                &mut walkdir::find_all( sd )?
             )
         }
         files
@@ -207,61 +200,30 @@ async fn main() -> anyhow::Result<()> {
 
     use std::io::Write;
 
-    use itertools::Itertools;
-
-    use tokio::task::JoinSet;
-
 
     let total_tasks = demake_files.len();
-    let mut finished_tasks = 0;
 
     let mut stdout = {
         std::io::stdout().lock()
     };
 
-    // Split files into smaller batches for controlled
-    // memory usage.
-    for file_batch in
-        &demake_files.iter().chunks( CONCURRENT_TASKS )
+    for ( finished_tasks, task ) in
+        demake_files.iter().enumerate()
     {
 
-        let mut tasks = JoinSet::new();
+        use asset::Asset;
+        let asset = Asset::from_file( task, &key )?;
+        let result = asset.write_decrypted();
 
-        for path in file_batch {
-            let path = path.to_owned();
-            let key = key.clone();
-            tasks.spawn( async move {
-                use asset::Asset;
-                let asset = Asset::from_file( &path, &key ).await?;
-                asset.write_decrypted().await?;
-                anyhow::Result::<PathBuf>
-                    ::Ok( asset.origin )
-            } );
-        }
+        let message = match result {
+            Err( e ) => format!( "task failed {e}" ).red(),
+            Ok( _ ) => format!( "{}", asset.origin.display() ).blue()
+        };
 
-        while let Some( result ) = tasks.join_next().await {
-            use colored::Colorize;
-
-            let message = match result {
-                Err( e ) => format!( "async task failed {e}" ).red(),
-
-                Ok( returns ) => match returns {
-                    Ok( p ) => format! { "decryted \"{}\"",
-                        p.display()
-                    }.blue(),
-
-                    Err( e ) =>
-                        format!( "failed decrypt \"{e}\"" ).red()
-                }
-            };
-
-            let _ = writeln!{ stdout,
-                "{}/{total_tasks} {message}",
-                finished_tasks + 1
-            };
-
-            finished_tasks += 1;
-        }
+        let _ = writeln!{ stdout,
+            "{}/{total_tasks} {message}",
+            finished_tasks + 1
+        };
 
     }
 

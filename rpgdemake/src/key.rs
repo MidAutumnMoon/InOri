@@ -15,6 +15,7 @@ pub struct EncryptionKey {
 }
 
 impl EncryptionKey {
+
     #[ tracing::instrument ]
     pub fn parse_str( keystr: &str )
         -> anyhow::Result<Self>
@@ -59,7 +60,9 @@ impl EncryptionKey {
         let key = match fields.get( "encryptionKey" ) {
             Some( v ) => match v {
                 Value::String( s ) => s,
-                _ => bail!( "Encryption key is not a string" )
+                _ => bail!{
+                    "Encryption key can't be parsed into a string"
+                }
             },
             None => return Ok( None ),
         };
@@ -75,6 +78,7 @@ impl EncryptionKey {
     pub fn get( &self ) -> &[u8] {
         self.inner.as_ref()
     }
+
 }
 
 

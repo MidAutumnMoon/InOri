@@ -12,14 +12,12 @@ repository.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 colored.workspace = true
-futures.workspace = true
 hex = "0.4.3"
 ino_tracing.workspace = true
 itertools = "0.12.1"
 jemalloc.workspace = true
 rlimit = "0.10.1"
 serde_json = "1"
-tokio.workspace = true
 tracing.workspace = true
 walkdir = "2.5.0"
 
