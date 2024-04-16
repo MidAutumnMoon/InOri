@@ -74,7 +74,12 @@ fn test_mv_layout() {
 
     // Run our tool
 
-    demake.arg( tempdir.path() ).unwrap();
+    use std::io::Write;
+
+    let output = demake.arg( tempdir.path() ).unwrap();
+
+    std::io::stdout().write_all(&output.stdout).unwrap();
+    std::io::stderr().write_all(&output.stderr).unwrap();
 
 
     // If things went alright, there shouldn't be different

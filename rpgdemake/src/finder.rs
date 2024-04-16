@@ -10,12 +10,10 @@ use crate::asset::Asset;
 use walkdir::WalkDir;
 
 
-/// Find files in `toplevel` which [`Asset::is_rpgmv_file`].
 #[ tracing::instrument ]
 pub fn find_all( toplevel: &Path )
     -> anyhow::Result< Vec<PathBuf> >
 {
-
     debug!( "find all files" );
 
     let mut files =
@@ -41,5 +39,4 @@ pub fn find_all( toplevel: &Path )
     debug!( ?files, "collected files" );
 
     Ok( files )
-
 }

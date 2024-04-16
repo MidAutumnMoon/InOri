@@ -27,9 +27,15 @@
 static ALLOC: jemalloc::Jemalloc = jemalloc::Jemalloc;
 
 
-use std::path::PathBuf;
+use std::{
+    thread::available_parallelism,
+    path::PathBuf,
+};
 
-use tracing::debug;
+use tracing::{
+    debug,
+    debug_span,
+};
 
 use clap::Parser;
 
@@ -38,13 +44,12 @@ use anyhow::{
     bail,
 };
 
-use colored::Colorize;
+use itertools::Itertools;
+
 
 mod asset;
-
 mod key;
-
-mod walkdir;
+mod finder;
 
 
 /// Average amount of assets in a RPG Maker game.
@@ -64,16 +69,24 @@ struct CmdOpts {
     #[ arg( long, short, default_value_t = false ) ]
     force: bool,
 
-    /// Supply a key in force mode.
+    /// Use this key instead of find one in GAME_DIRECTORY.
     #[ arg( long, short ) ]
     key: Option<String>,
+
+    /// Number of threads used to decrypt assets.
+    #[ arg(
+        long, short,
+        default_value_t = 4 *
+            available_parallelism().unwrap().get()
+    ) ]
+    threads: usize,
 }
 
 
 #[ derive( Debug ) ]
-struct DemakePlan {
+struct ResourceLocation {
     system_json: PathBuf,
-    search_dirs: Vec<PathBuf>,
+    asset_dirs: Vec<PathBuf>,
 }
 
 
@@ -115,117 +128,200 @@ fn main() -> anyhow::Result<()> {
         &game_directory.display()
     };
 
-    let plan = {
+    let location = {
         let root = game_directory;
 
-        let search_dirs;
+        let asset_dirs;
         let system_json;
 
         // This is as far as where MV and MZ differs
         if root.join( "www" ).is_dir() {
             // MV
             system_json = root.join( "www/data/System.json" );
-            search_dirs = Vec::from( &[
+            asset_dirs = Vec::from( &[
                 root.join( "www/img" ),
                 root.join( "www/audio" ),
             ] )
         } else {
             // MZ
             system_json = root.join( "data/System.json" );
-            search_dirs = Vec::from( &[
+            asset_dirs = Vec::from( &[
                 root.join( "img" ),
                 root.join( "audio" ),
             ] );
         }
 
-        DemakePlan { system_json, search_dirs }
+        ResourceLocation { system_json, asset_dirs }
     };
 
-    debug!( ?plan );
+    debug!( ?location );
 
 
     // Get encryption key
 
-    debug!( "read encryption key" );
+    debug!( "try read encryption key" );
 
-    let key = {
+    let encryption_key = {
         use std::fs::read_to_string;
+        use std::sync::Arc;
         use key::EncryptionKey;
 
-        ensure!{ &plan.system_json.is_file(),
-            "System.json doesn't exist"
+        let ResourceLocation { system_json, .. } = &location;
+
+        ensure!{ system_json.is_file(),
+            "System.json doesn't exist at \"{}\"",
+            system_json.display()
         };
 
         let key = EncryptionKey::parse_json( {
-            &read_to_string( &plan.system_json )?
+            &read_to_string( system_json )?
         } )?;
 
         match key {
-            Some( k ) => k,
+            Some( k ) => Arc::new( k ),
             None => bail!( "No key found, maybe not encrypted?" ),
         }
     };
 
-    debug!( ?key );
+    debug!( ?encryption_key );
 
 
     // Collect files to decrypt
 
     debug!( "collect files to decrypt" );
 
-    let demake_files = {
+    let found_files = {
         let mut files =
             Vec::with_capacity( 2 * EYEBALLED_AVERAGE );
-        for sd in &plan.search_dirs {
-            files.append(
-                &mut walkdir::find_all( sd )?
-            )
+        for ad in &location.asset_dirs {
+            files.append( &mut finder::find_all( ad )? )
         }
         files
     };
 
-    debug!( ?demake_files, "all found files" );
+    debug!( ?found_files, "all found files" );
 
-    println! { "{}",
-        format!(
+    {
+        use colored::Colorize;
+
+        let message = format! {
             "{} files to be decrypted",
-            demake_files.len()
-        ).blue()
-    };
+            found_files.len()
+        }.blue();
+
+        println! { "{message}" };
+    }
+
 
 
     // Fire tasks
 
     debug!( "vroom vroom on decrypting" );
 
-    use std::io::Write;
+    std::thread::scope( |scope| {
+
+        use std::sync::mpsc;
 
 
-    let total_tasks = demake_files.len();
+        // TODO: use crossbeam::deque to maximize efficiency
 
-    let mut stdout = {
-        std::io::stdout().lock()
-    };
+        enum TaskStatus {
+            Ok( PathBuf ),
+            Err( PathBuf, anyhow::Error )
+        }
 
-    for ( finished_tasks, task ) in
-        demake_files.iter().enumerate()
-    {
+        let ( origin_sender, receiver ) =
+            mpsc::channel::< TaskStatus >();
 
-        use asset::Asset;
-        let asset = Asset::from_file( task, &key )?;
-        let result = asset.write_decrypted();
 
-        let message = match result {
-            Err( e ) => format!( "task failed {e}" ).red(),
-            Ok( _ ) => format!( "{}", asset.origin.display() ).blue()
+        let split_tasks = {
+            let total = found_files.len();
+            found_files.iter()
+                .chunks( total.div_ceil( cmd_opts.threads ) )
         };
 
-        let _ = writeln!{ stdout,
-            "{}/{total_tasks} {message}",
-            finished_tasks + 1
-        };
 
-    }
+        for file_queue in split_tasks.into_iter() {
+
+            let file_queue = file_queue
+                .map( |t| t.to_owned() )
+                .collect_vec()
+            ;
+
+            debug!( "fire up thread with queue of size {}",
+                file_queue.len()
+            );
+
+            let encryption_key = encryption_key.clone();
+            let sender = origin_sender.clone();
+
+            scope.spawn( move || {
+
+                let _span =
+                    debug_span!( "thread", id = std::process::id() )
+                    .entered()
+                ;
+
+                for path in file_queue.into_iter() {
+
+                    let _span =
+                        debug_span!( "task", ?path ).entered();
+
+                    use asset::Asset as As;
+
+                    let asset = match
+                        As::from_file( &path, &encryption_key)
+                    {
+                        Ok( asset ) => asset,
+                        Err( err ) => {
+                            let _ = sender.send(
+                                TaskStatus::Err( path, err )
+                            );
+                            break
+                        },
+                    };
+
+                    let _ = match asset.write_decrypted() {
+                        Ok(_) => sender.send(
+                            TaskStatus::Ok( path )
+                        ),
+                        Err( err ) => sender.send(
+                            TaskStatus::Err( path, err )
+                        ),
+                    };
+                }
+
+            } ); // END scope.spanw
+
+        }; // END file_queue
+
+        drop( origin_sender );
+
+
+        use std::io::Write;
+
+        let mut stdout = { std::io::stdout().lock() };
+
+        for ( count, message ) in receiver.iter().enumerate() {
+
+            use colored::Colorize;
+            use TaskStatus as T;
+
+            let message = match message {
+                T::Ok( p ) =>
+                    format!( "(ok) {}", p.display() ).blue(),
+                T::Err( p, e ) =>
+                    format!( "(err) {} {e}", p.display() ).red()
+            };
+
+            writeln!( stdout, "{}/{} {message}",
+                count + 1,
+                found_files.len()
+            ).unwrap();
+
+        }
+
+    } ); // END thread scope
 
 
     Ok(())

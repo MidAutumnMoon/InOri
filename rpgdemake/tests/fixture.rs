@@ -1,7 +1,4 @@
-use std::path::{
-    PathBuf,
-    Path,
-};
+use std::path::PathBuf;
 
 use anyhow::ensure;
 

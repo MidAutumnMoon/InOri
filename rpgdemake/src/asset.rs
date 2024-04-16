@@ -56,13 +56,13 @@ pub struct Asset {
 impl Asset {
 
     /// Construct [`Asset`] containing decrypted data.
-    #[ tracing::instrument ]
+    #[ tracing::instrument( skip(key) ) ]
     pub fn from_file(
         path: &Path,
         key: &crate::key::EncryptionKey,
     ) -> anyhow::Result<Self>
     {
-        debug!( "process asset file" );
+        debug!( "working on asset file" );
 
         ensure! { path.is_file(),
             "\"{}\" is not file",
@@ -116,7 +116,7 @@ impl Asset {
     pub fn real_extension( path: &Path )
         -> Option< &'static str >
     {
-        debug!( "check RPGMV filename" );
+        debug!( "try fixing file extension" );
         let ext = match path.extension() {
             Some( e ) => e,
             None => {
@@ -135,7 +135,7 @@ impl Asset {
             "rpgmvp" | "png_" => Some( "png" ),
             "rpgmvm" | "m4a_" => Some( "m4a" ),
             "rpgmvo" | "ogg_" => Some( "ogg" ),
-            _ => None
+            _ => { debug!( "no real extension found" ); None }
         }
     }
 
