@@ -45,12 +45,6 @@ features = [
     "time",
 ]
 
-[workspace.dependencies."tokio-util"]
-version = "0"
-features = [
-    "rt"
-]
-
 
 #
 # Profiles
