@@ -234,19 +234,18 @@ fn main() -> anyhow::Result<()> {
             mpsc::channel::< TaskStatus >();
 
 
+        let total_tasks = found_files.len();
+
         let split_tasks = {
             let total = found_files.len();
-            found_files.iter()
+            found_files.into_iter()
                 .chunks( total.div_ceil( cmd_opts.threads ) )
         };
 
 
         for file_queue in split_tasks.into_iter() {
 
-            let file_queue = file_queue
-                .map( |t| t.to_owned() )
-                .collect_vec()
-            ;
+            let file_queue = file_queue.collect_vec();
 
             debug!( "fire up thread with queue of size {}",
                 file_queue.len()
@@ -316,7 +315,7 @@ fn main() -> anyhow::Result<()> {
 
             writeln!( stdout, "{}/{} {message}",
                 count + 1,
-                found_files.len()
+                total_tasks
             ).unwrap();
 
         }
