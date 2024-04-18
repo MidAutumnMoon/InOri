@@ -5,15 +5,15 @@ use std::path::{
 
 use anyhow::{
     ensure,
-    bail
+    bail,
+    Context,
 };
 
-use itertools::Itertools;
+use tracing::debug;
 
-use tracing::{
-    debug,
-    error,
-};
+use bytes::Bytes;
+
+use crate::key::EncryptionKey;
 
 
 /// Length of general RPG Maker encrypted file header.
@@ -46,67 +46,42 @@ pub const ENCRYPTION_LEN: usize = ENCRYPTION_KEY_LEN;
 
 
 
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone ) ]
 pub struct Asset {
-    decrypted: DecryptAsset,
     pub origin: PathBuf,
     pub target: PathBuf,
+    pub encryption_key: EncryptionKey,
 }
 
 impl Asset {
 
-    /// Construct [`Asset`] containing decrypted data.
-    #[ tracing::instrument( skip(key) ) ]
-    pub fn from_file(
-        path: &Path,
-        key: &crate::key::EncryptionKey,
-    ) -> anyhow::Result<Self>
+    #[ tracing::instrument(
+        name = "asset",
+        skip(encryption_key)
+    ) ]
+    pub fn new( path: &Path, encryption_key: EncryptionKey )
+        -> anyhow::Result< Self >
     {
-        debug!( "working on asset file" );
-
-        ensure! { path.is_file(),
-            "\"{}\" is not file",
-            path.display()
-        };
+        debug!( "new asset" );
 
         let target = {
             let ext = match Self::real_extension( path ) {
                 Some( e ) => e,
-                None => bail!( "No extension" )
+                None => bail!(
+                    "Can't find real extension for {}",
+                    path.display()
+                )
             };
             let mut p = path.to_owned();
             p.set_extension( ext );
             p
         };
 
-        debug!( "read file" );
-
-        let decrypted = DecryptAsset::new(
-            std::fs::read( path )?,
-            key
-        )?;
-
         Ok( Self {
-            decrypted, target,
             origin: path.to_owned(),
+            target,
+            encryption_key,
         } )
-    }
-
-
-    /// Write the decrypted content to the new file.
-    #[ tracing::instrument(
-        skip_all,
-        fields( ?self.origin, ?self.target )
-    ) ]
-    pub fn write_decrypted( &self )
-        -> anyhow::Result<()>
-    {
-        debug!( "write decrypted file" );
-        std::fs::write(
-            &self.target,
-            self.decrypted.get()
-        )?;
-        Ok(())
     }
 
 
@@ -145,54 +120,108 @@ impl Asset {
 
 #[ derive( Debug ) ]
 pub struct DecryptAsset {
-    data: Vec<u8>,
+    asset: Asset,
+    decrypted: Bytes,
 }
 
 impl DecryptAsset {
-    #[ tracing::instrument( skip_all ) ]
-    pub fn new(
-        mut encrypted: Vec<u8>,
-        key: &crate::key::EncryptionKey
-    ) -> anyhow::Result< Self >
-    {
-        debug!( "decrypt data" );
 
-        ensure! {
-            encrypted.len() >= RPGMV_HEADER_LEN + ENCRYPTION_LEN,
-            {
-                error!( "invalid data format" );
-                "Data is too small to be encrypted"
-            }
+    #[ tracing::instrument() ]
+    pub fn new( asset: Asset )
+        -> anyhow::Result< Self >
+    {
+        debug!( "prepare decrypt asset" );
+
+        use std::io::{
+            prelude::*,
+            ErrorKind as IoErr,
         };
 
-        if encrypted[..RPGMV_HEADER_LEN] != RPGMV_HEADER {
-            bail!( "Invalid RPGMV file header" )
+        debug!( "open asset file to read" );
+
+        ensure! { asset.origin.is_file(),
+            "{} is not a file",
+            asset.origin.display()
+        };
+
+        let mut file = std::fs::File
+            ::open( &asset.origin )
+            .context( "Failed to open asset file" )?
+        ;
+
+        {
+            debug!( "verify RPGMV header" );
+
+            let mut header = [ 0; RPGMV_HEADER_LEN ];
+
+            match file.read_exact( &mut header ) {
+                Ok(_) => {},
+                Err( err ) => match err.kind() {
+                    IoErr::UnexpectedEof => bail!(
+                        "File is too small to be encrypted"
+                    ),
+                    _ => bail!( err )
+                }
+            }
+
+            debug!( ?header );
+
+            if header != RPGMV_HEADER {
+                bail!( "Invalid RPGMV encryption header" )
+            }
         }
 
-        let mut content = encrypted
-            .drain( RPGMV_HEADER_LEN.. )
-            .collect_vec();
+        debug!( "read remaning content" );
 
-        key.get().iter().enumerate()
-            .for_each( |(i, mask)| content[i] ^= mask );
+        // 300KiB the eyeballed average
+        // It'd be smaller in general
+        let mut content = Vec::with_capacity( 300 * 1024 );
 
-        Ok( Self { data: content } )
+        file.read_to_end( &mut content )?;
+
+        ensure! { content.len() > ENCRYPTION_LEN,
+            "Insufficient content for decryption"
+        };
+
+        asset.encryption_key.get()
+            .iter().enumerate()
+            .for_each( |(idx, mask)| content[idx] ^= mask );
+
+        Ok( Self {
+            asset,
+            decrypted: Bytes::from( content )
+        } )
     }
 
 
-    pub fn get( &self ) -> &[u8] {
-        &self.data
+    #[ tracing::instrument(
+        skip_all,
+        fields( ?self.asset )
+    ) ]
+    pub fn write_decrypted( &self )
+        -> anyhow::Result< () >
+    {
+        debug!( "write decrypted asset" );
+        std::fs::write(
+            &self.asset.target,
+            &self.decrypted
+        )?;
+        Ok(())
     }
+
 }
 
 
 #[ cfg( test ) ]
 mod tests {
 
+    use assert_fs::prelude::*;
+    use assert_fs::TempDir;
+
     use crate::key::EncryptionKey;
     use super::*;
 
-    const SYSTEM_JSON: &str =
+    const JSON: &str =
         include_str!( "../fixture/System.json" );
 
     const CLOUDS_PNG: &[u8] =
@@ -203,33 +232,56 @@ mod tests {
 
 
     fn key() -> EncryptionKey {
-        EncryptionKey::parse_json( SYSTEM_JSON )
-            .unwrap()
-            .unwrap()
+        EncryptionKey::parse_json( JSON ).unwrap().unwrap()
     }
 
 
     #[ test ]
     fn decrypt_succeed() {
-        let a = DecryptAsset::new(
-            CLOUDS_RPGMVP.into(), &key()
-        ).unwrap();
-        assert_eq!( a.get(), CLOUDS_PNG );
+        let tmp = TempDir::new().unwrap();
+
+        let f = tmp.child( "clouds.rpgmvp" );
+        f.write_binary( CLOUDS_RPGMVP ).unwrap();
+
+        let ass = Asset::new( &f.path(), key() ).unwrap();
+
+        let d = DecryptAsset::new( ass ).unwrap();
+
+        assert_eq!( d.decrypted, CLOUDS_PNG );
     }
+
 
     #[ test ]
     fn too_small() {
+        let tmp = TempDir::new().unwrap();
+
+        let f = tmp.child( "invalid.rpgmvp" );
+        f.touch().unwrap();
+
+        let ase = Asset::new( f.path(), key() ).unwrap();
+
         assert! {
-            DecryptAsset::new( vec![0], &key() ).is_err()
+            DecryptAsset::new( ase ).is_err()
         }
     }
 
+
     #[ test ]
     fn invalid_rpgmv_header() {
-        let mut broken = CLOUDS_RPGMVP.to_owned();
-        broken[2] = 0x99;
+        let tmp = TempDir::new().unwrap();
+
+        let f = tmp.child( "clouds.rpgmvp" );
+
+        let mut clouds = CLOUDS_RPGMVP.to_owned();
+
+        clouds[3] = 0x33;
+
+        f.write_binary( &clouds ).unwrap();
+
         assert! {
-            DecryptAsset::new( broken, &key() ).is_err()
+            DecryptAsset::new(
+                Asset::new( &f.path(), key() ).unwrap()
+            ).is_err()
         }
     }
 

@@ -32,29 +32,23 @@ use std::{
     path::PathBuf,
 };
 
-use tracing::{
-    debug,
-    debug_span,
-};
+use tracing::debug;
 
 use clap::Parser;
 
 use anyhow::{
     ensure,
     bail,
+    Context,
 };
-
-use itertools::Itertools;
 
 
 mod asset;
 mod key;
 mod finder;
+mod tasks;
 
-
-/// Average amount of assets in a RPG Maker game.
-/// As its name says, it's eyeballed.
-const EYEBALLED_AVERAGE: usize = 1024;
+use asset::Asset;
 
 
 /// A simple CLI tool for batch decrypting
@@ -161,9 +155,8 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "try read encryption key" );
 
-    let encryption_key = {
+    let enc_key = {
         use std::fs::read_to_string;
-        use std::sync::Arc;
         use key::EncryptionKey;
 
         let ResourceLocation { system_json, .. } = &location;
@@ -178,149 +171,53 @@ fn main() -> anyhow::Result<()> {
         } )?;
 
         match key {
-            Some( k ) => Arc::new( k ),
+            Some( k ) => k,
             None => bail!( "No key found, maybe not encrypted?" ),
         }
     };
 
-    debug!( ?encryption_key );
+    debug!( ?enc_key );
 
 
     // Collect files to decrypt
 
     debug!( "collect files to decrypt" );
 
-    let found_files = {
-        let mut files =
-            Vec::with_capacity( 2 * EYEBALLED_AVERAGE );
-        for ad in &location.asset_dirs {
-            files.append( &mut finder::find_all( ad )? )
-        }
-        files
-    };
-
-    debug!( ?found_files, "all found files" );
-
-    {
+    let assets: Vec<Asset> = {
         use colored::Colorize;
 
-        let message = format! {
+        let found_files = {
+            let mut files = Vec::new();
+            for ad in &location.asset_dirs {
+                files.append( &mut finder::find_all( ad )? )
+            }
+            files
+        };
+
+        debug!( ?found_files, "all found files" );
+
+        println! { "{}", format! {
             "{} files to be decrypted",
             found_files.len()
-        }.blue();
+        }.blue() };
 
-        println! { "{message}" };
-    }
+        type ResultVec = anyhow::Result< Vec<Asset> >;
 
+        found_files.into_iter()
+            .map( |p| Asset::new( &p, enc_key.clone() ) )
+            .collect::<ResultVec>()
+            .context( "Failed to make asset" )?
+    };
 
 
     // Fire tasks
 
     debug!( "vroom vroom on decrypting" );
 
-    std::thread::scope( |scope| {
-
-        use std::sync::mpsc;
-
-
-        // TODO: use crossbeam::deque to maximize efficiency
-
-        enum TaskStatus {
-            Ok( PathBuf ),
-            Err( PathBuf, anyhow::Error )
-        }
-
-        let ( origin_sender, receiver ) =
-            mpsc::channel::< TaskStatus >();
-
-
-        let total_tasks = found_files.len();
-
-        let split_tasks = {
-            let total = found_files.len();
-            found_files.into_iter()
-                .chunks( total.div_ceil( cmd_opts.threads ) )
-        };
-
-
-        for file_queue in split_tasks.into_iter() {
-
-            let file_queue = file_queue.collect_vec();
-
-            debug!( "fire up thread with queue of size {}",
-                file_queue.len()
-            );
-
-            let encryption_key = encryption_key.clone();
-            let sender = origin_sender.clone();
-
-            scope.spawn( move || {
-
-                let _span =
-                    debug_span!( "thread", id = std::process::id() )
-                    .entered()
-                ;
-
-                for path in file_queue.into_iter() {
-
-                    let _span =
-                        debug_span!( "task", ?path ).entered();
-
-                    use asset::Asset as As;
-
-                    let asset = match
-                        As::from_file( &path, &encryption_key)
-                    {
-                        Ok( asset ) => asset,
-                        Err( err ) => {
-                            let _ = sender.send(
-                                TaskStatus::Err( path, err )
-                            );
-                            break
-                        },
-                    };
-
-                    let _ = match asset.write_decrypted() {
-                        Ok(_) => sender.send(
-                            TaskStatus::Ok( path )
-                        ),
-                        Err( err ) => sender.send(
-                            TaskStatus::Err( path, err )
-                        ),
-                    };
-                }
-
-            } ); // END scope.spanw
-
-        }; // END file_queue
-
-        drop( origin_sender );
-
-
-        use std::io::Write;
-
-        let mut stdout = { std::io::stdout().lock() };
-
-        for ( count, message ) in receiver.iter().enumerate() {
-
-            use colored::Colorize;
-            use TaskStatus as T;
-
-            let message = match message {
-                T::Ok( p ) =>
-                    format!( "(ok) {}", p.display() ).blue(),
-                T::Err( p, e ) =>
-                    format!( "(err) {} {e}", p.display() ).red()
-            };
-
-            writeln!( stdout, "{}/{} {message}",
-                count + 1,
-                total_tasks
-            ).unwrap();
-
-        }
-
-    } ); // END thread scope
+    tasks::submit_assets(
+        assets,
+        cmd_opts.threads
+    );
 
 
     Ok(())

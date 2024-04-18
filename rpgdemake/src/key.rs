@@ -3,44 +3,56 @@ use crate::asset::ENCRYPTION_KEY_LEN;
 use anyhow::{
     bail,
     ensure,
+    Context,
 };
 
 use tracing::debug;
 
+use bytes::{
+    Bytes,
+    BytesMut,
+};
+
 
 /// The per-project key used to encrypt assets.
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone ) ]
 pub struct EncryptionKey {
-    inner: Vec<u8>
+    inner: Bytes,
 }
 
 impl EncryptionKey {
 
     #[ tracing::instrument ]
     pub fn parse_str( keystr: &str )
-        -> anyhow::Result<Self>
+        -> anyhow::Result< Self >
     {
         use itertools::Itertools;
 
         debug!( "parse string into encryption key" );
 
         ensure! { keystr.len() == 2 * ENCRYPTION_KEY_LEN,
-            "Encryption key \"{}\" doesn't match spec",
+            "Encryption key \"{}\" is too short",
             keystr
         };
 
         let hex_chunks = keystr.chars().chunks( 2 );
-        let mut key = Vec::with_capacity( ENCRYPTION_KEY_LEN );
+
+        let mut key = BytesMut::with_capacity( ENCRYPTION_KEY_LEN );
 
         for chunk in hex_chunks.into_iter() {
             let c: Vec<u8> = chunk.map( |c| c as u8 ).collect();
-            let c = hex::decode( c )?;
+            let c = hex::decode( &c )
+                .with_context( || format! {
+                    "Failed to decode hex value from {c:?}"
+                } )?;
             key.extend( c )
         }
 
         debug!( ?key, "parsed key" );
 
-        Ok( Self { inner: key } )
+        Ok( Self {
+            inner: key.freeze()
+        } )
     }
 
 
@@ -53,7 +65,7 @@ impl EncryptionKey {
             from_str
         };
 
-        debug!( "find encryptionKey in JSON" );
+        debug!( "try find encryption key in JSON" );
 
         let fields: Value = from_str( json )?;
 
@@ -61,7 +73,8 @@ impl EncryptionKey {
             Some( v ) => match v {
                 Value::String( s ) => s,
                 _ => bail!{
-                    "Encryption key can't be parsed into a string"
+                    "Found encryption key, \
+                    but it can't be parsed into string"
                 }
             },
             None => return Ok( None ),
@@ -85,10 +98,10 @@ impl EncryptionKey {
 #[ cfg( test ) ]
 mod tests {
 
-    const SYSTEM_JSON: &str =
+    const JSON: &str =
         include_str!( "../fixture/System.json" );
 
-    const EMPTY_SYSTEM_JSON: &str = "{}";
+    const EMPTY_JSON: &str = "{}";
 
     const KEY_STR: &str = "bb145893824d809dcab45febae756d2b";
 
@@ -117,7 +130,7 @@ mod tests {
 
     #[ test ]
     fn json() {
-        let key = EncryptionKey::parse_json( SYSTEM_JSON )
+        let key = EncryptionKey::parse_json( JSON )
             .unwrap();
         assert!( key.is_some() );
         assert_eq!( key.unwrap().get(), EXPECTED_KEY );
@@ -125,7 +138,7 @@ mod tests {
 
     #[ test ]
     fn json_no_key() {
-        let key = EncryptionKey::parse_json( EMPTY_SYSTEM_JSON )
+        let key = EncryptionKey::parse_json( EMPTY_JSON )
             .unwrap();
         assert!( key.is_none() );
     }

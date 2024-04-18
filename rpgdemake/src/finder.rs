@@ -16,8 +16,7 @@ pub fn find_all( toplevel: &Path )
 {
     debug!( "find all files" );
 
-    let mut files =
-        Vec::with_capacity( crate::EYEBALLED_AVERAGE );
+    let mut files = Vec::new();
 
     for entry in WalkDir::new( toplevel ) {
         debug!( ?entry );
