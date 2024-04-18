@@ -120,11 +120,14 @@ fn display_taskinfo(
 ) {
     debug!( "read and display tasks' status" );
 
+    use std::io::prelude::*;
+
+    let mut stdout = std::io::stdout().lock();
+
     for ( count, info ) in
         receiver.iter().enumerate()
     {
         use colored::Colorize;
-        use std::io::prelude::*;
 
         use TaskInfo as I;
         use TaskStatus as S;
@@ -139,8 +142,6 @@ fn display_taskinfo(
             S::Fail( e ) =>
                 format!( "(err) {path} {e:?}" ).red(),
         };
-
-        let mut stdout = std::io::stdout().lock();
 
         writeln!{ stdout, "{}/{} {msg}",
             count + 1,
