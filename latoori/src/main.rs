@@ -1,7 +1,5 @@
-///!
-
-#[global_allocator]
-static ALLOC: jemalloc::Jemalloc = jemalloc::Jemalloc;
+#[ global_allocator ]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 
 use tracing::{

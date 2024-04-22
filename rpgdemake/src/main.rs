@@ -24,7 +24,7 @@
 
 
 #[ global_allocator ]
-static ALLOC: jemalloc::Jemalloc = jemalloc::Jemalloc;
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 
 use std::{
