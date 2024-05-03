@@ -43,12 +43,12 @@ use anyhow::{
 };
 
 
-mod asset;
+mod resource;
 mod key;
 mod finder;
 mod tasks;
 
-use asset::Asset;
+use resource::Resource;
 
 
 /// A simple CLI tool for batch decrypting
@@ -183,7 +183,7 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "collect files to decrypt" );
 
-    let assets: Vec<Asset> = {
+    let assets: Vec<Resource> = {
         use colored::Colorize;
 
         let found_files = {
@@ -201,10 +201,10 @@ fn main() -> anyhow::Result<()> {
             found_files.len()
         }.blue() };
 
-        type ResultVec = anyhow::Result< Vec<Asset> >;
+        type ResultVec = anyhow::Result< Vec<Resource> >;
 
         found_files.into_iter()
-            .map( |p| Asset::new( &p, enc_key.clone() ) )
+            .map( |p| Resource::new( &p, enc_key.clone() ) )
             .collect::<ResultVec>()
             .context( "Failed to make asset" )?
     };

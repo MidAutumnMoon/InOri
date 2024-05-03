@@ -1,4 +1,4 @@
-use crate::asset::ENCRYPTION_KEY_LEN;
+use crate::resource::ENCRYPTION_KEY_LEN;
 
 use anyhow::{
     bail,

@@ -5,7 +5,7 @@ use std::path::{
 
 use tracing::debug;
 
-use crate::asset::Asset;
+use crate::resource::Resource;
 
 use walkdir::WalkDir;
 
@@ -29,7 +29,7 @@ pub fn find_all( toplevel: &Path )
             continue
         }
 
-        if Asset::real_extension( path ).is_some() {
+        if Resource::real_extension( path ).is_some() {
             debug!( "found file" );
             files.push( path.to_owned() )
         }

@@ -47,13 +47,13 @@ pub const ENCRYPTION_LEN: usize = ENCRYPTION_KEY_LEN;
 
 
 #[ derive( Debug, Clone ) ]
-pub struct Asset {
+pub struct Resource {
     pub origin: PathBuf,
     pub target: PathBuf,
     pub encryption_key: EncryptionKey,
 }
 
-impl Asset {
+impl Resource {
 
     #[ tracing::instrument(
         name = "asset",
@@ -119,15 +119,15 @@ impl Asset {
 
 
 #[ derive( Debug ) ]
-pub struct DecryptAsset {
-    asset: Asset,
+pub struct DecryptResource {
+    resource: Resource,
     decrypted: Bytes,
 }
 
-impl DecryptAsset {
+impl DecryptResource {
 
     #[ tracing::instrument() ]
-    pub fn new( asset: Asset )
+    pub fn new( resource: Resource )
         -> anyhow::Result< Self >
     {
         debug!( "prepare decrypt asset" );
@@ -139,13 +139,13 @@ impl DecryptAsset {
 
         debug!( "open asset file to read" );
 
-        ensure! { asset.origin.is_file(),
+        ensure! { resource.origin.is_file(),
             "{} is not a file",
-            asset.origin.display()
+            resource.origin.display()
         };
 
         let mut file = std::fs::File
-            ::open( &asset.origin )
+            ::open( &resource.origin )
             .context( "Failed to open asset file" )?
         ;
 
@@ -183,12 +183,12 @@ impl DecryptAsset {
             "Insufficient content for decryption"
         };
 
-        asset.encryption_key.get()
+        resource.encryption_key.get()
             .iter().enumerate()
             .for_each( |(idx, mask)| content[idx] ^= mask );
 
         Ok( Self {
-            asset,
+            resource,
             decrypted: Bytes::from( content )
         } )
     }
@@ -196,14 +196,14 @@ impl DecryptAsset {
 
     #[ tracing::instrument(
         skip_all,
-        fields( ?self.asset )
+        fields( ?self.resource )
     ) ]
     pub fn write_decrypted( &self )
         -> anyhow::Result< () >
     {
         debug!( "write decrypted asset" );
         std::fs::write(
-            &self.asset.target,
+            &self.resource.target,
             &self.decrypted
         )?;
         Ok(())
@@ -243,9 +243,9 @@ mod tests {
         let f = tmp.child( "clouds.rpgmvp" );
         f.write_binary( CLOUDS_RPGMVP ).unwrap();
 
-        let ass = Asset::new( &f.path(), key() ).unwrap();
+        let ass = Resource::new( &f.path(), key() ).unwrap();
 
-        let d = DecryptAsset::new( ass ).unwrap();
+        let d = DecryptResource::new( ass ).unwrap();
 
         assert_eq!( d.decrypted, CLOUDS_PNG );
     }
@@ -258,10 +258,10 @@ mod tests {
         let f = tmp.child( "invalid.rpgmvp" );
         f.touch().unwrap();
 
-        let ase = Asset::new( f.path(), key() ).unwrap();
+        let ase = Resource::new( f.path(), key() ).unwrap();
 
         assert! {
-            DecryptAsset::new( ase ).is_err()
+            DecryptResource::new( ase ).is_err()
         }
     }
 
@@ -279,8 +279,8 @@ mod tests {
         f.write_binary( &clouds ).unwrap();
 
         assert! {
-            DecryptAsset::new(
-                Asset::new( &f.path(), key() ).unwrap()
+            DecryptResource::new(
+                Resource::new( &f.path(), key() ).unwrap()
             ).is_err()
         }
     }

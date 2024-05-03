@@ -7,9 +7,9 @@ use tracing::debug;
 
 use itertools::Itertools;
 
-use crate::asset::{
-    Asset,
-    DecryptAsset
+use crate::resource::{
+    Resource,
+    DecryptResource
 };
 
 
@@ -20,14 +20,14 @@ pub enum TaskStatus {
 }
 
 pub struct TaskInfo {
-    asset: Asset,
+    asset: Resource,
     status: TaskStatus,
 }
 
 
 #[ tracing::instrument( skip_all ) ]
 pub fn submit_assets(
-    assets: Vec<Asset>,
+    assets: Vec<Resource>,
     threads: usize,
 ) {
 
@@ -80,7 +80,7 @@ pub fn submit_assets(
     fields( count = assets.len() )
 ) ]
 fn many_assets(
-    assets: Vec<Asset>,
+    assets: Vec<Resource>,
     sender: mpsc::Sender<TaskInfo>
 ) {
     debug!(
@@ -98,10 +98,10 @@ fn many_assets(
 }
 
 #[ tracing::instrument ]
-fn one_asset( asset: Asset ) -> TaskStatus {
+fn one_asset( asset: Resource ) -> TaskStatus {
     debug!( "process one asset" );
 
-    let da = match DecryptAsset::new( asset ) {
+    let da = match DecryptResource::new( asset ) {
         Ok( dec ) => dec,
         Err( e ) => return TaskStatus::Fail( e )
     };
