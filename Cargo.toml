@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "libs/*",
+    "crates/*",
     "derputils",
-    "latoori", "rpgdemake",
+    "latoori",
+    "rpgdemake",
 ]
 
 
@@ -27,7 +28,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 # Homemade crates
-ino_tracing = { path = "./libs/ino_tracing" }
+ino_tracing = { path = "./crates/ino_tracing" }
 
 [workspace.dependencies."tokio"]
 version = "1"
