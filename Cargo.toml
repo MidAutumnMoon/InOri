@@ -21,6 +21,7 @@ repository = "https://github.com/MidAutumnMoon/TeapotInOri"
 
 [workspace.dependencies]
 anyhow = "1"
+axum = "0.7"
 clap = { version = "4", features = [ "derive", "cargo" ] }
 colored = "2"
 mimalloc = "0.1"

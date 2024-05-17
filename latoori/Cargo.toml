@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-axum = "0.7"
+axum.workspace = true
 clap.workspace = true
 ino_tracing.workspace = true
 mimalloc.workspace = true
