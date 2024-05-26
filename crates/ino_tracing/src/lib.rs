@@ -12,7 +12,7 @@ pub fn init_tracing_subscriber() {
         registry
     };
 
-    use is_terminal::IsTerminal;
+    use std::io::IsTerminal;
 
 
     let output = std::io::stderr;
@@ -20,12 +20,12 @@ pub fn init_tracing_subscriber() {
     let fmt_layer = fmt::layer()
         .with_writer( output )
         .with_ansi( output().is_terminal() )
-        ;
+    ;
 
     let env_layer = EnvFilter::builder()
         .with_default_directive( Level::INFO.into() )
         .from_env_lossy()
-        ;
+    ;
 
 
     registry()
