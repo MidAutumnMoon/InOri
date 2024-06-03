@@ -1,6 +1,6 @@
 # rpgdemake
 
-A simple CLI tool for batch decrypting RPG Maker assets,
+A simple CLI tool for batch decrypting RPG Maker MV/MZ assets,
 aiming for "blazing fast".
 
 Based on
