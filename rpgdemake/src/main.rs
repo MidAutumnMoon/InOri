@@ -96,7 +96,7 @@
 //! smash a corresponding PNG or OGG header onto the remanings,
 //! and the file is essentially "decrypted". This renders
 //! the encryption key totally useless, and it's how
-//! "Petschkos RPG-Maker MV & MZ-File Decrypter" 
+//! "Petschkos RPG-Maker MV & MZ-File Decrypter"
 //! can do a keyless restoration.
 //!
 //! Besides the stock RPGM "encryption", there are several
@@ -118,7 +118,7 @@
 //! the most common one is that System.json contains
 //! byte order mark, which nw.js is OK with somehow.
 //!
-//! The next common one is that the content of System.json 
+//! The next common one is that the content of System.json
 //! is being lz-string-ed possibly as some sort of encryption
 //! which doesn't do the job at all. Some game went a step futher
 //! (e.g. OMORI) to change the encryption method, but the ideas
@@ -129,7 +129,7 @@
 //!
 //! ## Enigma Virtual Box
 //!
-//! Again, Enigma Virtual Box (abbreviated as EnigmaVB) 
+//! Again, Enigma Virtual Box (abbreviated as EnigmaVB)
 //! is technically not an encryption, rather a way to bundle
 //! resources with executable with optional compression,
 //! akin to AppImage or UPX.
@@ -177,6 +177,7 @@ mod resource;
 mod key;
 mod finder;
 mod tasks;
+mod game;
 
 use resource::Resource;
 
