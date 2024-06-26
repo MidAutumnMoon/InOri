@@ -405,7 +405,9 @@ fn encode( app: &App, picture: Picture )
         avifenc.args( [ "-a", "cq-level=18" ] );
     }
 
-    let status = avifenc.args( [ &picture.from, &picture.dest ] )
+    let status = avifenc
+        .arg( "--" )
+        .args( [ &picture.from, &picture.dest ] )
         .spawn()?.wait()?;
 
     Ok( EncodeResult { status, picture } )
