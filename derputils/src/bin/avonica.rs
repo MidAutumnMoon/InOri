@@ -134,7 +134,7 @@ impl Picture {
         -> anyhow::Result< std::process::ExitStatus >
     {
         let status = std::process::Command::new( "mv" )
-            .arg( "-in" ).arg( "--" )
+            .arg( "-vn" ).arg( "--" )
             .args( [ &self.from, Path::new( ARCHIVE_DIR ) ] )
             .spawn()?
             .wait()?
@@ -278,6 +278,7 @@ fn main() -> anyhow::Result<()> {
                     break 'cks
                 }
                 if picture.archive {
+                    eprintln!( ":: Archive original picture" );
                     let achv_status = match picture.do_archive() {
                         Ok( re ) => re,
                         Err( e ) => {
