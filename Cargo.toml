@@ -23,7 +23,7 @@ rust-version = "1.78.0"
 [workspace.dependencies]
 anyhow = "1"
 axum = "0.7"
-clap = { version = "4", features = [ "derive", "cargo" ] }
+clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
 colored = "2"
 mimalloc = "0.1"
 tracing = "0.1"
