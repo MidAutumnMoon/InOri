@@ -180,15 +180,14 @@ fn main() -> anyhow::Result<()> {
     debug!( "determine mode of app" );
 
     let mode = {
-        let path = cmdopts.the_thing
-            .clone()
+        let path = cmdopts.the_thing.clone()
             .unwrap_or( std::env::current_dir()? );
-        debug!( ?path, "path to work with" );
-        if path.is_file() {
-            Mode::File( path )
-        } else if path.is_dir() {
-            Mode::Dir( path )
-        } else {
+        debug!( "get absolute path of {path:?}" );
+        let path = std::path::absolute( path )?;
+        debug!( ?path, "final path to work with" );
+        if path.is_file() { Mode::File( path ) }
+        else if path.is_dir() { Mode::Dir( path ) }
+        else {
             anyhow::bail!( "The thing is neither a directory \
                 nor file" )
         }
