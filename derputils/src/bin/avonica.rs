@@ -212,6 +212,11 @@ fn main() -> anyhow::Result<()> {
         },
     };
 
+    if pictures.is_empty() {
+        eprintln!( ":: No pictures to process" );
+        return Ok(())
+    }
+
     tracing::trace!( ?pictures );
 
     let avifenc_jobs = {
