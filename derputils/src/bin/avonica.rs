@@ -109,17 +109,13 @@ impl Picture {
 
     #[ tracing::instrument ]
     fn filetype_supported( path: &Path ) -> bool {
-        match path.extension() {
-            Some( ext ) => {
-                // Few but certain encounters that
-                // the extension is in all capital.
-                let ext = ext
-                    .to_string_lossy()
-                    .into_owned()
-                    .to_lowercase();
-                SUPPORTED_FILE_TYPES.contains( &ext.as_str() )
-            },
-            None => false,
+        if let Some( ext ) = path.extension() {
+            let ext = ext.to_string_lossy().to_owned().to_lowercase();
+            debug!( ext );
+            SUPPORTED_FILE_TYPES.contains( &ext.as_str() )
+        } else {
+            debug!( "path doesn't have extension" );
+            false
         }
     }
 
