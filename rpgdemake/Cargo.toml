@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bytes = "1.6.0"
+bytes = "1.6.1"
 clap.workspace = true
 colored.workspace = true
 crossbeam = "0.8.4"
