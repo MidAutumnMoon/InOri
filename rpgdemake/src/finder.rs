@@ -3,8 +3,6 @@ use std::path::{
     PathBuf,
 };
 
-use tracing::debug;
-
 use crate::resource::Resource;
 
 use walkdir::WalkDir;
@@ -20,8 +18,8 @@ pub fn find_all( toplevel: &Path )
         .into_iter()
             .map( |e| e.path().to_owned() )
             // throw away non-files
-            .filter_map( |p| p.is_file().then( || p ) )
-            .filter( |f| Resource::real_extension( &f ).is_some() )
+            .filter_map( |p| p.is_file().then_some( p ) )
+            .filter( |f| Resource::real_extension( f ).is_some() )
         .collect()
     ;
 
