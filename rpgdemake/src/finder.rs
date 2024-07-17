@@ -14,28 +14,16 @@ use walkdir::WalkDir;
 pub fn find_all( toplevel: &Path )
     -> anyhow::Result< Vec<PathBuf> >
 {
-    debug!( "find all files" );
-
-    let mut files = Vec::new();
-
-    for entry in WalkDir::new( toplevel ) {
-        debug!( ?entry );
-
-        let entry = entry?;
-        let path = entry.path();
-
-        if ! path.is_file() {
-            debug!( "not file, skip" );
-            continue
-        }
-
-        if Resource::real_extension( path ).is_some() {
-            debug!( "found file" );
-            files.push( path.to_owned() )
-        }
-    }
-
-    debug!( ?files, "collected files" );
+    let files = WalkDir::new( toplevel )
+        .into_iter()
+            .collect::< Result<Vec<_>, _> >()?
+        .into_iter()
+            .map( |e| e.path().to_owned() )
+            // throw away non-files
+            .filter_map( |p| p.is_file().then( || p ) )
+            .filter( |f| Resource::real_extension( &f ).is_some() )
+        .collect()
+    ;
 
     Ok( files )
 }
