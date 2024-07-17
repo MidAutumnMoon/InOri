@@ -314,13 +314,13 @@ fn main() -> anyhow::Result<()> {
     debug!( "collect files to decrypt" );
 
     let assets: Vec<Resource> = {
-        let found_files = {
-            let mut files = Vec::new();
-            for ad in &location.asset_dirs {
-                files.append( &mut finder::find_all( ad )? )
-            }
-            files
-        };
+
+        let found_files: Vec<PathBuf> = location.asset_dirs.iter()
+            .map( |p| finder::find_all( p ) )
+            .collect::< Result<Vec<_>,_> >()?
+            .into_iter()
+            .flatten().collect()
+        ;
 
         debug!( ?found_files, "all found files" );
 
