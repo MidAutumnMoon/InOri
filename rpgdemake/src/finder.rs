@@ -17,11 +17,9 @@ pub fn find_all( toplevel: &Path )
             .collect::< Result<Vec<_>, _> >()?
         .into_iter()
             .map( |e| e.path().to_owned() )
-            // throw away non-files
-            .filter_map( |p| p.is_file().then_some( p ) )
+            .filter( |p| p.is_file() )
             .filter( |f| Resource::real_extension( f ).is_some() )
         .collect()
     ;
-
     Ok( files )
 }
