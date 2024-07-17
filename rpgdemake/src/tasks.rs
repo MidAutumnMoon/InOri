@@ -36,7 +36,7 @@ pub fn submit_assets(
     );
 
     if assets.is_empty() {
-        println!( "{}", "No assets to process" );
+        println!( "No assets to process" );
         return
     }
 
