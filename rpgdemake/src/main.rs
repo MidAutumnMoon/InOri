@@ -315,25 +315,20 @@ fn main() -> anyhow::Result<()> {
 
     let assets: Vec<Resource> = {
 
-        let found_files: Vec<PathBuf> = location.asset_dirs.iter()
+        use anyhow::Result as AResult;
+
+        let files: Vec<PathBuf> = location.asset_dirs.iter()
             .map( |p| finder::find_all( p ) )
-            .collect::< Result<Vec<_>,_> >()?
+            .collect::< AResult<Vec<_>> >()?
             .into_iter()
             .flatten().collect()
         ;
 
-        debug!( ?found_files, "all found files" );
+        debug!( ?files, "all found files" );
 
-        println! { "{} files to be decrypted",
-            found_files.len()
-        };
-
-        type ResultVec = anyhow::Result< Vec<Resource> >;
-
-        found_files.into_iter()
+        files.into_iter()
             .map( |p| Resource::new( &p, enc_key.clone() ) )
-            .collect::<ResultVec>()
-            .context( "Failed to make asset" )?
+            .collect::< AResult<_> >()?
     };
 
 
