@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "crates/*",
     "derputils",
-    "latoori",
     "rpgdemake",
 ]
 
@@ -22,7 +21,6 @@ rust-version = "1.78.0"
 
 [workspace.dependencies]
 anyhow = "1"
-axum = "0.7"
 clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
 mimalloc = "0.1"
 rayon = "1"
@@ -31,18 +29,6 @@ tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 # Homemade crates
 ino_tracing = { path = "./crates/ino_tracing" }
-
-[workspace.dependencies."tokio"]
-version = "1"
-features = [
-    "fs",
-    "macros",
-    "net",
-    "rt-multi-thread",
-    "sync",
-    "time",
-]
-
 
 #
 # Profiles
