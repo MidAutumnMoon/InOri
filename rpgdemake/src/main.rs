@@ -315,8 +315,6 @@ fn main() -> anyhow::Result<()> {
     debug!( "collect files to decrypt" );
 
     let assets: Vec<Resource> = {
-        use colored::Colorize;
-
         let found_files = {
             let mut files = Vec::new();
             for ad in &location.asset_dirs {
@@ -327,10 +325,9 @@ fn main() -> anyhow::Result<()> {
 
         debug!( ?found_files, "all found files" );
 
-        println! { "{}", format! {
-            "{} files to be decrypted",
+        println! { "{} files to be decrypted",
             found_files.len()
-        }.blue() };
+        };
 
         type ResultVec = anyhow::Result< Vec<Resource> >;
 

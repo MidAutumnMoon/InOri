@@ -36,8 +36,7 @@ pub fn submit_assets(
     );
 
     if assets.is_empty() {
-        use colored::Colorize;
-        println!( "{}", "No assets to process".blue() );
+        println!( "{}", "No assets to process" );
         return
     }
 
@@ -127,8 +126,6 @@ fn display_taskinfo(
     for ( count, info ) in
         receiver.iter().enumerate()
     {
-        use colored::Colorize;
-
         use TaskInfo as I;
         use TaskStatus as S;
 
@@ -138,9 +135,9 @@ fn display_taskinfo(
 
         let msg = match status {
             S::Done =>
-                format!( "(ok) {path}" ).blue(),
+                format!( "(ok) {path}" ),
             S::Fail( e ) =>
-                format!( "(err) {path} {e:?}" ).red(),
+                format!( "(err) {path} {e:?}" ),
         };
 
         writeln!{ stdout, "{}/{} {msg}",

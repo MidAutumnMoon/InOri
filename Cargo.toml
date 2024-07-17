@@ -24,8 +24,8 @@ rust-version = "1.78.0"
 anyhow = "1"
 axum = "0.7"
 clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
-colored = "2"
 mimalloc = "0.1"
+rayon = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
