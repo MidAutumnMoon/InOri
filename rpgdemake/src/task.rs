@@ -3,10 +3,7 @@ use std::path::{
     PathBuf,
 };
 
-use anyhow::{
-    Context,
-    ensure,
-};
+use anyhow::ensure;
 
 use tracing::debug;
 
