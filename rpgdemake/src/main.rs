@@ -177,17 +177,11 @@ mod tasks;
 use resource::Resource;
 
 
-/// A simple CLI tool for batch decrypting
-/// RPG Maker MV/MZ/XP assets.
+/// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[ derive( clap::Parser, Debug ) ]
 struct CmdOpts {
-    /// The path of
+    /// Path to the directory containing the game.
     game_dir: PathBuf,
-
-    /// Brute force the decryption even the GAME_DIRECTORY
-    /// not fitting RPG Maker game layout.
-    #[ arg( long, short, default_value_t = false ) ]
-    force: bool,
 
     /// Use this key instead of find one in GAME_DIRECTORY.
     #[ arg( long, short ) ]
