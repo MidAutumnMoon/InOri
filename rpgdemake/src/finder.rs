@@ -3,23 +3,33 @@ use std::path::{
     PathBuf,
 };
 
-use crate::resource::Resource;
-
 use walkdir::WalkDir;
+
+use rayon::prelude::*;
+
+use crate::task::Validate;
 
 
 #[ tracing::instrument ]
 pub fn find_all( toplevel: &Path )
     -> anyhow::Result< Vec<PathBuf> >
 {
+    use itertools::Itertools;
+
     let files = WalkDir::new( toplevel )
         .into_iter()
-            .collect::< Result<Vec<_>, _> >()?
-        .into_iter()
-            .map( |e| e.path().to_owned() )
-            .filter( |p| p.is_file() )
-            .filter( |f| Resource::fix_extension( f ).is_some() )
-        .collect()
+        .process_results( |iter| {
+            iter.par_bridge()
+                .map( |entry| entry.path().to_owned() )
+                .filter( |path| path.is_file() )
+                .filter_map( |path| {
+                    let ext = path.extension()?.to_str()?;
+                    Validate::map_extension( ext )
+                        .and( Some( path ) )
+                } )
+                .collect()
+        } )?
     ;
+
     Ok( files )
 }

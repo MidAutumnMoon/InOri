@@ -302,10 +302,6 @@ fn main() -> anyhow::Result<()> {
 
         debug!( ?files, "all found files" );
 
-        //files.into_iter()
-        //    .map( |p| Resource::new( &p, enc_key.clone() ) )
-        //    .collect::< AResult<_> >()?
-
         files
     };
 
