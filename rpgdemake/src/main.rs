@@ -224,9 +224,11 @@ fn main() -> anyhow::Result<()> {
             dir.display()
         };
 
+        // TODO: extend the tests further
         ensure! { dir.join( "nw.dll" ).try_exists()?,
             "Game directory doesn't contains necessary files. \
-            Maybe the game is not made in RPG Maker or is packed."
+            Maybe the directory is wrong, it's not a RPG Maker game, \
+            or the files are packed."
         };
     }
 
