@@ -15,10 +15,10 @@ use crate::key::EncryptionKey;
 
 
 /// Length of general RPG Maker encrypted file header.
-pub const RPGMV_HEADER_LEN: usize = 16;
+pub const RPG_HEADER_LEN: usize = 16;
 
 /// The stock RPGMV header.
-pub const RPGMV_HEADER: [u8; RPGMV_HEADER_LEN] = [
+pub const RPG_HEADER: [ u8; RPG_HEADER_LEN ] = [
     // R P G M V -- SIGNATURE in rpg_core.js
     0x52, 0x50, 0x47, 0x4d, 0x56,
     // padding
@@ -150,7 +150,7 @@ impl DecryptResource {
         {
             debug!( "verify RPGMV header" );
 
-            let mut header = [ 0; RPGMV_HEADER_LEN ];
+            let mut header = [ 0; RPG_HEADER_LEN ];
 
             match file.read_exact( &mut header ) {
                 Ok(_) => {},
@@ -164,7 +164,7 @@ impl DecryptResource {
 
             debug!( ?header );
 
-            if header != RPGMV_HEADER {
+            if header != RPG_HEADER {
                 bail!( "Invalid RPGMV encryption header" )
             }
         }
@@ -185,10 +185,7 @@ impl DecryptResource {
             .iter().enumerate()
             .for_each( |(idx, mask)| content[idx] ^= mask );
 
-        Ok( Self {
-            resource,
-            decrypted: Vec::from( content )
-        } )
+        Ok( Self { resource, decrypted: content } )
     }
 
 
