@@ -234,7 +234,7 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "increase NOFILE rlimit" );
 
-    rlimit::increase_nofile_limit( 20480 )?;
+    rlimit::increase_nofile_limit( u64::MAX )?;
 
 
     // Probe game directory layout
