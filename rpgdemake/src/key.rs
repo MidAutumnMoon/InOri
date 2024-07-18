@@ -1,18 +1,26 @@
 use anyhow::{
     bail,
     ensure,
-    Context,
 };
 
 use tracing::debug;
 
-use crate::resource::ENCRYPTION_KEY_LEN;
+
+/// Length of encryption key.
+/// Since the encryption method is a naive XOR,
+/// the key length should equal to the length of the encrypted part.
+pub const KEY_LEN: usize = crate::ENCRYPTED_PART_LEN;
+
+/// Text of hex of encryption key.
+/// Each byte of key is stored as a hex ( 187 -> "bb" ),
+/// so the total
+pub const RAW_KEY_LEN: usize = 2 * KEY_LEN;
 
 
 /// The per-project key used to encrypt assets.
 #[ derive( Debug, Clone ) ]
 pub struct Key {
-    key: [ u8; ENCRYPTION_KEY_LEN ],
+    key: [ u8; KEY_LEN ],
 }
 
 
@@ -27,7 +35,7 @@ impl TryFrom<&str> for Key {
 
         use itertools::Itertools;
 
-        ensure! { raw_key.len() == 2 * ENCRYPTION_KEY_LEN,
+        ensure! { raw_key.len() == RAW_KEY_LEN,
             "String \"{raw_key}\" is not a valid encryption key. \
             Maybe it's fake, obfuscated or broken.",
         };
@@ -43,7 +51,8 @@ impl TryFrom<&str> for Key {
         ;
 
         Ok( Self {
-            key: key.try_into().expect( "Wrong encryption length" )
+            key: key.try_into()
+                .expect( "Decoded key has wrong length somehow" )
         } )
     }
 }

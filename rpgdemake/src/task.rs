@@ -6,7 +6,6 @@ use std::path::{
 use anyhow::{
     Context,
     ensure,
-    bail,
 };
 
 use tracing::debug;
@@ -106,17 +105,17 @@ impl Validate {
             prelude::*,
             ErrorKind as IOError,
         };
-        use crate::resource::{
+        use crate::{
             RPG_HEADER,
             RPG_HEADER_LEN,
-            ENCRYPTION_LEN,
+            ENCRYPTED_PART_LEN,
         };
 
         debug!( "open file" );
         let mut file = std::fs::File::open( file )?;
 
         debug!( "read file content to buffer" );
-        let mut buf = [ 0; RPG_HEADER_LEN + ENCRYPTION_LEN ];
+        let mut buf = [ 0; RPG_HEADER_LEN + ENCRYPTED_PART_LEN ];
 
         file.read_exact( &mut buf ).map_err( |e| match e.kind() {
             IOError::UnexpectedEof =>
@@ -153,7 +152,7 @@ impl TryFrom< Task<Validate> > for Task<Decrypt> {
         let Validate { origin, target } = prev.step;
 
         let mut content = std::fs::read( &origin )?;
-        let content = &mut content[crate::resource::RPG_HEADER_LEN..];
+        let content = &mut content[ crate::RPG_HEADER_LEN.. ];
 
         prev.key.get()
             .iter().enumerate()

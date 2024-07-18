@@ -14,36 +14,6 @@ use tracing::debug;
 use crate::key::Key;
 
 
-/// Length of general RPG Maker encrypted file header.
-pub const RPG_HEADER_LEN: usize = 16;
-
-/// The stock RPGMV header.
-pub const RPG_HEADER: [ u8; RPG_HEADER_LEN ] = [
-    // R P G M V -- SIGNATURE in rpg_core.js
-    0x52, 0x50, 0x47, 0x4d, 0x56,
-    // padding
-    0x00, 0x00, 0x00,
-    // version sorta -- VER in rpg_core.js
-    0x00, 0x03, 0x01,
-    // padding
-    0x00, 0x00, 0x00, 0x00, 0x00
-];
-
-/// The length of encryption key.
-///
-/// The default length is 16, but key of other sizes
-/// hasn't been spotted in the wild. Referring to
-/// rpg_core.js this apparently is the only allowed length.
-pub const ENCRYPTION_KEY_LEN: usize = 16;
-
-/// The length of encrypted portion of original file.
-///
-/// Since it's a simple byte-to-byte XOR operation,
-/// the parted being encrypted is equal to [`ENCRYPTION_KEY_LEN`].
-pub const ENCRYPTION_LEN: usize = ENCRYPTION_KEY_LEN;
-
-
-
 #[ derive( Debug, Clone ) ]
 pub struct Resource {
     pub origin: PathBuf,
@@ -132,7 +102,7 @@ impl DecryptResource {
         {
             debug!( "verify RPGMV header" );
 
-            let mut header = [ 0; RPG_HEADER_LEN ];
+            let mut header = [ 0; crate::RPG_HEADER_LEN ];
 
             match file.read_exact( &mut header ) {
                 Ok(_) => {},
@@ -146,7 +116,7 @@ impl DecryptResource {
 
             debug!( ?header );
 
-            if header != RPG_HEADER {
+            if header != crate::RPG_HEADER {
                 bail!( "Invalid RPGMV encryption header" )
             }
         }
@@ -159,7 +129,7 @@ impl DecryptResource {
 
         file.read_to_end( &mut content )?;
 
-        ensure! { content.len() > ENCRYPTION_LEN,
+        ensure! { content.len() > crate::ENCRYPTED_PART_LEN,
             "Insufficient content for decryption"
         };
 
