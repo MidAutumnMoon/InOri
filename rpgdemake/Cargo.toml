@@ -10,7 +10,6 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bytes = "1.6.1"
 clap.workspace = true
 hex = "0.4.3"
 ino_tracing.workspace = true

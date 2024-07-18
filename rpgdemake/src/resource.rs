@@ -11,8 +11,6 @@ use anyhow::{
 
 use tracing::debug;
 
-use bytes::Bytes;
-
 use crate::key::EncryptionKey;
 
 
@@ -121,7 +119,7 @@ impl Resource {
 #[ derive( Debug ) ]
 pub struct DecryptResource {
     resource: Resource,
-    decrypted: Bytes,
+    decrypted: Vec<u8>,
 }
 
 impl DecryptResource {
@@ -189,7 +187,7 @@ impl DecryptResource {
 
         Ok( Self {
             resource,
-            decrypted: Bytes::from( content )
+            decrypted: Vec::from( content )
         } )
     }
 

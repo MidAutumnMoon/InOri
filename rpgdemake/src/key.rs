@@ -8,16 +8,11 @@ use anyhow::{
 
 use tracing::debug;
 
-use bytes::{
-    Bytes,
-    BytesMut,
-};
-
 
 /// The per-project key used to encrypt assets.
 #[ derive( Debug, Clone ) ]
 pub struct EncryptionKey {
-    inner: Bytes,
+    key: Vec<u8>,
 }
 
 impl EncryptionKey {
@@ -37,7 +32,7 @@ impl EncryptionKey {
 
         let hex_chunks = keystr.chars().chunks( 2 );
 
-        let mut key = BytesMut::with_capacity( ENCRYPTION_KEY_LEN );
+        let mut key = Vec::with_capacity( ENCRYPTION_KEY_LEN );
 
         for chunk in hex_chunks.into_iter() {
             let c: Vec<u8> = chunk.map( |c| c as u8 ).collect();
@@ -50,9 +45,7 @@ impl EncryptionKey {
 
         debug!( ?key, "parsed key" );
 
-        Ok( Self {
-            inner: key.freeze()
-        } )
+        Ok( Self { key } )
     }
 
 
@@ -60,10 +53,7 @@ impl EncryptionKey {
     pub fn parse_json( json: &str )
         -> anyhow::Result< Option<Self> >
     {
-        use serde_json::{
-            Value,
-            from_str
-        };
+        use serde_json::{ Value, from_str };
 
         debug!( "try find encryption key in JSON" );
 
@@ -89,7 +79,7 @@ impl EncryptionKey {
 
 
     pub fn get( &self ) -> &[u8] {
-        self.inner.as_ref()
+        self.key.as_ref()
     }
 
 }
