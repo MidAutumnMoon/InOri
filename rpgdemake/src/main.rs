@@ -164,13 +164,10 @@ use std::{
 
 use tracing::debug;
 
-use clap::Parser;
-
 use anyhow::{
     ensure,
     bail,
 };
-
 
 mod resource;
 mod key;
@@ -182,10 +179,10 @@ use resource::Resource;
 
 /// A simple CLI tool for batch decrypting
 /// RPG Maker MV/MZ/XP assets.
-#[ derive( Parser, Debug ) ]
+#[ derive( clap::Parser, Debug ) ]
 struct CmdOpts {
     /// The path of
-    game_directory: PathBuf,
+    game_dir: PathBuf,
 
     /// Brute force the decryption even the GAME_DIRECTORY
     /// not fitting RPG Maker game layout.
@@ -222,12 +219,9 @@ fn main() -> anyhow::Result<()> {
 
     // Parse CmdOpts
 
-    let cmd_opts @ CmdOpts {
-        game_directory,
-        ..
-    } = &CmdOpts::parse();
+    let cmdopts = < CmdOpts as clap::Parser >::parse();
 
-    debug!( ?cmd_opts );
+    debug!( ?cmdopts );
 
 
     // Increase NOFILE
@@ -237,22 +231,25 @@ fn main() -> anyhow::Result<()> {
     rlimit::increase_nofile_limit( u64::MAX )?;
 
 
-    // Probe game directory layout
+    // Setup & sanity checks
 
     debug!( "probing directory layout" );
 
-    ensure! { &game_directory.try_exists()?,
-        "\"{}\" doesn't exists",
-        &game_directory.display()
-    };
+    {
+        let dir = &cmdopts.game_dir;
 
-    ensure! { &game_directory.is_dir(),
-        "\"{}\" isn't a directory",
-        &game_directory.display()
-    };
+        ensure! { dir.try_exists()?,
+            "\"{}\" doesn't exists", dir.display()
+        };
+
+        ensure! { dir.is_dir(),
+            "\"{}\" isn't a directory", dir.display()
+        };
+    }
+
 
     let location = {
-        let root = game_directory;
+        let root = &cmdopts.game_dir;
 
         let asset_dirs;
         let system_json;
@@ -337,7 +334,7 @@ fn main() -> anyhow::Result<()> {
 
     tasks::submit_assets(
         assets,
-        cmd_opts.threads
+        cmdopts.threads
     );
 
 
