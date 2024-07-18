@@ -18,7 +18,7 @@ pub fn find_all( toplevel: &Path )
         .into_iter()
             .map( |e| e.path().to_owned() )
             .filter( |p| p.is_file() )
-            .filter( |f| Resource::real_extension( f ).is_some() )
+            .filter( |f| Resource::fix_extension( f ).is_some() )
         .collect()
     ;
     Ok( files )

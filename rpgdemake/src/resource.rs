@@ -62,17 +62,10 @@ impl Resource {
     {
         debug!( "new asset" );
 
-        let target = {
-            let ext = match Self::real_extension( path ) {
-                Some( e ) => e,
-                None => bail!(
-                    "Can't find real extension for {}",
-                    path.display()
-                )
-            };
-            let mut p = path.to_owned();
-            p.set_extension( ext );
-            p
+        let target = match Self::fix_extension( path ) {
+            Some( p ) => p,
+            // TODO: rewrod error message
+            None => bail!( "Extension not correct" ),
         };
 
         Ok( Self {
@@ -86,30 +79,19 @@ impl Resource {
     /// Canonicalize the extension of encrypted files
     /// to its real counterpart.
     #[ tracing::instrument ]
-    pub fn real_extension( path: &Path )
-        -> Option< &'static str >
-    {
-        debug!( "try fixing file extension" );
-        let ext = match path.extension() {
-            Some( e ) => e,
-            None => {
-                debug!( "no extension" );
-                return None
-            }
+    pub fn fix_extension( path: &Path ) -> Option< PathBuf > {
+        let ext = match path.extension()
+            .and_then( std::ffi::OsStr::to_str )?
+        {
+            "rpgmvp" | "png_" => "png",
+            "rpgmvm" | "m4a_" => "m4a",
+            "rpgmvo" | "ogg_" => "ogg",
+            _ => { debug!( "can't fix extension" ); return None }
         };
-        let ext = match ext.to_str() {
-            Some( e ) => e,
-            None => {
-                debug!( "ignore failed OsStr convertion" );
-                return None
-            }
-        };
-        match ext {
-            "rpgmvp" | "png_" => Some( "png" ),
-            "rpgmvm" | "m4a_" => Some( "m4a" ),
-            "rpgmvo" | "ogg_" => Some( "ogg" ),
-            _ => { debug!( "no real extension found" ); None }
-        }
+        debug!( ?ext );
+        let mut path = path.to_owned();
+        let _ = path.set_extension( ext );
+        Some( path )
     }
 
 }
