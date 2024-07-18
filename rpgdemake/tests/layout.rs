@@ -47,8 +47,9 @@ impl Layout {
     }
 
     fn setup_layout( &self ) {
-        let dir = self.base_dir();
+        self.dir.child( "nw.dll" ).touch().unwrap();
 
+        let dir = self.base_dir();
         let mapping = match self.version {
             Version::MV => [
                 ( "img/pictures/Clouds.rpgmvp",
@@ -74,7 +75,6 @@ impl Layout {
             .for_each( |( child, data )|
                 dir.child( child ).write_binary( &data ).unwrap()
             ) ;
-
         dir.child( "junk-to-be-ignored" ).touch().unwrap();
     }
 

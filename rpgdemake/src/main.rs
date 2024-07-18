@@ -215,42 +215,45 @@ fn main() -> anyhow::Result<()> {
         let dir = &cmdopts.game_dir;
 
         ensure! { dir.try_exists()?,
-            "\"{}\" doesn't exists", dir.display()
+            "Game directory \"{}\" doesn't exists",
+            dir.display()
         };
 
         ensure! { dir.is_dir(),
-            "\"{}\" isn't a directory", dir.display()
+            "Game directory \"{}\" is not an actual directory",
+            dir.display()
+        };
+
+        ensure! { dir.join( "nw.dll" ).try_exists()?,
+            "Game directory doesn't contains necessary files. \
+            Maybe the game is not made in RPG Maker or is packed."
         };
     }
 
 
-    let ( system_json, asset_dirs ) = {
-        let root = &cmdopts.game_dir;
-
-        let asset_dirs;
-        let system_json;
-
-        // This is as far as where MV and MZ differs
-        if root.join( "www" ).is_dir() {
-            // MV
-            system_json = root.join( "www/data/System.json" );
-            asset_dirs = Vec::from( &[
-                root.join( "www/img" ),
-                root.join( "www/audio" ),
-            ] )
-        } else {
-            // MZ
-            system_json = root.join( "data/System.json" );
-            asset_dirs = Vec::from( &[
-                root.join( "img" ),
-                root.join( "audio" ),
-            ] );
-        }
-
-        ( system_json, asset_dirs )
+    let ( system_json, resource_dirs ) = {
+        let root = {
+            let dir = &cmdopts.game_dir;
+            if dir.join( "www" ).try_exists()? {
+                // If has "www", this should be a MV game
+                dir.join( "www" )
+            } else {
+                // If "www" not presented, this should be a MZ game.
+                dir.to_owned()
+            }
+        };
+        let system_json = root
+            .join( "data" )
+            .join( "System.json" )
+        ;
+        let resource_dirs = vec![
+            root.join( "img" ),
+            root.join( "audio" ),
+        ];
+        ( system_json, resource_dirs )
     };
 
-    debug!( ?system_json, ?asset_dirs );
+    debug!( ?system_json, ?resource_dirs );
 
 
     // Get encryption key
@@ -287,7 +290,7 @@ fn main() -> anyhow::Result<()> {
 
         use anyhow::Result as AResult;
 
-        let files: Vec<PathBuf> = asset_dirs.iter()
+        let files: Vec<PathBuf> = resource_dirs.iter()
             .map( |p| finder::find_all( p ) )
             .collect::< AResult<Vec<_>> >()?
             .into_iter()
