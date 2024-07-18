@@ -26,10 +26,11 @@ pub struct TaskInfo {
 
 
 #[ tracing::instrument( skip_all ) ]
-pub fn submit_assets(
-    assets: Vec<Resource>,
-    threads: usize,
-) {
+pub fn submit_assets( assets: Vec<Resource> ) {
+
+    let threads =
+        4 * std::thread::available_parallelism().unwrap().get()
+    ;
 
     debug!( "process {} assets with {} threads",
         assets.len(), threads

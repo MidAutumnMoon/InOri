@@ -157,10 +157,7 @@
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 
-use std::{
-    thread::available_parallelism,
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use tracing::debug;
 
@@ -183,17 +180,9 @@ struct CmdOpts {
     /// Path to the directory containing the game.
     game_dir: PathBuf,
 
-    /// Use this key instead of find one in GAME_DIRECTORY.
+    /// Manually supply a key.
     #[ arg( long, short ) ]
     key: Option<String>,
-
-    /// Number of threads used to decrypt assets.
-    #[ arg(
-        long, short,
-        default_value_t = 4 *
-            available_parallelism().unwrap().get()
-    ) ]
-    threads: usize,
 }
 
 
@@ -326,10 +315,7 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "vroom vroom on decrypting" );
 
-    tasks::submit_assets(
-        assets,
-        cmdopts.threads
-    );
+    tasks::submit_assets( assets );
 
 
     Ok(())
