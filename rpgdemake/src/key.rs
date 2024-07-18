@@ -11,11 +11,11 @@ use tracing::debug;
 
 /// The per-project key used to encrypt assets.
 #[ derive( Debug, Clone ) ]
-pub struct EncryptionKey {
+pub struct Key {
     key: Vec<u8>,
 }
 
-impl EncryptionKey {
+impl Key {
 
     #[ tracing::instrument ]
     pub fn parse_str( keystr: &str )
@@ -107,20 +107,20 @@ mod tests {
 
     #[ test ]
     fn str() {
-        let key = EncryptionKey::parse_str( KEY_STR ).unwrap();
+        let key = Key::parse_str( KEY_STR ).unwrap();
         assert_eq!( key.get(), EXPECTED_KEY );
     }
 
     #[ test ]
     fn str_invalid() {
-        let key = EncryptionKey::parse_str( KEY_STR_INVALID );
+        let key = Key::parse_str( KEY_STR_INVALID );
         assert!( key.is_err() );
     }
 
 
     #[ test ]
     fn json() {
-        let key = EncryptionKey::parse_json( JSON )
+        let key = Key::parse_json( JSON )
             .unwrap();
         assert!( key.is_some() );
         assert_eq!( key.unwrap().get(), EXPECTED_KEY );
@@ -128,7 +128,7 @@ mod tests {
 
     #[ test ]
     fn json_no_key() {
-        let key = EncryptionKey::parse_json( EMPTY_JSON )
+        let key = Key::parse_json( EMPTY_JSON )
             .unwrap();
         assert!( key.is_none() );
     }

@@ -170,6 +170,7 @@ mod resource;
 mod key;
 mod finder;
 mod tasks;
+mod task;
 
 use resource::Resource;
 
@@ -264,14 +265,14 @@ fn main() -> anyhow::Result<()> {
 
     let enc_key = {
         use std::fs::read_to_string;
-        use key::EncryptionKey;
+        use key::Key;
 
         ensure!{ system_json.is_file(),
             "System.json doesn't exist at \"{}\"",
             system_json.display()
         };
 
-        let key = EncryptionKey::parse_json( {
+        let key = Key::parse_json( {
             &read_to_string( system_json )?
         } )?;
 
@@ -288,7 +289,7 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "collect files to decrypt" );
 
-    let assets: Vec<Resource> = {
+    let files = {
 
         use anyhow::Result as AResult;
 
@@ -301,18 +302,17 @@ fn main() -> anyhow::Result<()> {
 
         debug!( ?files, "all found files" );
 
-        files.into_iter()
-            .map( |p| Resource::new( &p, enc_key.clone() ) )
-            .collect::< AResult<_> >()?
+        //files.into_iter()
+        //    .map( |p| Resource::new( &p, enc_key.clone() ) )
+        //    .collect::< AResult<_> >()?
+
+        files
     };
 
-
-    // Fire tasks
-
-    debug!( "vroom vroom on decrypting" );
-
-    tasks::submit_assets( assets );
-
+    task::TaskRunner::new(
+        &files,
+        Box::leak( Box::new( enc_key ) )
+    )?;
 
     Ok(())
 

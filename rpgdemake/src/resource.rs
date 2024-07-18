@@ -11,7 +11,7 @@ use anyhow::{
 
 use tracing::debug;
 
-use crate::key::EncryptionKey;
+use crate::key::Key;
 
 
 /// Length of general RPG Maker encrypted file header.
@@ -48,7 +48,7 @@ pub const ENCRYPTION_LEN: usize = ENCRYPTION_KEY_LEN;
 pub struct Resource {
     pub origin: PathBuf,
     pub target: PathBuf,
-    pub encryption_key: EncryptionKey,
+    pub encryption_key: Key,
 }
 
 impl Resource {
@@ -57,7 +57,7 @@ impl Resource {
         name = "asset",
         skip(encryption_key)
     ) ]
-    pub fn new( path: &Path, encryption_key: EncryptionKey )
+    pub fn new( path: &Path, encryption_key: Key )
         -> anyhow::Result< Self >
     {
         debug!( "new asset" );
@@ -195,7 +195,7 @@ mod tests {
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
 
-    use crate::key::EncryptionKey;
+    use crate::key::Key;
     use super::*;
 
     const JSON: &str =
@@ -208,8 +208,8 @@ mod tests {
         include_bytes!( "../tests/fixture/Clouds.rpgmvp" );
 
 
-    fn key() -> EncryptionKey {
-        EncryptionKey::parse_json( JSON ).unwrap().unwrap()
+    fn key() -> Key {
+        Key::parse_json( JSON ).unwrap().unwrap()
     }
 
 
