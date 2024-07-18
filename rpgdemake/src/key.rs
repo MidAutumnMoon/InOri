@@ -1,5 +1,3 @@
-use crate::resource::ENCRYPTION_KEY_LEN;
-
 use anyhow::{
     bail,
     ensure,
@@ -8,46 +6,49 @@ use anyhow::{
 
 use tracing::debug;
 
+use crate::resource::ENCRYPTION_KEY_LEN;
+
 
 /// The per-project key used to encrypt assets.
 #[ derive( Debug, Clone ) ]
 pub struct Key {
-    key: Vec<u8>,
+    key: [ u8; ENCRYPTION_KEY_LEN ],
+}
+
+
+impl TryFrom<&str> for Key {
+    type Error = anyhow::Error;
+
+    #[ tracing::instrument ]
+    fn try_from( raw_key: &str )
+        -> anyhow::Result<Self>
+    {
+        debug!( "parse encryption key from str" );
+
+        use itertools::Itertools;
+
+        ensure! { raw_key.len() == 2 * ENCRYPTION_KEY_LEN,
+            "String \"{raw_key}\" is not a valid encryption key. \
+            Maybe it's fake, obfuscated or broken.",
+        };
+
+        debug!( "decode hex values" );
+
+        let key = raw_key.chars().chunks( 2 )
+            .into_iter()
+            .map( |ck| ck.map( |c| c as u8 ).collect_vec() )
+            .map( |c| hex::decode(c) )
+            .collect::< Result< Vec<_>, _ > >()?
+            .into_iter().flatten().collect_vec()
+        ;
+
+        Ok( Self {
+            key: key.try_into().expect( "Wrong encryption length" )
+        } )
+    }
 }
 
 impl Key {
-
-    #[ tracing::instrument ]
-    pub fn parse_str( keystr: &str )
-        -> anyhow::Result< Self >
-    {
-        use itertools::Itertools;
-
-        debug!( "parse string into encryption key" );
-
-        ensure! { keystr.len() == 2 * ENCRYPTION_KEY_LEN,
-            "Encryption key \"{}\" is too short",
-            keystr
-        };
-
-        let hex_chunks = keystr.chars().chunks( 2 );
-
-        let mut key = Vec::with_capacity( ENCRYPTION_KEY_LEN );
-
-        for chunk in hex_chunks.into_iter() {
-            let c: Vec<u8> = chunk.map( |c| c as u8 ).collect();
-            let c = hex::decode( &c )
-                .with_context( || format! {
-                    "Failed to decode hex value from {c:?}"
-                } )?;
-            key.extend( c )
-        }
-
-        debug!( ?key, "parsed key" );
-
-        Ok( Self { key } )
-    }
-
 
     #[ tracing::instrument( skip_all ) ]
     pub fn parse_json( json: &str )
@@ -73,7 +74,7 @@ impl Key {
         debug!( key, "found key" );
 
         Ok( Some (
-            Self::parse_str( key )?
+            Self::try_from( key.as_ref() )?
         ) )
     }
 
@@ -107,13 +108,13 @@ mod tests {
 
     #[ test ]
     fn str() {
-        let key = Key::parse_str( KEY_STR ).unwrap();
+        let key = Key::try_from( KEY_STR ).unwrap();
         assert_eq!( key.get(), EXPECTED_KEY );
     }
 
     #[ test ]
     fn str_invalid() {
-        let key = Key::parse_str( KEY_STR_INVALID );
+        let key = Key::try_from( KEY_STR_INVALID );
         assert!( key.is_err() );
     }
 
