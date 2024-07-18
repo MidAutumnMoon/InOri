@@ -186,13 +186,6 @@ struct CmdOpts {
 }
 
 
-#[ derive( Debug ) ]
-struct ResourceLocation {
-    system_json: PathBuf,
-    asset_dirs: Vec<PathBuf>,
-}
-
-
 fn main() -> anyhow::Result<()> {
 
     // Initialize tracing
@@ -231,7 +224,7 @@ fn main() -> anyhow::Result<()> {
     }
 
 
-    let location = {
+    let ( system_json, asset_dirs ) = {
         let root = &cmdopts.game_dir;
 
         let asset_dirs;
@@ -254,10 +247,10 @@ fn main() -> anyhow::Result<()> {
             ] );
         }
 
-        ResourceLocation { system_json, asset_dirs }
+        ( system_json, asset_dirs )
     };
 
-    debug!( ?location );
+    debug!( ?system_json, ?asset_dirs );
 
 
     // Get encryption key
@@ -267,8 +260,6 @@ fn main() -> anyhow::Result<()> {
     let enc_key = {
         use std::fs::read_to_string;
         use key::EncryptionKey;
-
-        let ResourceLocation { system_json, .. } = &location;
 
         ensure!{ system_json.is_file(),
             "System.json doesn't exist at \"{}\"",
@@ -296,7 +287,7 @@ fn main() -> anyhow::Result<()> {
 
         use anyhow::Result as AResult;
 
-        let files: Vec<PathBuf> = location.asset_dirs.iter()
+        let files: Vec<PathBuf> = asset_dirs.iter()
             .map( |p| finder::find_all( p ) )
             .collect::< AResult<Vec<_>> >()?
             .into_iter()
