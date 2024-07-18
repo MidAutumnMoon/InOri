@@ -166,7 +166,6 @@ use anyhow::{
     bail,
 };
 
-mod resource;
 mod key;
 mod finder;
 mod task;

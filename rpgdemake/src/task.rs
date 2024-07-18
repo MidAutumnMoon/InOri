@@ -58,13 +58,10 @@ impl TryFrom< Task<Create> > for Task<Validate> {
 
         // 2) The file must have sufficient amount of data,
         // and the header matches.
-
         Validate::validate_header( &origin )?;
 
-        let target =
-            crate::resource::Resource::fix_extension( &origin )
-            // TODO: refine error message
-            .ok_or_else( || anyhow::anyhow!( "Can't fix extension" ) )?
+        let target = Validate::fix_extension( &origin )
+            .ok_or( anyhow::anyhow!( "Can't fix extension" ) )?
         ;
 
         Ok( Self {
@@ -79,7 +76,11 @@ impl Validate {
     pub fn fix_extension( origin: &Path )
         -> Option< PathBuf >
     {
-        todo!()
+        use std::ffi::OsStr;
+        let ext = origin.extension().and_then( OsStr::to_str )?;
+        let mut path = origin.to_owned();
+        let _ = path.set_extension( Self::map_extension( ext )? );
+        Some( path )
     }
 
     /// Map known extensions of encrypted RPG Maker files
