@@ -222,13 +222,13 @@ mod tests {
     use super::*;
 
     const JSON: &str =
-        include_str!( "../fixture/System.json" );
+        include_str!( "../tests/fixture/System.json" );
 
     const CLOUDS_PNG: &[u8] =
-        include_bytes!( "../fixture/Clouds.png" );
+        include_bytes!( "../tests/fixture/Clouds.png" );
 
     const CLOUDS_RPGMVP: &[u8] =
-        include_bytes!( "../fixture/Clouds.rpgmvp" );
+        include_bytes!( "../tests/fixture/Clouds.rpgmvp" );
 
 
     fn key() -> EncryptionKey {

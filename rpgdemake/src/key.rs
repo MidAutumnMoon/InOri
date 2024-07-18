@@ -99,7 +99,7 @@ impl EncryptionKey {
 mod tests {
 
     const JSON: &str =
-        include_str!( "../fixture/System.json" );
+        include_str!( "../tests/fixture/System.json" );
 
     const EMPTY_JSON: &str = "{}";
 

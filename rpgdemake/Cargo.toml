@@ -12,18 +12,16 @@ repository.workspace = true
 anyhow.workspace = true
 bytes = "1.6.1"
 clap.workspace = true
-crossbeam = "0.8.4"
 hex = "0.4.3"
 ino_tracing.workspace = true
 itertools = "0"
 mimalloc.workspace = true
 rayon.workspace = true
-rlimit = "0.10.1"
+rlimit = "0"
 serde_json = "1"
 tracing.workspace = true
-walkdir = "2.5.0"
+walkdir = "2"
 
 [dev-dependencies]
-assert_cmd = "2.0.14"
 assert_fs = "1.1.1"
 dir-diff = "0.3.3"
