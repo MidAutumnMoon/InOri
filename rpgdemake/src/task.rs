@@ -231,34 +231,25 @@ impl TaskRunner {
     {
         use rayon::prelude::*;
 
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads( 256 )
-            .build()
-            .context( "Failed to build rayon threadpool" )?
+        paths.into_par_iter()
+            .map( |path| { Task::<Create>::new( path, key ) } )
+            .map( |tk| { Task::<Validate>::try_from( tk ) } )
+            .map( |tk| { tk.and_then( Task::<Decrypt>::try_from ) } )
+            .map( |tk| { tk.and_then( Task::<Write>::try_from ) } )
+            .map( |tk| { tk.and_then( Task::<Done>::try_from ) } )
+            .enumerate()
+            // TODO:
+            // This losts the paths of errored tasks, which can be
+            // solved by using a custom error type later on.
+            .for_each( |( idx, result )| {
+                let idx = idx + 1;
+                let message = match result {
+                    Ok( t ) => format!( "(ok) {:?}", t.step.target ),
+                    Err( e ) => format!( "(err: {e:?})" ),
+                };
+                println!( "{idx}/{}: {message}", paths.len() )
+            } )
         ;
-
-        pool.install( || {
-            let total = paths.len();
-            paths.into_par_iter()
-                .map( |path| { Task::<Create>::new( path, key ) } )
-                .map( |tk| { Task::<Validate>::try_from( tk ) } )
-                .map( |tk| { tk.and_then( Task::<Decrypt>::try_from ) } )
-                .map( |tk| { tk.and_then( Task::<Write>::try_from ) } )
-                .map( |tk| { tk.and_then( Task::<Done>::try_from ) } )
-                .enumerate()
-                // TODO:
-                // This losts the paths of errored tasks, which can be
-                // solved by using a custom error type later on.
-                .for_each( |( idx, result )| {
-                    let idx = idx + 1;
-                    let message = match result {
-                        Ok( t ) => format!( "(ok) {:?}", t.step.target ),
-                        Err( e ) => format!( "(err: {e:?})" ),
-                    };
-                    println!( "{idx}/{total}: {message}" )
-                } )
-            ;
-        } );
 
         Ok(())
     }
