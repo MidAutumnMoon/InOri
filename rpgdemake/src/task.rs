@@ -188,7 +188,7 @@ impl TryFrom< Task<Decrypt> > for Task<Write> {
 
         let Decrypt { origin, target, content } = prev.step;
 
-        std::fs::write( &target, &content )?;
+        std::fs::write( &target, content )?;
 
         Ok( Self {
             step: Write { origin, target },
@@ -200,6 +200,7 @@ impl TryFrom< Task<Decrypt> > for Task<Write> {
 
 #[ derive( Debug ) ]
 struct Done {
+    #[ allow( dead_code ) ]
     origin: PathBuf,
     target: PathBuf,
 }

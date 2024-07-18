@@ -45,7 +45,7 @@ impl TryFrom<&str> for Key {
         let key = raw_key.chars().chunks( 2 )
             .into_iter()
             .map( |ck| ck.map( |c| c as u8 ).collect_vec() )
-            .map( |c| hex::decode(c) )
+            .map( hex::decode )
             .collect::< Result< Vec<_>, _ > >()?
             .into_iter().flatten().collect_vec()
         ;
