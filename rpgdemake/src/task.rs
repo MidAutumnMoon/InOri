@@ -150,7 +150,7 @@ impl TryFrom< Task<Validate> > for Task<Decrypt> {
         let mut content = std::fs::read( &origin )?;
         let content = &mut content[ crate::RPG_HEADER_LEN.. ];
 
-        key.get()
+        key.value
             .iter().enumerate()
             .for_each( |( idx, b )| content[idx] ^= b )
         ;

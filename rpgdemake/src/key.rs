@@ -20,7 +20,7 @@ pub const RAW_KEY_LEN: usize = 2 * KEY_LEN;
 /// The per-project key used to encrypt assets.
 #[ derive( Debug, Clone ) ]
 pub struct Key {
-    key: [ u8; KEY_LEN ],
+    pub value: [ u8; KEY_LEN ],
 }
 
 
@@ -51,7 +51,7 @@ impl TryFrom<&str> for Key {
         ;
 
         Ok( Self {
-            key: key.try_into()
+            value: key.try_into()
                 .expect( "Decoded key has wrong length somehow" )
         } )
     }
@@ -87,11 +87,6 @@ impl Key {
         ) )
     }
 
-
-    pub fn get( &self ) -> &[u8] {
-        self.key.as_ref()
-    }
-
 }
 
 
@@ -118,7 +113,7 @@ mod tests {
     #[ test ]
     fn str() {
         let key = Key::try_from( KEY_STR ).unwrap();
-        assert_eq!( key.get(), EXPECTED_KEY );
+        assert_eq!( key.value, EXPECTED_KEY );
     }
 
     #[ test ]
@@ -133,7 +128,7 @@ mod tests {
         let key = Key::parse_json( JSON )
             .unwrap();
         assert!( key.is_some() );
-        assert_eq!( key.unwrap().get(), EXPECTED_KEY );
+        assert_eq!( key.unwrap().value, EXPECTED_KEY );
     }
 
     #[ test ]
