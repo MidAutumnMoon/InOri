@@ -37,3 +37,8 @@ ino_tracing = { path = "./crates/ino_tracing" }
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
+
+[profile.perf]
+inherits = "release"
+debug = true
+strip = false
