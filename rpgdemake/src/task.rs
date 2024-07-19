@@ -13,20 +13,20 @@ use crate::key::Key;
 #[ derive( Debug ) ]
 struct Task<S> {
     step: S,
-    key: &'static Key,
 }
 
 
 #[ derive( Debug ) ]
 struct Create {
     origin: PathBuf,
+    key: &'static Key,
 }
 
 impl Task<Create> {
     #[ tracing::instrument( skip_all ) ]
     fn new( path: &Path, key: &'static Key ) -> Self {
         debug!( "task create" );
-        Self { step: Create { origin: path.to_owned() }, key }
+        Self { step: Create { origin: path.to_owned(), key } }
     }
 }
 
@@ -35,6 +35,7 @@ impl Task<Create> {
 pub struct Validate {
     origin: PathBuf,
     target: PathBuf,
+    key: &'static Key,
 }
 
 impl TryFrom< Task<Create> > for Task<Validate> {
@@ -46,7 +47,7 @@ impl TryFrom< Task<Create> > for Task<Validate> {
     {
         debug!( "task validate" );
 
-        let Create { origin } = prev.step;
+        let Create { origin, key } = prev.step;
 
         // 1) Ensure we're working with file.
         ensure!{ origin.is_file(),
@@ -61,10 +62,7 @@ impl TryFrom< Task<Create> > for Task<Validate> {
             .ok_or( anyhow::anyhow!( "Can't fix extension" ) )?
         ;
 
-        Ok( Self {
-            step: Validate { origin, target },
-            key: prev.key
-        } )
+        Ok( Self { step: Validate { origin, target, key } } )
     }
 }
 
@@ -147,23 +145,19 @@ impl TryFrom< Task<Validate> > for Task<Decrypt> {
     {
         debug!( "task decrypt" );
 
-        let Validate { origin, target } = prev.step;
+        let Validate { origin, target, key } = prev.step;
 
         let mut content = std::fs::read( &origin )?;
         let content = &mut content[ crate::RPG_HEADER_LEN.. ];
 
-        prev.key.get()
+        key.get()
             .iter().enumerate()
             .for_each( |( idx, b )| content[idx] ^= b )
         ;
 
-        Ok( Self {
-            step: Decrypt {
-                origin, target,
-                content: content.to_owned()
-            },
-            key: prev.key,
-        } )
+        let content = content.to_owned();
+
+        Ok( Self { step: Decrypt { origin, target, content } } )
     }
 }
 
@@ -187,10 +181,7 @@ impl TryFrom< Task<Decrypt> > for Task<Write> {
 
         std::fs::write( &target, content )?;
 
-        Ok( Self {
-            step: Write { origin, target },
-            key: prev.key,
-        } )
+        Ok( Self { step: Write { origin, target } } )
     }
 }
 
@@ -210,10 +201,7 @@ impl TryFrom< Task<Write> > for Task<Done> {
         -> anyhow::Result< Self >
     {
         let Write { origin, target } = prev.step;
-        Ok( Self {
-            step: Done { origin, target },
-            key: prev.key
-        } )
+        Ok( Self { step: Done { origin, target } } )
     }
 }
 
