@@ -79,6 +79,10 @@ struct CmdOpts {
     #[ arg( long, short, action, default_value_t=false ) ]
     no_cq: bool,
 
+    /// Encode in YUV444 instead of default YUV420
+    #[ arg( long, short, action, default_value_t=false ) ]
+    yuv444: bool,
+
     /// Process pictures recursively *(unimplemented)*
     #[ arg( long, short, action ) ]
     recursive: bool,
@@ -354,14 +358,15 @@ fn encode( app: &App, picture: Picture )
         // while saving few to none spaces, so 3.
         .args( [ "--speed", "3" ] )
         // bit-depth can be 8, 10 or 12
-        // AV1 really shines at higher bitrate which means
         // 12bit quite often saves few extra spaces than 8bit.
+        // AV1 really shines at higher bitrate which means
         // Unfortunately Windows Explorer can't thumbnail
         // 12bit AVIF picture so we're stucked with 8bit for now :(
-        .args( [ "--depth", "8" ] )
+        .args( [ "--depth", "12" ] )
         // YUV is well documented everywhere.
-        // Note: AOM denoise only works with YUV420
-        .args( [ "--yuv", "420" ] )
+        .args( [ "--yuv",
+            if app.cmdopts.yuv444 { "444" } else { "420" }
+        ] )
         // How AVIF converts colors between color spaces.
         // A headache topic that the author is not quite
         // understanding.
