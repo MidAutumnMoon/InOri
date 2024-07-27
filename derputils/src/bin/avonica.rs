@@ -114,7 +114,7 @@ impl Picture {
     #[ tracing::instrument ]
     fn filetype_supported( path: &Path ) -> bool {
         if let Some( ext ) = path.extension() {
-            let ext = ext.to_string_lossy().to_owned().to_lowercase();
+            let ext = ext.to_string_lossy().into_owned().to_lowercase();
             debug!( ext );
             SUPPORTED_FILE_TYPES.contains( &ext.as_str() )
         } else {
