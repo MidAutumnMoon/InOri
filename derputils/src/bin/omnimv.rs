@@ -50,7 +50,7 @@ struct CmdOpts {
 
 impl CmdOpts {
     #[ tracing::instrument ]
-    fn new() -> anyhow::Result<Self> {
+    fn parse() -> anyhow::Result<Self> {
         let opts = <Self as clap::Parser>::parse();
 
         debug!( ?opts, "cmdopts" );
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
 
     // Get cmd options
 
-    let cmd_opts = CmdOpts::new()?;
+    let cmd_opts = CmdOpts::parse()?;
 
     let CmdOpts {
         needle_names,
