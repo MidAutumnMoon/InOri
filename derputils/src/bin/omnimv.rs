@@ -23,11 +23,6 @@ use anyhow::{
 use itertools::Itertools;
 
 
-/// Arbitrary value based on the current amount
-/// of files in my download folder :P
-const AVERAGE_AMOUNT: usize = 70;
-
-
 /// Move files from other places to current
 /// working directory.
 #[ derive( Debug, clap::Parser ) ]
@@ -98,8 +93,7 @@ impl Feedle {
     {
         debug!( "looking for files" );
 
-        let mut collected =
-            Vec::with_capacity( AVERAGE_AMOUNT );
+        let mut collected = Vec::new();
 
         for entry in dir.read_dir()? {
             let _s = debug_span!( "maybe_entry", ?entry ).entered();
@@ -153,7 +147,7 @@ struct Haystack {
 impl Haystack {
     #[tracing::instrument]
     fn new() -> Self {
-        Self { inner: Vec::with_capacity( AVERAGE_AMOUNT * 2 ) }
+        Self { inner: Vec::new() }
     }
 
     #[tracing::instrument]
