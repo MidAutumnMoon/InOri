@@ -45,7 +45,7 @@ struct CmdOpts {
     /// only the first one will be moved.
     #[ arg( id = "filenames" ) ]
     // arg_name undocumented
-    feedle_names: Vec<String>,
+    needle_names: Vec<String>,
 }
 
 impl CmdOpts {
@@ -61,7 +61,7 @@ impl CmdOpts {
             Run with --help for more information."
         }
 
-        ensure! { opts.listing || ! opts.feedle_names.is_empty(),
+        ensure! { opts.listing || ! opts.needle_names.is_empty(),
             "No files to be moved.\
             \n\n\
             Run with --help for more information."
@@ -78,15 +78,13 @@ impl CmdOpts {
     }
 }
 
-/// Feedle: file needle
 #[derive( Debug )]
-struct Feedle {
+struct Needle {
     name: String,
     origin: PathBuf,
 }
 
-impl Feedle {
-    /// Helper function for collecting Feedles from `dir`.
+impl Needle {
     #[tracing::instrument]
     fn from_dir( dir: &Path )
         -> anyhow::Result<Vec<Self>>
@@ -141,7 +139,7 @@ impl Feedle {
 
 #[derive( Debug )]
 struct Haystack {
-    inner: Vec<Feedle>,
+    inner: Vec<Needle>,
 }
 
 impl Haystack {
@@ -151,19 +149,19 @@ impl Haystack {
     }
 
     #[tracing::instrument]
-    fn append( &mut self, other: &mut Vec<Feedle> ) {
+    fn append( &mut self, other: &mut Vec<Needle> ) {
         self.inner.append( other )
     }
 
     #[tracing::instrument]
-    fn feedle_names( &self ) -> Vec<&str> {
+    fn needle_names( &self ) -> Vec<&str> {
         self.inner.iter()
             .map( |e| e.name.as_str() )
             .collect()
     }
 
     #[tracing::instrument]
-    fn find( &self, name: &str ) -> Vec<&Feedle> {
+    fn find( &self, name: &str ) -> Vec<&Needle> {
         self.inner.iter()
             .filter( |e| e.name == name )
             .collect_vec()
@@ -183,25 +181,25 @@ fn main() -> anyhow::Result<()> {
     let cmd_opts = CmdOpts::new()?;
 
     let CmdOpts {
-        feedle_names,
+        needle_names,
         searchdirs,
         ..
     } = &cmd_opts;
 
 
-    // Collect feedles
+    // Collect haystack
 
     let haystack: Haystack = {
         let _s = debug_span!( "haystack" ).entered();
 
-        debug!( "collect feedles to make haystack" );
+        debug!( "collect needles to make haystack" );
 
         let mut haystack = Haystack::new();
 
         for schdir in searchdirs {
             let _s = debug_span!( "inside", ?schdir ).entered();
             haystack.append(
-                &mut Feedle::from_dir( schdir )?
+                &mut Needle::from_dir( schdir )?
             );
         }
 
@@ -218,7 +216,7 @@ fn main() -> anyhow::Result<()> {
         debug!( "listing mode" );
 
         println! { "{}",
-            haystack.feedle_names().join( "\n" )
+            haystack.needle_names().join( "\n" )
         };
 
         return Ok(())
@@ -229,24 +227,24 @@ fn main() -> anyhow::Result<()> {
 
     let _s = debug_span!( "moving" ).entered();
 
-    debug!( ?feedle_names );
+    debug!( ?needle_names );
 
     let current_dir = std::env::current_dir()?;
 
     debug!( ?current_dir );
 
 
-    for name in feedle_names {
-        let _s = debug_span!( "feedle_name", ?name ).entered();
+    for name in needle_names {
+        let _s = debug_span!( "needle", ?name ).entered();
 
         let found = match haystack.find( name )[..] {
             [] => {
                 debug!( "not found" );
                 bail!( "File \"{name}\" not found in searchdirs" );
             },
-            [ feedle ] => {
+            [ needle ] => {
                 debug!( "found one" );
-                feedle
+                needle
             },
             ref all @ [ .. ] => {
                 debug!( "find multiple, take first" );
@@ -256,17 +254,17 @@ fn main() -> anyhow::Result<()> {
 
         debug!( ?found );
 
-        let feedle_dest = current_dir.join( name );
+        let needle_dest = current_dir.join( name );
 
-        debug!( ?feedle_dest, "prepare to move" );
+        debug!( ?needle_dest, "prepare to move" );
 
         debug!( "check for collinsion" );
 
-        ensure! { ! feedle_dest.try_exists()?,
+        ensure! { ! needle_dest.try_exists()?,
             "{name} already exists under current directory",
         };
 
-        found.move_to( &feedle_dest )?
+        found.move_to( &needle_dest )?
     }
 
     Ok(())
