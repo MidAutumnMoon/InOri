@@ -186,13 +186,13 @@ fn main() -> anyhow::Result<()> {
 
     // Get cmd options
 
-    let opts = CmdOpts::new()?;
+    let cmd_opts = CmdOpts::new()?;
 
     let CmdOpts {
         feedle_names,
         searchdirs,
         ..
-    } = &opts;
+    } = &cmd_opts;
 
 
     // Collect feedles
@@ -219,7 +219,7 @@ fn main() -> anyhow::Result<()> {
 
     // Listing
 
-    if opts.listing {
+    if cmd_opts.listing {
         let _s = debug_span!( "listing" ).entered();
         debug!( "listing mode" );
 
