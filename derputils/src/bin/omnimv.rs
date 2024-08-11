@@ -22,8 +22,6 @@ use anyhow::{
 
 use itertools::Itertools;
 
-use clap::Parser;
-
 
 /// Arbitrary value based on the current amount
 /// of files in my download folder :P
@@ -58,7 +56,7 @@ struct CmdOpts {
 impl CmdOpts {
     #[ tracing::instrument ]
     fn new() -> anyhow::Result<Self> {
-        let opts = Self::parse();
+        let opts = <Self as clap::Parser>::parse();
 
         debug!( ?opts, "cmdopts" );
 
