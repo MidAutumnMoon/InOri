@@ -277,17 +277,14 @@ fn main() -> anyhow::Result<()> {
     debug!( "try read encryption key" );
 
     let enc_key = {
-        use std::fs::read_to_string;
-        use key::Key;
-
         ensure!{ system_json.is_file(),
             "System.json doesn't exist at \"{}\"",
             system_json.display()
         };
 
-        let key = Key::parse_json( {
-            &read_to_string( system_json )?
-        } )?;
+        let key = key::Key::parse_json(
+            &std::fs::read_to_string( system_json )?
+        )?;
 
         match key {
             Some( k ) => k,
