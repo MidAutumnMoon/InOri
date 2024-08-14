@@ -291,7 +291,9 @@ fn main() -> anyhow::Result<()> {
 
         match key {
             Some( k ) => k,
-            None => bail!( "No key found, maybe not encrypted?" ),
+            None => bail!(
+                "System.json does not contain encryption key, maybe not encrypted?"
+            ),
         }
     };
 
