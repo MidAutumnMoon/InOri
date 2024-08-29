@@ -38,17 +38,6 @@ use clap::Parser;
 use tracing::debug;
 
 
-/// Number of avifenc to run at the same time.
-///
-/// A big chunck of encoding time avifenc spent
-/// is doing something single-threaded, likely decoding the
-/// input picture, so multiple avifenc instances are launched
-/// to minimize the CPU waste.
-///
-/// However the actual encoding is CPU intensive.
-const AVIFENC_INSTANCES: usize = 2;
-
-
 /// Path to avifenc executable.
 /// Default is simply "avifenc" to use whatever found in $PATH.
 /// Primarily for nix packaging.
@@ -96,7 +85,7 @@ struct CmdOpts {
 }
 
 
-#[ derive( Debug, Clone ) ]
+#[ derive( Debug ) ]
 struct Picture {
     from: PathBuf,
     dest: PathBuf,
@@ -157,7 +146,6 @@ struct App {
     mode: Mode,
     pictures: Vec<Picture>,
     cmdopts: CmdOpts,
-    avifenc_jobs: usize,
 }
 
 
@@ -219,16 +207,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing::trace!( ?pictures );
 
-    let avifenc_jobs = {
-        let cores = std::thread::available_parallelism()?.get();
-        match &mode {
-            Mode::File(_) => cores,
-            Mode::Dir(_) => cores.div_ceil( AVIFENC_INSTANCES )
-        }
-    };
-
-
-    let app = App { mode, pictures, cmdopts, avifenc_jobs };
+    let app = App { mode, pictures, cmdopts };
 
     debug!( "app made" );
 
@@ -247,59 +226,24 @@ fn main() -> anyhow::Result<()> {
     }
 
 
-    std::thread::scope( |scope| {
-        use std::sync::Arc;
-        use itertools::Itertools;
+    for pic in &app.pictures {
 
-        let app = Arc::new( app );
+        let result = encode( &app, pic )?;
 
-        'cks: for pictures in app.clone()
-            .pictures
-            .chunks( AVIFENC_INSTANCES )
-        {
-            let handles = pictures.iter()
-                .map( |pic| {
-                    let app = app.clone();
-                    let pic = pic.to_owned();
-                    eprintln!( ":: Encoding {}", &pic.from.display() );
-                    scope.spawn( move || encode( &app, pic ) )
-                } )
-                .collect_vec();
+        if !result.status.success() {
+            anyhow::bail!( ":: Encoding failed" );
+        }
 
-            for hdl in handles {
-                let enc_res = match hdl.join() {
-                    Ok( r ) => match r {
-                        Ok( re ) => re,
-                        Err( e ) => {
-                            eprintln!( "{e:?}" ); break 'cks
-                        }
-                    },
-                    Err(_) => break 'cks,
-                };
-                let EncodeResult { status, picture } = enc_res;
-                if !status.success() {
-                    eprintln!( ":: Encoding failed" );
-                    break 'cks
-                }
-                if picture.archive {
-                    eprintln!( ":: Archive original picture" );
-                    let achv_status = match picture.do_archive() {
-                        Ok( re ) => re,
-                        Err( e ) => {
-                            eprintln!( "{e:?}" );
-                            break 'cks
-                        }
-                    };
-                    if !achv_status.success() {
-                        eprintln!( ":: Archive original picture failed" );
-                        break 'cks
-                    }
-                }
-                eprintln!()
+        if pic.archive {
+            eprintln!( ":: Archive original file" );
+            let result = pic.do_archive()?;
+
+            if !result.success() {
+                anyhow::bail!( "Failed to archive original picture: {result:?}" );
             }
         }
-    } );
 
+    }
 
     Ok(())
 
@@ -324,13 +268,12 @@ fn find_files( dir: &Path )
 
 struct EncodeResult {
     status: std::process::ExitStatus,
-    picture: Picture,
 }
 
 
 /// Encode the picture at *from*, save the result to *dest*.
 #[ tracing::instrument ]
-fn encode( app: &App, picture: Picture )
+fn encode( app: &App, picture: &Picture )
     -> anyhow::Result< EncodeResult >
 {
 
@@ -353,7 +296,7 @@ fn encode( app: &App, picture: Picture )
         .args( [ "--minalpha", "0" ] )
         .args( [ "--maxalpha", "63" ] )
         // avifenc is able to utilize multithread.
-        .args( [ "--jobs", &app.avifenc_jobs.to_string() ] )
+        .args( [ "--jobs", "all" ] )
         // Values higher than 3 ofthen add seconds to encoding
         // while saving few to none spaces, so 3.
         .args( [ "--speed", "3" ] )
@@ -415,5 +358,6 @@ fn encode( app: &App, picture: Picture )
         .args( [ &picture.from, &picture.dest ] )
         .spawn()?.wait()?;
 
-    Ok( EncodeResult { status, picture } )
+    Ok( EncodeResult { status } )
+
 }
