@@ -33,9 +33,16 @@ use std::path::{
     Path
 };
 
+use std::process::{
+    Command,
+    ExitStatus,
+};
+
 use clap::Parser;
 
 use tracing::debug;
+
+
 
 
 /// Path to avifenc executable.
@@ -48,15 +55,15 @@ const AVIFENC: &str = const {
     }
 };
 
-
 /// File types that avifenc supports as input
 const SUPPORTED_FILE_TYPES: [ &str; 4 ] = [
     "jpg", "jpeg", "png", "y4m"
 ];
 
-
 /// Name of the directory to archive original pictures.
 const ARCHIVE_DIR_NAME: &str = "original";
+
+const ARCHIVE_BATCH_SIZE: usize = 250;
 
 
 /// A tool for converting pictures to AVIF format lossly
@@ -120,17 +127,6 @@ impl Picture {
         path
     }
 
-    fn do_archive( &self )
-        -> anyhow::Result< std::process::ExitStatus >
-    {
-        let status = std::process::Command::new( "mv" )
-            .arg( "-vn" ).arg( "--" )
-            .args( [ &self.from, Path::new( ARCHIVE_DIR_NAME ) ] )
-            .spawn()?
-            .wait()?
-        ;
-        Ok( status )
-    }
 }
 
 
@@ -142,6 +138,7 @@ struct App {
 }
 
 
+#[ derive( Debug, Default ) ]
 struct ArchiveQueue<'queue> {
     pictures: Vec<&'queue Picture>
 }
@@ -150,6 +147,50 @@ impl<'queue> ArchiveQueue<'queue> {
 
     fn push( &mut self, pic: &'queue Picture ) {
         self.pictures.push( pic )
+    }
+
+    fn execute( &self ) -> anyhow::Result<()> {
+        use itertools::Itertools;
+
+        debug!( "execute archiving tasks" );
+
+        eprintln!( ":: Archive original pictures" );
+
+        let chunks = self.pictures
+            .chunks( ARCHIVE_BATCH_SIZE )
+            .map( |ck| {
+                ck.iter()
+                    .filter( |p| p.archive )
+                    .map( |p| &p.from )
+                    .collect_vec()
+            } )
+            .collect_vec()
+        ;
+
+        debug!( "{} chunk(s)", chunks.len() );
+
+        for ck in chunks {
+            if ck.is_empty() {
+                continue
+            }
+
+            debug!( "run mv" );
+
+            let status = Command::new( "mv" )
+                .arg( "-vn" )
+                .args( [ "--target-directory", ARCHIVE_DIR_NAME ] )
+                .arg( "--" )
+                .args( ck )
+                .spawn()?.wait()?
+            ;
+
+            anyhow::ensure! {
+                status.success(),
+                ":: Failed to archive some pictures."
+            }
+        };
+
+        Ok(())
     }
 
 }
@@ -171,7 +212,7 @@ fn main() -> anyhow::Result<()> {
     debug!( ?cmdopts );
 
 
-    debug!( "determine mode of app" );
+    debug!( "collecting pictures" );
 
     let pictures = {
 
@@ -183,9 +224,9 @@ fn main() -> anyhow::Result<()> {
 
         debug!( ?input );
 
-        debug!( "collecting pictures" );
-
         if input.is_file() {
+
+            debug!( "input is picture" );
 
             anyhow::ensure! {
                 Picture::filetype_supported( &input ),
@@ -195,6 +236,8 @@ fn main() -> anyhow::Result<()> {
             vec![ Picture::new( input, false ) ]
 
         } else if input.is_dir() {
+
+            debug!( "input is directory" );
 
             debug!( ?input, "change working directory" );
             std::env::set_current_dir( &input )?;
@@ -225,8 +268,6 @@ fn main() -> anyhow::Result<()> {
 
     let app = App { pictures, cmdopts };
 
-    debug!( "app made" );
-
     tracing::trace!( ?app );
 
 
@@ -234,24 +275,23 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "prepare to run avifenc" );
 
+    let mut archive_queue = ArchiveQueue::default();
+
     for pic in &app.pictures {
 
         let result = encode( &app, pic )?;
 
-        if !result.status.success() {
+        if !result.success() {
             anyhow::bail!( ":: Encoding failed" );
         }
 
-        if pic.archive {
-            eprintln!( ":: Archive original file" );
-            let result = pic.do_archive()?;
-
-            if !result.success() {
-                anyhow::bail!( "Failed to archive original picture: {result:?}" );
-            }
-        }
+        archive_queue.push( pic );
 
     }
+
+    debug!( "post encoding tasks" );
+
+    archive_queue.execute()?;
 
     Ok(())
 
@@ -274,15 +314,10 @@ fn find_files( dir: &Path )
 }
 
 
-struct EncodeResult {
-    status: std::process::ExitStatus,
-}
-
-
 /// Encode the picture at *from*, save the result to *dest*.
 #[ tracing::instrument ]
 fn encode( app: &App, picture: &Picture )
-    -> anyhow::Result< EncodeResult >
+    -> anyhow::Result< ExitStatus >
 {
 
     // Trying to document things as much as possible,
@@ -291,7 +326,7 @@ fn encode( app: &App, picture: &Picture )
     // For some reason this configuration is the right
     // magic spell to control AV1+aom+libavif to give
     // the best results.
-    let mut avifenc = std::process::Command::new( AVIFENC );
+    let mut avifenc = Command::new( AVIFENC );
 
     let avifenc = avifenc
         // min/max level of quantization,
@@ -366,6 +401,6 @@ fn encode( app: &App, picture: &Picture )
         .args( [ &picture.from, &picture.dest ] )
         .spawn()?.wait()?;
 
-    Ok( EncodeResult { status } )
+    Ok( status )
 
 }
