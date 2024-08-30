@@ -56,7 +56,7 @@ const SUPPORTED_FILE_TYPES: [ &str; 4 ] = [
 
 
 /// Name of the directory to archive original pictures.
-const ARCHIVE_DIR: &str = "original";
+const ARCHIVE_DIR_NAME: &str = "original";
 
 
 /// A tool for converting pictures to AVIF format lossly
@@ -76,12 +76,13 @@ struct CmdOpts {
     #[ arg( long, short, action ) ]
     recursive: bool,
 
-    /// Path to either a single picture or a directory of pictures.
+    /// Path to either a picture or a directory.
     /// For single picture the result AVIF file is placed
-    /// in the same directory with it.
+    /// in the same directory beside it.
     /// For directory the original file is moved to
     /// a child directory named "original".
-    the_thing: Option<PathBuf>,
+    /// If no path is supplied then the current directory is used.
+    input: Option<PathBuf>,
 }
 
 
@@ -124,7 +125,7 @@ impl Picture {
     {
         let status = std::process::Command::new( "mv" )
             .arg( "-vn" ).arg( "--" )
-            .args( [ &self.from, Path::new( ARCHIVE_DIR ) ] )
+            .args( [ &self.from, Path::new( ARCHIVE_DIR_NAME ) ] )
             .spawn()?
             .wait()?
         ;
@@ -133,19 +134,24 @@ impl Picture {
 }
 
 
-#[ derive( Debug ) ]
-enum Mode {
-    File( PathBuf ),
-    Dir( PathBuf ),
-}
-
-
 /// Smash things together and roll it around.
 #[ derive( Debug ) ]
 struct App {
-    mode: Mode,
     pictures: Vec<Picture>,
     cmdopts: CmdOpts,
+}
+
+
+struct ArchiveQueue<'queue> {
+    pictures: Vec<&'queue Picture>
+}
+
+impl<'queue> ArchiveQueue<'queue> {
+
+    fn push( &mut self, pic: &'queue Picture ) {
+        self.pictures.push( pic )
+    }
+
 }
 
 
@@ -167,38 +173,48 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "determine mode of app" );
 
-    let mode = {
-        let path = cmdopts.the_thing.clone()
-            .unwrap_or( std::env::current_dir()? );
-        debug!( "get absolute path of {path:?}" );
-        let path = std::path::absolute( path )?;
-        debug!( ?path, "final path to work with" );
-        if path.is_file() { Mode::File( path ) }
-        else if path.is_dir() { Mode::Dir( path ) }
-        else {
-            anyhow::bail!( "The thing is neither a directory \
-                nor file" )
-        }
-    };
+    let pictures = {
 
+        let input = {
+            let p = cmdopts.input.clone()
+                .unwrap_or( std::env::current_dir()? );
+            std::path::absolute( p )?
+        };
 
-    debug!( "collecting pictures" );
+        debug!( ?input );
 
-    let pictures = match &mode {
-        Mode::File( p ) => {
-            anyhow::ensure! { Picture::filetype_supported( p ),
-                "\"{}\" is not a supported filetype",
-                p.display()
+        debug!( "collecting pictures" );
+
+        if input.is_file() {
+
+            anyhow::ensure! {
+                Picture::filetype_supported( &input ),
+                "\"{input:?}\" is not a supported filetype",
             };
-            vec![ Picture::new( p.to_owned(), false ) ]
-        },
-        Mode::Dir( p ) => {
-            find_files( p )?.into_iter()
+
+            vec![ Picture::new( input, false ) ]
+
+        } else if input.is_dir() {
+
+            debug!( ?input, "change working directory" );
+            std::env::set_current_dir( &input )?;
+
+            // N.B. This relies on the fact that the pwd is set to
+            // the input directory so that the archive dir is created
+            // inside it.
+            debug!( "create archive directory" );
+            std::fs::create_dir_all( ARCHIVE_DIR_NAME )?;
+
+            find_files( &input )?.into_iter()
                 .filter( |p| Picture::filetype_supported( p ) )
                 .map( |p| Picture::new( p, true ) )
                 .collect()
-        },
+
+        } else {
+            anyhow::bail!( "Input is neither a directory nor a file" )
+        }
     };
+
 
     if pictures.is_empty() {
         eprintln!( ":: No pictures to process" );
@@ -207,7 +223,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing::trace!( ?pictures );
 
-    let app = App { mode, pictures, cmdopts };
+    let app = App { pictures, cmdopts };
 
     debug!( "app made" );
 
@@ -217,14 +233,6 @@ fn main() -> anyhow::Result<()> {
     // Run avifenc
 
     debug!( "prepare to run avifenc" );
-
-    if let Mode::Dir( p ) = &app.mode {
-        debug!( ?p, "change working directory" );
-        std::env::set_current_dir( p )?;
-        debug!( "create archive directory" );
-        std::fs::create_dir_all( ARCHIVE_DIR )?;
-    }
-
 
     for pic in &app.pictures {
 
