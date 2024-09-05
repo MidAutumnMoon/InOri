@@ -1,0 +1,15 @@
+[package]
+name = "avxl"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ino_tracing.workspace = true
+itertools = "0.13.0"
+tracing.workspace = true

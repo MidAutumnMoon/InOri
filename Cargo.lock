@@ -103,6 +103,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 
 [[package]]
+name = "avxl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ino_tracing",
+ "itertools",
+ "tracing",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
