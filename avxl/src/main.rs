@@ -27,7 +27,6 @@
 //! save quite a lot spaces, so there is also a switch
 //! to disable CQ in this tool.
 
-
 use std::path::{
     PathBuf,
     Path
@@ -38,11 +37,7 @@ use std::process::{
     ExitStatus,
 };
 
-use clap::Parser;
-
 use tracing::debug;
-
-
 
 
 /// Path to avifenc executable.
@@ -68,7 +63,7 @@ const ARCHIVE_BATCH_SIZE: usize = 250;
 
 /// A tool for converting pictures to AVIF format lossly
 /// while preserving reasonable quality.
-#[ derive( Parser, Debug ) ]
+#[ derive( clap::Parser, Debug ) ]
 #[ command( max_term_width = 76 ) ]
 struct CmdOpts {
     /// Disable CQ (constant quality) mode.
@@ -207,7 +202,7 @@ fn main() -> anyhow::Result<()> {
 
     debug!( "parse cmdopts" );
 
-    let cmdopts = CmdOpts::parse();
+    let cmdopts = <CmdOpts as clap::Parser>::parse();
 
     debug!( ?cmdopts );
 
