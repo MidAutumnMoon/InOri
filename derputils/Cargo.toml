@@ -17,7 +17,7 @@ anyhow.workspace = true
 arboard = { version = "3", default-features = false }
 clap.workspace = true
 ino_tracing.workspace = true
-itertools = "0"
+itertools.workspace = true
 qrcode = { version = "0", features = ["svg"] }
 tracing.workspace = true
 uuid = { version = "1", features = ["v7"] }

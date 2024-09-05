@@ -23,6 +23,7 @@ rust-version = "1.80.0"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
+itertools = "0"
 mimalloc = "0.1"
 rayon = "1"
 tracing = "0.1"
