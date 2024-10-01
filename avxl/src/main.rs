@@ -38,7 +38,7 @@ enum CliOpts {
     /// Encode to **lossy** AVIF using `avifenc`.
     Avif {
         /// Disable constant quality mode.
-        #[ arg( long, short, action, default_value_t=true ) ]
+        #[ arg( long, short, action, default_value_t=false ) ]
         no_cq: bool,
 
         /// Encode using Yuv444 instead of Yuv420.
@@ -105,10 +105,11 @@ fn main() -> anyhow::Result<()> {
     let ( encoder, dir_and_files ): ( &dyn Encoder, _ ) = match cliopts {
         CliOpts::Avif { no_cq, yuv444, cq_level, input } => {
             debug!( "AVIF mode" );
+            let default = &avif::Avif::default();
             (
                 &avif::Avif {
                     no_cq, yuv444,
-                    cq_level: cq_level.unwrap_or_default()
+                    cq_level: cq_level.unwrap_or( default.cq_level )
                 },
                 input.dir_and_files
             )
