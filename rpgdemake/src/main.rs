@@ -190,7 +190,7 @@ pub const ENCRYPTED_PART_LEN: usize = 16;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[ derive( clap::Parser, Debug ) ]
-struct CmdOpts {
+struct CliOpts {
     /// Path to the directory containing the game.
     game_dir: PathBuf,
 
@@ -207,11 +207,11 @@ fn main() -> anyhow::Result<()> {
     ino_tracing::init_tracing_subscriber();
 
 
-    // Parse CmdOpts
+    // Parse CLI options
 
-    let cmdopts = < CmdOpts as clap::Parser >::parse();
+    let cliopts = < CliOpts as clap::Parser >::parse();
 
-    debug!( ?cmdopts );
+    debug!( ?cliopts );
 
 
     // Increase NOFILE
@@ -226,7 +226,7 @@ fn main() -> anyhow::Result<()> {
     debug!( "probing directory layout" );
 
     {
-        let dir = &cmdopts.game_dir;
+        let dir = &cliopts.game_dir;
 
         ensure! { dir.try_exists()?,
             "Game directory \"{}\" doesn't exists",
@@ -249,7 +249,7 @@ fn main() -> anyhow::Result<()> {
 
     let ( system_json, resource_dirs ) = {
         let root = {
-            let dir = &cmdopts.game_dir;
+            let dir = &cliopts.game_dir;
             if dir.join( "www" ).try_exists()? {
                 // If has "www", this should be a MV game
                 dir.join( "www" )
