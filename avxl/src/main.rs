@@ -139,7 +139,20 @@ fn main() -> anyhow::Result<()> {
 
         for it in them {
             if it.is_dir() {
-                collected.push( DirOrFiles::Dir( it ) )
+                let Some( basename ) = it.file_name() else { continue; };
+                // skip the dir created by ourselves.
+                if basename == ARCHIVE_DIR_NAME {
+                    colour::e_yellow_bold!(
+                        "Skipping dir \"{}\" because it's named {ARCHIVE_DIR_NAME} \
+                        which is used for storing original files after encoding.\n\
+                        This should be a mistake, otherwise rename the directory \
+                        to another name.",
+                        it.display()
+                    );
+                    continue;
+                } else {
+                    collected.push( DirOrFiles::Dir( it ) )
+                }
             } else if it.is_file() {
                 files.push( it )
             } else {
