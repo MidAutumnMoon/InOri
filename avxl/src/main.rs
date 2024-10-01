@@ -15,7 +15,7 @@ mod jxl;
 mod tool;
 
 
-/// Name of the directory to archive original pictures.
+/// Name of the directory for storing original pictures.
 pub const ARCHIVE_DIR_NAME: &str = "original";
 
 
