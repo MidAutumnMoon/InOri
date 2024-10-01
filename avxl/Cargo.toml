@@ -10,6 +10,8 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+colour.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
+tap = "1.0.1"
 tracing.workspace = true
