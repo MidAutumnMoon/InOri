@@ -126,32 +126,33 @@ fn main() -> anyhow::Result<()> {
      * Sanitize input
      */
 
-    let dir_and_files: Vec<DirOrFiles> = {
-        let them = if dir_and_files.is_empty() {
-            debug!( "CLI provided input is empty, use PWD" );
-            vec![ std::env::current_dir()? ]
-        } else {
-            dir_and_files
-        };
+    let dir_and_files = if dir_and_files.is_empty() {
+        debug!( "CLI provided input is empty, use PWD" );
+        vec![ std::env::current_dir()? ]
+    } else {
+        dir_and_files
+    };
 
-        let mut collected: Vec<DirOrFiles> = vec![];
+    let dir_and_files: Vec<DirOrFiles> = {
+        let mut dirs: Vec<PathBuf> = vec![];
         let mut files: Vec<PathBuf> = vec![];
 
-        for it in them {
+        for it in dir_and_files {
             if it.is_dir() {
                 let Some( basename ) = it.file_name() else { continue; };
                 // skip the dir created by ourselves.
                 if basename == ARCHIVE_DIR_NAME {
                     colour::e_yellow_bold!(
                         "Skipping dir \"{}\" because it's named {ARCHIVE_DIR_NAME} \
-                        which is used for storing original files after encoding.\n\
+                        which is used for storing original files after encoding.\
+                        \n\
                         This should be a mistake, otherwise rename the directory \
                         to another name.",
                         it.display()
                     );
                     continue;
                 } else {
-                    collected.push( DirOrFiles::Dir( it ) )
+                    dirs.push( it )
                 }
             } else if it.is_file() {
                 files.push( it )
@@ -164,8 +165,18 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        collected.push( DirOrFiles::Files( files ) );
-        collected
+        use tap::Tap;
+
+        Vec::with_capacity( dirs.len() + 1 )
+            .tap_mut( |s| {
+                let mut dirs = dirs.into_iter()
+                    .map( |d| DirOrFiles::Dir( d ) )
+                    .collect();
+                s.append( &mut dirs );
+            } )
+            .tap_mut( |s| {
+                s.push( DirOrFiles::Files( files ) )
+            } )
     };
 
     debug!( ?dir_and_files );
@@ -175,53 +186,55 @@ fn main() -> anyhow::Result<()> {
      * Tasks and encoding
      */
 
-    let span_of_daf = debug_span!( "process_daf" ).entered();
+    let _span_of_daf =
+        debug_span!( "encode_dir_and_files" ).entered();
 
-    for daf in dir_and_files {
+    for dir_or_files in dir_and_files {
 
-        debug!( ?daf );
+        debug!( ?dir_or_files );
 
         let archive_after_encode: bool;
         let archive_dir: Option<PathBuf>;
 
-        let tasks: Vec<PathBuf>;
+        let files_to_encode: Vec<PathBuf>;
 
 
         /*
          * Unwrap dir_and_files to construct tasks
          */
 
-        match daf {
+        match dir_or_files {
             // If it is a dir, enable archive_after_encode
             // and collect files inside it
             DirOrFiles::Dir( dir ) => {
                 colour::e_yellow_ln_bold!(
-                    "\nWorking on directory {}", dir.display()
+                    "Checking directory {}", dir.display()
                 );
                 archive_after_encode = true;
                 archive_dir = Some( dir.join( ARCHIVE_DIR_NAME ) );
-                tasks = tool::filter_by_supported_exts(
+                files_to_encode = tool::filter_by_supported_exts(
                     encoder, tool::find_files( &dir )?
                 );
 
             },
-            // If it is file otherwise, the files are
-            // already the tasks.
+            // If it is file otherwise, the files are already the tasks.
             DirOrFiles::Files( files ) => {
                 let files = tool::filter_by_supported_exts( encoder, files );
+                // ...so that app won't print "Checking 0 files"
+                if files.is_empty() { continue }
                 colour::e_yellow_ln_bold!(
-                    "\nWorking on {} files", files.len()
+                    "Chekcing {} files", files.len()
                 );
                 archive_after_encode = false;
                 archive_dir = None;
-                tasks = files;
+                files_to_encode = files;
             }
         }
 
-        debug!( ?tasks, ?archive_after_encode, ?archive_dir );
+        debug!( ?files_to_encode, ?archive_after_encode, ?archive_dir );
 
-        if tasks.is_empty() {
-            colour::e_blue_ln!( "Empty, no task" );
+        if files_to_encode.is_empty() {
+            colour::e_blue_ln!( "No file need to be encoded" );
             continue;
         }
 
@@ -231,11 +244,21 @@ fn main() -> anyhow::Result<()> {
          */
 
         if archive_after_encode {
-            debug!( ?archive_dir, "try create archive_dir" );
+            debug!( ?archive_dir );
 
             // UNWRAP: when archive_after_encode is set archive_dir is also set
             let dir = archive_dir.clone().unwrap();
-            if !dir.try_exists()? { std::fs::create_dir_all( dir )?; }
+
+            colour::e_blue_ln!(
+                "Archive after encoding
+                \n\
+                Create directory \"{}\"for archiving",
+                dir.display()
+            );
+
+            if !dir.try_exists()? {
+                std::fs::create_dir_all( dir )?;
+            }
         }
 
 
@@ -243,43 +266,45 @@ fn main() -> anyhow::Result<()> {
          * Do collected tasks
          */
 
-        let span_of_task =
-            debug_span!( "encoding_tasks" ).entered();
 
-        let total_tasks = tasks.len();
+        let total_tasks = files_to_encode.len();
 
-        for ( index, task ) in tasks.iter().enumerate() {
-            debug!( ?index, ?task );
+        for ( index, file ) in files_to_encode.iter().enumerate() {
+            debug!( ?index, ?file );
 
-            let progress_msg = format!(
-                "[{}/{total_tasks} {:?}]",
+            let _span = debug_span!( "encoding_tasks", ?file ).entered();
+
+            let progress_percent = format!(
+                "[{}/{total_tasks} {}]",
                 index + 1,
-                task.file_name().unwrap_or_default(),
+                file.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
             );
 
-            colour::e_blue_ln!( "{progress_msg} Encode in progress..." );
+            colour::e_blue_ln!(
+                "{progress_percent} Encode in progress..."
+            );
 
-            let encode_status = encoder.perform_encode( task )?;
+            let encode_status = encoder.perform_encode( file )?;
 
             if !encode_status.success() {
-                colour::e_red_ln!( "{progress_msg} Failed to encode!" );
+                colour::e_red_ln!(
+                    "{progress_percent} Failed to encode!"
+                );
                 std::process::exit( 1 )
             }
 
             if archive_after_encode {
-                colour::e_blue_ln!( "{progress_msg} Archive original file" );
-                let basename = task.file_name()
+                colour::e_blue_ln!( "{progress_percent} Archive original file");
+                let basename = file.file_name()
                     .expect( "It doesn't have a basename, how come?!" );
                 let target = archive_dir.clone().unwrap().join( basename );
-                std::fs::rename( task, target )?;
+                std::fs::rename( file, target )?;
             }
         }
 
-        drop( span_of_task );
-
     }
-
-    drop( span_of_daf );
 
     Ok(())
 
