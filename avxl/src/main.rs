@@ -250,7 +250,7 @@ fn main() -> anyhow::Result<()> {
             let dir = archive_dir.clone().unwrap();
 
             colour::e_blue_ln!(
-                "Archive after encoding
+                "Archive after encoding\
                 \n\
                 Create directory \"{}\"for archiving",
                 dir.display()
