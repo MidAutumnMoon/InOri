@@ -26,7 +26,7 @@ use itertools::Itertools;
 /// Move files from other places to current
 /// working directory.
 #[ derive( Debug, clap::Parser ) ]
-struct CmdOpts {
+struct CliOpts {
     /// directory to search from.
     /// can be specified multiple times.
     #[ arg( long = "dir", short = 'd' ) ]
@@ -48,7 +48,7 @@ struct CmdOpts {
     needle_names: Vec<String>,
 }
 
-impl CmdOpts {
+impl CliOpts {
     #[ tracing::instrument ]
     fn parse() -> anyhow::Result<Self> {
         let opts = <Self as clap::Parser>::parse();
@@ -86,9 +86,7 @@ struct Needle {
 
 impl Needle {
     #[tracing::instrument]
-    fn from_dir( dir: &Path )
-        -> anyhow::Result<Vec<Self>>
-    {
+    fn from_dir( dir: &Path ) -> anyhow::Result<Vec<Self>> {
         debug!( "looking for files" );
 
         let mut collected = Vec::new();
@@ -178,13 +176,13 @@ fn main() -> anyhow::Result<()> {
 
     // Get cmd options
 
-    let cmd_opts = CmdOpts::parse()?;
+    let cliopts = CliOpts::parse()?;
 
-    let CmdOpts {
+    let CliOpts {
         needle_names,
         searchdirs,
         ..
-    } = &cmd_opts;
+    } = &cliopts;
 
 
     // Collect haystack
@@ -211,7 +209,7 @@ fn main() -> anyhow::Result<()> {
 
     // Listing
 
-    if cmd_opts.listing {
+    if cliopts.listing {
         let _s = debug_span!( "listing" ).entered();
         debug!( "listing mode" );
 
