@@ -1,0 +1,12 @@
+[package]
+name = "rpgdemake_bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+assert_fs = "1.1.2"
+colour.workspace = true
+futures = "0.3.31"
+monoio = "0.2.4"
+rlimit = "0.10.2"

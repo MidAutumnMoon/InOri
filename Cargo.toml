@@ -5,8 +5,8 @@ members = [
     "avxl",
     "derputils",
     "rpgdemake",
+    "rpgdemake/bench",
 ]
-
 
 [workspace.package]
 authors = [ "MidAutumnMoon" ]
@@ -30,8 +30,8 @@ rayon = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
-# Homemade crates
 ino_tracing = { path = "./crates/ino_tracing" }
+
 
 #
 # Profiles
