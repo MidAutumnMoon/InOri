@@ -38,7 +38,7 @@ async fn main() {
     let dir_path = fixture_dir.path();
 
     let command: String = [
-        "cargo run",
+        "cargo run --release",
         "--package=rpgdemake",
         "--",
         &dir_path.to_string_lossy()
