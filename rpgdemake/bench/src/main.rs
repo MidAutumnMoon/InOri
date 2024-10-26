@@ -25,6 +25,8 @@ async fn main() {
     rlimit::increase_nofile_limit( u64::MAX )
         .expect( "Failed to increase nofile limit" );
 
+    std::env::remove_var( "RUST_DEBUG" );
+
     let mut hyperfine = Command::new( "hyperfine" );
 
     hyperfine
