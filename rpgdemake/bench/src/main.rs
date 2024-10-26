@@ -30,7 +30,8 @@ async fn main() {
     let mut hyperfine = Command::new( "hyperfine" );
 
     hyperfine
-        .arg( "--warmup=3" )
+        .arg( "--warmup=1" )
+        .arg( "--runs=3" )
         .arg( "--" )
     ;
 
