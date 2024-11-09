@@ -40,7 +40,9 @@ pub fn filter_by_supported_exts(
             continue;
         };
 
-        if encoder.is_ext_supported( ext ) {
+        let ext = ext.to_lowercase();
+
+        if encoder.is_ext_supported( &ext ) {
             debug!( "ext .{ext} ok" );
             collected.push( p )
         } else {
