@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 authors = [ "MidAutumnMoon" ]
 edition = "2021"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/MidAutumnMoon/InOri"
 rust-version = "1.82.0"
 
