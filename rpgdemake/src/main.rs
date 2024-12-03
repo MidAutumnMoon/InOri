@@ -152,11 +152,6 @@
 //! with the raising of Godot and Bakin etc. excellent game engines,
 //! future of RPG Maker isn't clear at all.
 
-
-#[ global_allocator ]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-
 use std::path::PathBuf;
 
 use tracing::debug;

@@ -14,7 +14,6 @@ clap.workspace = true
 hex = "0.4.3"
 ino_tracing.workspace = true
 itertools = "0"
-mimalloc.workspace = true
 rayon.workspace = true
 rlimit = "0"
 serde_json = "1"
