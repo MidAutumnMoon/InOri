@@ -47,7 +47,7 @@ impl Layout {
     }
 
     fn setup_layout( &self ) {
-        self.dir.child( "nw.dll" ).touch().unwrap();
+        self.dir.child( "locales" ).touch().unwrap();
 
         let dir = self.base_dir();
         let mapping = match self.version {
