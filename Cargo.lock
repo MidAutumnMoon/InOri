@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "rpgdemake"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "assert_fs",
