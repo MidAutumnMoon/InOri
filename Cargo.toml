@@ -5,7 +5,6 @@ members = [
     "avxl",
     "derputils",
     "rpgdemake",
-    "rpgdemake/bench",
 ]
 
 [workspace.package]
