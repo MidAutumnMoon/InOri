@@ -5,6 +5,7 @@ members = [
     "avxl",
     "derputils",
     "rpgdemake",
+    "symfindme",
 ]
 
 [workspace.package]
