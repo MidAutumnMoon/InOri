@@ -28,10 +28,11 @@ impl Application {
 
         let findings = lookup_executable_in_path( &self.program );
 
-        let executable_path = match &findings[..] {
-            [ path, .. ] => path,
-            [] => anyhow::bail!( "Executable \"{}\" not found", self.program ),
-        };
+        let executable_path = findings.first()
+            .ok_or_else( ||
+                anyhow::anyhow!( "Executable \"{}\" not found", self.program )
+            )?
+        ;
 
         debug!( ?executable_path );
 
@@ -77,10 +78,7 @@ struct SymlinkWalker {
 
 impl SymlinkWalker {
     #[ tracing::instrument ]
-    fn new(
-        start: &Path,
-        max_symlink_follows: u64,
-    )
+    fn new( start: &Path, max_symlink_follows: u64, )
         -> anyhow::Result<Self>
     {
         trace!( "Create new symlink walker" );
