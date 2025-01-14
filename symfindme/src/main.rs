@@ -11,13 +11,16 @@ use anyhow::Context;
 
 mod tool;
 
-/// wow
+
+///  Find executable in $PATH, and print each ancestor in its symlink chain.
 #[ derive( clap::Parser ) ]
 #[ derive( Debug ) ]
 struct Application {
-    /// The name of p
+    /// The name of executable to find in $PATH.
     program: String,
 
+    /// Maximum symlink follows allowed, exceeding this value
+    /// will terminate the application.
     #[ arg( long, short, default_value_t=32 ) ]
     max_symlink_follows: u64,
 }
@@ -77,7 +80,7 @@ struct SymlinkWalker {
 
 impl SymlinkWalker {
     #[ tracing::instrument ]
-    fn new( start: &Path, max_symlink_follows: u64, ) -> Self {
+        fn new( start: &Path, max_symlink_follows: u64, ) -> Self {
         trace!( "Create new symlink walker" );
         Self {
             current: Some( start.to_owned() ),
