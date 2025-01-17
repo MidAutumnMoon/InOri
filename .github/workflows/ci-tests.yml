@@ -13,20 +13,24 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+        -   uses: actions/checkout@v4
 
-        - uses: actions/checkout@v4
+        -   name: Install Rust
+            run: |
+                rustup toolchain install stable
+                rustup default stable
 
-        - uses: dtolnay/rust-toolchain@stable
+        -   uses: Swatinem/rust-cache@v2
 
-        - uses: Swatinem/rust-cache@v2
+        -   name: Install extra tools
+            uses: taiki-e/install-action@v2
+            with:
+                tool: nextest
 
-        - uses: taiki-e/install-action@v2
-          with:
-              tool: nextest
+        # -   run: |
+        #         sudo apt update -y
+        #         sudo apt install -y libsdl2-2.0-0 libsdl2-dev
 
-        - run: |
-            sudo apt update -y
-            sudo apt install -y libsdl2-2.0-0 libsdl2-dev
-
-        - run: |
-            cargo nextest run --all-features
+        -   name: Run tests
+            run: |
+                cargo nextest run --all-features
