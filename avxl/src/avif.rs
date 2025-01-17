@@ -18,7 +18,7 @@ impl Default for Avif {
     fn default() -> Self {
         Self {
             no_cq: false, yuv444: false,
-            cq_level: 18,
+            cq_level: 20,
         }
     }
 }
