@@ -11,15 +11,17 @@
     "packageRules": [
         {
             "matchUpdateTypes": [ "minor", "patch", "pin", "digest" ],
-            "ignoreTests": true,
             "automerge": true,
             "automergeType": "branch"
         },
         {
             "matchDepTypes": [ "devDependencies" ],
-            "ignoreTests": true,
             "automerge": true,
             "automergeType": "branch"
+        },
+        {
+            "matchCategories": [ "ci" ],
+            "automerge": false
         }
     ]
 
