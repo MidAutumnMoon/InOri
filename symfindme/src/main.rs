@@ -31,19 +31,20 @@ impl Application {
     fn run( &self ) -> anyhow::Result<()> {
         trace!( "Start application" );
 
-        let findings = tool::lookup_executable_in_path( &self.program );
-
-        let walker_start = findings.first()
+        let starter = tool::lookup_executable_in_path( &self.program )
+            .first()
             .ok_or_else( ||
                 anyhow::anyhow!( "Executable \"{}\" not found", self.program )
             )?
+            .to_owned()
         ;
 
-        debug!( ?walker_start );
+        debug!( ?starter );
 
-        let walker = SymlinkWalker::new( walker_start, self.max_symlink_follows );
+        let ancestors =
+            SymlinkAncestor::new( &starter, self.max_symlink_follows );
 
-        for path in walker {
+        for path in ancestors {
             let path = path
                 // TODO: better error message
                 .context( "Can't walk path" )?;
@@ -71,17 +72,16 @@ fn main() {
 
 
 #[ derive( Debug ) ]
-struct SymlinkWalker {
+struct SymlinkAncestor {
     current: Option<PathBuf>,
     visited_paths: HashSet<PathBuf>,
     max_symlink_follows: u64,
     symlink_followed: u64,
 }
 
-impl SymlinkWalker {
+impl SymlinkAncestor {
     #[ tracing::instrument ]
-        fn new( start: &Path, max_symlink_follows: u64, ) -> Self {
-        trace!( "Create new symlink walker" );
+    fn new( start: &Path, max_symlink_follows: u64, ) -> Self {
         Self {
             current: Some( start.to_owned() ),
             visited_paths: Default::default(),
@@ -91,7 +91,7 @@ impl SymlinkWalker {
     }
 }
 
-impl std::iter::Iterator for SymlinkWalker {
+impl std::iter::Iterator for SymlinkAncestor {
     type Item = anyhow::Result<PathBuf>;
 
     #[ tracing::instrument ]
