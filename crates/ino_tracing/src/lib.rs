@@ -2,18 +2,15 @@
 #[ inline( always ) ]
 pub fn init_tracing_subscriber() {
 
-    use tracing::Level;
-
     use tracing_subscriber::prelude::*;
+    use tracing_subscriber::filter::*;
 
     use tracing_subscriber::{
-        EnvFilter,
         fmt,
         registry
     };
 
     use std::io::IsTerminal;
-
 
     let output = std::io::stderr;
 
@@ -23,10 +20,9 @@ pub fn init_tracing_subscriber() {
     ;
 
     let env_layer = EnvFilter::builder()
-        .with_default_directive( Level::INFO.into() )
+        .with_default_directive( LevelFilter::INFO.into() )
         .from_env_lossy()
     ;
-
 
     registry()
         .with( fmt_layer )
