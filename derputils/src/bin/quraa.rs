@@ -14,26 +14,13 @@ struct CliOpts {
     stdin: bool,
 }
 
-
-fn main() -> anyhow::Result<()> {
-
-    // Enable tracing
-
-    ino_tracing::init_tracing_subscriber();
-
-
-    // Deal with inputs
-
-    let opts = <CliOpts as clap::Parser>::parse();
-
-    debug!( ?opts, "command options" );
-
+fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
 
     // Generate Qrcode
 
     debug!( "read data for Qr Code" );
 
-    let data: String = match opts {
+    let data: String = match cliopts {
         CliOpts { clipboard: true, stdin: true } => {
             // Prevented by setting exclusive on arguments
             unreachable!()
@@ -99,5 +86,22 @@ fn main() -> anyhow::Result<()> {
     ;
 
     Ok(())
+
+}
+
+fn main() {
+
+    ino_tracing::init_tracing_subscriber();
+
+    let cliopts = <CliOpts as clap::Parser>::parse();
+
+    debug!( ?cliopts );
+
+    let _ = run( cliopts )
+        .inspect_err( |err| {
+            eprintln!( "{err:?}" );
+            std::process::exit( 1 );
+        } )
+    ;
 
 }
