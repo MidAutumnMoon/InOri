@@ -25,6 +25,7 @@ clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
 colour = "2"
 itertools = "0"
 rayon = "1"
+tap = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 

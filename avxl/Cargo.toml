@@ -13,5 +13,5 @@ clap.workspace = true
 colour.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
-tap = "1.0.1"
+tap.workspace = true
 tracing.workspace = true
