@@ -9,9 +9,6 @@ use std::{
 
 use anyhow::Context;
 
-mod tool;
-
-
 ///  Find executable in $PATH, and print each ancestor in its symlink chain.
 #[ derive( clap::Parser ) ]
 #[ derive( Debug ) ]
@@ -31,7 +28,7 @@ impl Application {
     fn run( &self ) -> anyhow::Result<()> {
         trace!( "Start application" );
 
-        let starter = tool::lookup_executable_in_path( &self.program )
+        let starter = derputils::lookup_executable_in_path( &self.program )
             .first()
             .ok_or_else( ||
                 anyhow::anyhow!( "Executable \"{}\" not found", self.program )
