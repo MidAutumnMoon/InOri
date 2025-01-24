@@ -1,15 +1,9 @@
-use tracing::{
-    debug,
-    info,
-};
+use tracing::debug;
 
 use anyhow::bail;
-use clap::Parser;
 
-
-/// Generate QR Code. Hint: window can also be closed
-/// by pressing Q or ESC.
-#[ derive( Parser, Debug, Clone, Copy ) ]
+/// Generate QR Code from stdin or clipboard.
+#[ derive( clap::Parser, Debug ) ]
 struct CliOpts {
     /// use the content of clipboard as QR Code
     #[ arg( short, exclusive = true ) ]
@@ -30,18 +24,18 @@ fn main() -> anyhow::Result<()> {
 
     // Deal with inputs
 
-    let opts = CliOpts::parse();
+    let opts = <CliOpts as clap::Parser>::parse();
 
     debug!( ?opts, "command options" );
 
 
     // Generate Qrcode
 
-    info!( "read data for Qr Code" );
+    debug!( "read data for Qr Code" );
 
     let data: String = match opts {
         CliOpts { clipboard: true, stdin: true } => {
-            // Prevented by setting exclusive
+            // Prevented by setting exclusive on arguments
             unreachable!()
         },
 
@@ -51,13 +45,13 @@ fn main() -> anyhow::Result<()> {
         },
 
         CliOpts { clipboard: true, stdin: false } => {
-            info!( "data source is clipboard" );
+            debug!( "data source is clipboard" );
             let mut cb = arboard::Clipboard::new()?;
             cb.get_text()?
         },
 
         CliOpts { clipboard: false, stdin: true } => {
-            info!( "data source is stdin" );
+            debug!( "data source is stdin" );
             use std::io::{ read_to_string, stdin };
             read_to_string( stdin().lock() )?
         },
