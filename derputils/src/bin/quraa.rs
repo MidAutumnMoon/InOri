@@ -1,6 +1,7 @@
 use tracing::debug;
 
 use anyhow::bail;
+use anyhow::Context;
 
 /// Generate QR Code from stdin or clipboard.
 #[ derive( clap::Parser, Debug ) ]
@@ -33,14 +34,17 @@ fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
 
         CliOpts { clipboard: true, stdin: false } => {
             debug!( "data source is clipboard" );
-            let mut cb = arboard::Clipboard::new()?;
-            cb.get_text()?
+            let mut cb = arboard::Clipboard::new()
+                .context( "Unable to handle clipboard" )?;
+            cb.get_text()
+                .context( "Unable to read from clipboard" )?
         },
 
         CliOpts { clipboard: false, stdin: true } => {
             debug!( "data source is stdin" );
             use std::io::{ read_to_string, stdin };
-            read_to_string( stdin().lock() )?
+            read_to_string( stdin().lock() )
+                .context( "Unable to read from stdin" )?
         },
     };
 
@@ -66,23 +70,23 @@ fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
 
     // Lack the motivation to deal with
     // file collinsion or clean up at all.
-    let svg = {
+    let svg_path = {
         // Using UUIDv7 to make files nicely sorted
-        let filename = format! { "quraa:{}.svg",
-            uuid::Uuid::now_v7()
-        };
+        let filename =
+            format! { "quraa:{}.svg", uuid::Uuid::now_v7() };
         let path = std::env::temp_dir().join( filename );
         std::fs::write( &path, &qrcode )?;
         path
     };
 
-    debug!( "path of qr code file {:?}", svg );
+    debug!( ?svg_path );
 
     debug!( "showing generated Qr Code" );
 
     std::process::Command::new( "open" )
-        .arg( &svg )
-        .output()?
+        .arg( &svg_path )
+        .output()
+        .context( "Unable to execute command \"open\"" )?
     ;
 
     Ok(())
