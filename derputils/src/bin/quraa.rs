@@ -10,7 +10,7 @@ use clap::Parser;
 /// Generate QR Code. Hint: window can also be closed
 /// by pressing Q or ESC.
 #[ derive( Parser, Debug, Clone, Copy ) ]
-struct CmdOpts {
+struct CliOpts {
     /// use the content of clipboard as QR Code
     #[ arg( short, exclusive = true ) ]
     clipboard: bool,
@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
 
     // Deal with inputs
 
-    let opts = CmdOpts::parse();
+    let opts = CliOpts::parse();
 
     debug!( ?opts, "command options" );
 
@@ -40,23 +40,23 @@ fn main() -> anyhow::Result<()> {
     info!( "read data for Qr Code" );
 
     let data: String = match opts {
-        CmdOpts { clipboard: true, stdin: true } => {
+        CliOpts { clipboard: true, stdin: true } => {
             // Prevented by setting exclusive
             unreachable!()
         },
 
-        CmdOpts { clipboard: false, stdin: false } => {
+        CliOpts { clipboard: false, stdin: false } => {
             bail!( "Wrong command line options. \
                     Run with --help to see usage." )
         },
 
-        CmdOpts { clipboard: true, stdin: false } => {
+        CliOpts { clipboard: true, stdin: false } => {
             info!( "data source is clipboard" );
             let mut cb = arboard::Clipboard::new()?;
             cb.get_text()?
         },
 
-        CmdOpts { clipboard: false, stdin: true } => {
+        CliOpts { clipboard: false, stdin: true } => {
             info!( "data source is stdin" );
             use std::io::{ read_to_string, stdin };
             read_to_string( stdin().lock() )?
