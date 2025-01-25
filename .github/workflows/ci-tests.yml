@@ -5,6 +5,8 @@ on:
     pull_request:
     workflow_dispatch:
 
+env:
+    RUST_BACKTRACE: 1
 
 jobs:
 
