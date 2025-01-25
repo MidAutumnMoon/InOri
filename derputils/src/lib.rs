@@ -19,13 +19,13 @@ pub fn lookup_executable_in_path( program: &str ) -> Vec<PathBuf> {
     let mut findings = Vec::with_capacity( 10 );
 
     for dir in std::env::split_paths( &env_path ) {
-        use is_executable::IsExecutable;
+        use ino_path::IsExecutable;
 
         trace!( ?dir, "Look into directory" );
         let full_path = dir.join( program );
         trace!( ?full_path );
 
-        if full_path.is_executable() {
+        if full_path.is_executable().is_ok() {
             debug!( ?full_path, "Found executable" );
             findings.push( full_path );
         }
