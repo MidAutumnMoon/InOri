@@ -7,6 +7,10 @@ use std::{
     path::Path,
 };
 
+use std::iter::Iterator;
+use std::fmt::Display;
+use std::fmt::Debug;
+
 use anyhow::Context;
 
 ///  Find executable in $PATH, and print each ancestor in its symlink chain.
@@ -23,7 +27,6 @@ struct Application {
 }
 
 impl Application {
-
     #[ tracing::instrument ]
     fn run( &self ) -> anyhow::Result<()> {
         trace!( "Start application" );
@@ -38,19 +41,17 @@ impl Application {
 
         debug!( ?starter );
 
-        let ancestors =
-            SymlinkAncestor::new( &starter, self.max_symlink_follows );
-
-        for path in ancestors {
-            let path = path
-                // TODO: better error message
-                .context( "Can't walk path" )?;
-            println!( "{}", path.display() );
-        }
+        SymlinkAncestor::new( &starter, self.max_symlink_follows )
+            .collect::< Result< Vec<_>, _ > >()
+                .context( "Unable to continue digging symlink ancestors" )?
+            .into_iter()
+            .for_each( |path| {
+                Explainer::explain_path( &path.display() );
+            } )
+        ;
 
         Ok(())
     }
-
 }
 
 fn main() {
@@ -88,7 +89,7 @@ impl SymlinkAncestor {
     }
 }
 
-impl std::iter::Iterator for SymlinkAncestor {
+impl Iterator for SymlinkAncestor {
     type Item = anyhow::Result<PathBuf>;
 
     #[ tracing::instrument ]
@@ -138,3 +139,17 @@ impl std::iter::Iterator for SymlinkAncestor {
     }
 }
 
+#[ derive( Debug ) ]
+struct Explainer;
+
+impl Explainer
+{
+    #[ tracing::instrument ]
+    fn explain_path<P>( path: &P )
+    where
+        P: Display + Debug
+    {
+        let path = path.to_string();
+        println!( "{path}" )
+    }
+}
