@@ -1,11 +1,10 @@
-use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::ensure;
 use tracing::debug;
 
 /// The revision of RPG Maker engine.
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone ) ]
 pub enum EngineRev {
     /// MV, the older one
     MV( PathBuf ),
@@ -60,5 +59,17 @@ impl EngineRev {
             Self::MV( p ) => p.join( "www" ).join( "data" ),
             Self::MZ( p ) => p.join( "data" ),
         }
+    }
+}
+
+#[ derive( Debug ) ]
+pub struct Project {
+    engine: EngineRev,
+    files: Vec<PathBuf>,
+}
+
+impl Project {
+    pub fn new( engine: EngineRev ) -> anyhow::Result<Self> {
+        todo!()
     }
 }

@@ -13,6 +13,7 @@ mod lore;
 mod project;
 
 use project::EngineRev;
+use project::Project;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[ derive( clap::Parser, Debug ) ]
