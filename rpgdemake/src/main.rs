@@ -17,10 +17,6 @@ mod lore;
 struct CliOpts {
     /// Path to the directory containing the game.
     game_dir: PathBuf,
-
-    /// Manually supply a key.
-    #[ arg( long, short ) ]
-    key: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
