@@ -2,15 +2,17 @@ use std::path::PathBuf;
 
 use tracing::debug;
 
-use anyhow::{
-    ensure,
-    bail,
-};
+use anyhow::ensure;
+use anyhow::bail;
+use anyhow::Context;
 
 mod key;
 mod finder;
 mod task;
 mod lore;
+mod project;
+
+use project::EngineRev;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[ derive( clap::Parser, Debug ) ]
@@ -50,29 +52,11 @@ fn main() -> anyhow::Result<()> {
 
     // Setup & sanity checks
 
-    debug!( "probing directory layout" );
+    debug!( "Probe game engine revision" );
 
-    {
-        let dir = &cliopts.game_dir;
-
-        ensure! { dir.try_exists()?,
-            "Game directory \"{}\" doesn't exists",
-            dir.display()
-        };
-
-        ensure! { dir.is_dir(),
-            "Game directory \"{}\" is not an actual directory",
-            dir.display()
-        };
-
-        // TODO: extend the tests further
-        ensure! { dir.join( "locales" ).try_exists()?,
-            "Game directory doesn't contains necessary files. \
-            Maybe the directory is wrong, it's not a RPG Maker MV/MZ game, \
-            or the files are packed."
-        };
-    }
-
+    let engine_rev = EngineRev::probe_revision( &cliopts.game_dir )
+        .context( "Failed to understand game's engine revision" )?
+    ;
 
     let ( system_json, resource_dirs ) = {
         let root = {
