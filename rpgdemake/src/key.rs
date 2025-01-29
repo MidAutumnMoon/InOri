@@ -9,7 +9,7 @@ use tracing::debug;
 /// Length of encryption key.
 /// Since the encryption method is a naive XOR,
 /// the key length should equal to the length of the encrypted part.
-pub const KEY_LEN: usize = crate::ENCRYPTED_PART_LEN;
+pub const KEY_LEN: usize = crate::lore::ENCRYPTED_PART_LEN;
 
 /// Text of hex of encryption key.
 /// Each byte of key is stored as a hex ( 187 -> "bb" ),

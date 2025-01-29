@@ -101,7 +101,7 @@ impl Validate {
             prelude::*,
             ErrorKind as IOError,
         };
-        use crate::{
+        use crate::lore::{
             RPG_HEADER,
             RPG_HEADER_LEN,
             ENCRYPTED_PART_LEN,
@@ -148,7 +148,7 @@ impl TryFrom< Task<Validate> > for Task<Decrypt> {
         let Validate { origin, target, key } = prev.step;
 
         let mut content = std::fs::read( &origin )?;
-        let content = &mut content[ crate::RPG_HEADER_LEN.. ];
+        let content = &mut content[ crate::lore::RPG_HEADER_LEN.. ];
 
         key.value
             .iter().enumerate()
