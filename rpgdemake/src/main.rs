@@ -19,6 +19,14 @@ struct CliOpts {
     game_dir: PathBuf,
 }
 
+struct App {}
+
+impl App {
+    fn run_with( cliopts: CliOpts ) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+
 fn main() -> anyhow::Result<()> {
 
     // Initialize tracing
