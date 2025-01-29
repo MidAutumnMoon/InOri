@@ -58,27 +58,12 @@ fn main() -> anyhow::Result<()> {
         .context( "Failed to understand game's engine revision" )?
     ;
 
-    let ( system_json, resource_dirs ) = {
-        let root = {
-            let dir = &cliopts.game_dir;
-            if dir.join( "www" ).try_exists()? {
-                // If has "www", this should be a MV game
-                dir.join( "www" )
-            } else {
-                // If "www" not presented, this should be a MZ game.
-                dir.to_owned()
-            }
-        };
-        let system_json = root
-            .join( "data" )
-            .join( "System.json" )
-        ;
-        let resource_dirs = vec![
-            root.join( "img" ),
-            root.join( "audio" ),
-        ];
-        ( system_json, resource_dirs )
-    };
+    let system_json = engine_rev.get_data_dir().join( "System.json" );
+
+    let resource_dirs = vec![
+        engine_rev.get_img_dir(),
+        engine_rev.get_audio_dir(),
+    ];
 
     debug!( ?system_json, ?resource_dirs );
 
