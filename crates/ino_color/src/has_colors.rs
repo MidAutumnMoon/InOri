@@ -3,10 +3,28 @@
 //! This implements <https://bixense.com/clicolors>.
 
 use std::io::*;
+use std::sync::LazyLock;
 
 pub trait HasColors: IsTerminal {
     fn has_colors( &self ) -> bool;
 }
+
+struct EnvSet {
+    no_color: bool,
+    clicolor_force: bool,
+    clicolor: bool,
+}
+
+const ENV_SET: LazyLock<EnvSet> = LazyLock::new( || {
+    macro_rules! ck {
+        ( $n:literal ) => { std::env::var_os( $n ).is_some() }
+    }
+    EnvSet {
+        no_color: ck!( "NO_COLOR" ),
+        clicolor_force: ck!( "CLICOLOR_FORCE" ),
+        clicolor: ck!( "CLICOLOR" ),
+    }
+} );
 
 macro_rules! impl_has_color {
     // $target : type, repeated
@@ -14,23 +32,16 @@ macro_rules! impl_has_color {
     ( $( $target:ty ),* $(,)? ) => { $(
         impl HasColors for $target {
             fn has_colors( &self ) -> bool {
-                #[ inline ]
-                fn var_set( name: &str ) -> bool {
-                    std::env::var_os( name ).is_some()
-                }
-                let no_color = var_set( "NO_COLOR" );
-                let clicolor_force = var_set( "CLICOLOR_FORCE" );
-                let clicolor = var_set( "CLICOLOR" );
                 // NO_COLOR set, don't output any color.
-                if no_color {
+                if ENV_SET.no_color {
                     return false
                 }
                 // CLICOLOR_FORCE set, output color anyway.
-                if clicolor_force {
+                if ENV_SET.clicolor_force {
                     return true
                 }
                 // CLICOLOR set, output color only if it's terminal
-                if clicolor {
+                if ENV_SET.clicolor {
                     return self.is_terminal()
                 }
                 // No related envvar set, output color if it's terminal
@@ -40,11 +51,11 @@ macro_rules! impl_has_color {
     )* }
 }
 
-impl_has_color!(
+impl_has_color! {
     std::fs::File,
     std::os::fd::OwnedFd,
     std::os::fd::BorrowedFd<'_>,
     Stdin, StdinLock<'_>,
     Stdout, StdoutLock<'_>,
     Stderr, StderrLock<'_>,
-);
+}
