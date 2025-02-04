@@ -142,7 +142,7 @@ fn main() -> anyhow::Result<()> {
                 let Some( basename ) = it.file_name() else { continue; };
                 // skip the dir created by ourselves.
                 if basename == ARCHIVE_DIR_NAME {
-                    colour::e_yellow_bold!(
+                    eprintln!(
                         "Skipping dir \"{}\" because it's named {ARCHIVE_DIR_NAME} \
                         which is used for storing original files after encoding.\
                         \n\
@@ -157,7 +157,7 @@ fn main() -> anyhow::Result<()> {
             } else if it.is_file() {
                 files.push( it )
             } else {
-                colour::e_red_ln!(
+                eprintln!(
                     "\"{}\" is not a file nor dir, which is not supported.",
                     it.display()
                 );
@@ -207,7 +207,7 @@ fn main() -> anyhow::Result<()> {
             // If it is a dir, enable archive_after_encode
             // and collect files inside it
             DirOrFiles::Dir( dir ) => {
-                colour::e_yellow_ln_bold!(
+                eprintln!(
                     "Checking directory {}", dir.display()
                 );
                 archive_after_encode = true;
@@ -222,7 +222,7 @@ fn main() -> anyhow::Result<()> {
                 let files = tool::filter_by_supported_exts( encoder, files );
                 // ...so that app won't print "Checking 0 files"
                 if files.is_empty() { continue }
-                colour::e_yellow_ln_bold!(
+                eprintln!(
                     "Chekcing {} files", files.len()
                 );
                 archive_after_encode = false;
@@ -234,7 +234,7 @@ fn main() -> anyhow::Result<()> {
         debug!( ?files_to_encode, ?archive_after_encode, ?archive_dir );
 
         if files_to_encode.is_empty() {
-            colour::e_blue_ln!( "No file need to be encoded" );
+            eprintln!( "No file need to be encoded" );
             continue;
         }
 
@@ -249,7 +249,7 @@ fn main() -> anyhow::Result<()> {
             // UNWRAP: when archive_after_encode is set archive_dir is also set
             let dir = archive_dir.clone().unwrap();
 
-            colour::e_blue_ln!(
+            eprintln!(
                 "Archive after encoding\
                 \n\
                 Create directory \"{}\"for archiving",
@@ -282,21 +282,21 @@ fn main() -> anyhow::Result<()> {
                     .to_string_lossy(),
             );
 
-            colour::e_blue_ln!(
+            eprintln!(
                 "{progress_percent} Encode in progress..."
             );
 
             let encode_status = encoder.perform_encode( file )?;
 
             if !encode_status.success() {
-                colour::e_red_ln!(
+                eprintln!(
                     "{progress_percent} Failed to encode!"
                 );
                 std::process::exit( 1 )
             }
 
             if archive_after_encode {
-                colour::e_blue_ln!( "{progress_percent} Archive original file");
+                eprintln!( "{progress_percent} Archive original file");
                 let basename = file.file_name()
                     .expect( "It doesn't have a basename, how come?!" );
                 let target = archive_dir.clone().unwrap().join( basename );

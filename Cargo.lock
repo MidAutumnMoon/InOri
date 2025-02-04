@@ -109,7 +109,6 @@ version = "1.5.0"
 dependencies = [
  "anyhow",
  "clap",
- "colour",
  "ino_tracing",
  "itertools",
  "tap",
@@ -214,15 +213,6 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
-
-[[package]]
-name = "colour"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b536eebcabe54980476d120a182f7da2268fe02d22575cca99cee5fdda178280"
-dependencies = [
- "winapi",
-]
 
 [[package]]
 name = "coruma"
