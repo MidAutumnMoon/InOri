@@ -227,6 +227,13 @@ dependencies = [
 [[package]]
 name = "coruma"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ino_path",
+ "ino_tracing",
+ "tracing",
+]
 
 [[package]]
 name = "crossbeam-deque"

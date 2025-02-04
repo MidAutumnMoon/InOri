@@ -31,7 +31,7 @@ impl Application {
     fn run( &self ) -> anyhow::Result<()> {
         trace!( "Start application" );
 
-        let starter = derputils::lookup_executable_in_path( &self.program )
+        let starter = coruma::lookup_executable_in_path( &self.program )
             .first()
             .ok_or_else( ||
                 anyhow::anyhow!( "Executable \"{}\" not found", self.program )
