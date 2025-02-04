@@ -15,7 +15,7 @@ struct EnvSet {
     clicolor: bool,
 }
 
-const ENV_SET: LazyLock<EnvSet> = LazyLock::new( || {
+static ENV_SET: LazyLock<EnvSet> = LazyLock::new( || {
     macro_rules! ck {
         ( $n:literal ) => { std::env::var_os( $n ).is_some() }
     }
