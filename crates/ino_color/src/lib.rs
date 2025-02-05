@@ -72,7 +72,7 @@ pub mod styles {
     }
 }
 
-pub enum ShouldColorize<'obj, OBJ> {
+enum ShouldColorize<'obj, OBJ> {
     Yes( &'obj OBJ ),
     No( &'obj OBJ ),
 }
