@@ -1,9 +1,35 @@
-pub mod has_colors;
+//! Add colors to output.
+//!
+//! # Example
+//!
+//! ```rust
+//! use ino_color::InoColor;
+//! use ino_color::colors;
+//! use ino_color::styles;
+//!
+//! // The most basic usage
+//! let msg = "Hello Fancy".fg::<colors::Yellow>();
+//! println!( "{msg}" );
+//!
+//! // It's also chainable!
+//! // Lifetime becomes annoying though.
+//! let msg = "Savoy blue".fg::<colors::Blue>();
+//! let msg = msg.style::<styles::Italic>();
+//! println!( "{msg}" );
+//!
+//! // Supports `std::fmt::*` formatting traits
+//! println!( "{:?}", vec![123].fg::<colors::Green>() );
+//! println!( "{:X}", 123.fg::<colors::Green>() );
+//! ```
+
 pub use has_colors::HasColors;
+pub mod has_colors;
 
 use std::marker::PhantomData;
 
-pub trait SgrParam<T> {
+/// An attribute on the [ANSI SGR](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR)
+/// list.
+pub trait SgrParam<KIND> {
     const ATTR: &'static str;
 }
 
@@ -190,26 +216,10 @@ macro_rules! METHOD_NOTE { ( $name:ident ) => {
     )
 } }
 
-/// Add colors and styles to output. This implementation uses generics heavily.
+/// Have methods for coloring things.
 ///
 /// # Note
-///
 /// Background coloring is **not yet implemented** because I don't need them, yet.
-///
-/// # Examples
-///
-/// ```rust
-/// use ino_color::InoColor;
-/// use ino_color::colors::*;
-/// use ino_color::styles::*;
-///
-/// let _ = "Hello Fancy".fg::<Yellow>();
-///
-/// // It's also chainable!
-/// let _ = "Savoy blue"
-///     .fg::<Blue>()
-///     .style::<Italic>();
-/// ```
 pub trait InoColor
 where
     Self: Sized
@@ -258,6 +268,7 @@ mod test {
     fn print_something_to_see_theres_no_automated_tests() {
         println!( "{:?}", "wooo".fg::<Blue>() );
         println!( "{}", "uh".fg::<Yellow>().style::<Italic>() );
+        println!( "{:x}", 123.fg::<Green>() );
     }
 
 }
