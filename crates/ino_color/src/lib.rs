@@ -235,16 +235,6 @@ where
         Painter::new( self, should_colorize_snippet!() )
     }
 
-    #[ doc = METHOD_NOTE!( color_style ) ]
-    #[ inline ]
-    fn fg_style<F, S>( &self ) -> Painter<Self, F, S>
-    where
-        F: Color,
-        S: Style
-    {
-        Painter::new( self, should_colorize_snippet!() )
-    }
-
     #[ inline ]
     fn fg_always<F>( &self ) -> Painter<Self, F, styles::Default>
     where
@@ -256,15 +246,6 @@ where
     #[ inline ]
     fn style_always<S>( &self ) -> Painter<Self, colors::Default, S>
     where
-        S: Style
-    {
-        Painter::new( self, true )
-    }
-
-    #[ inline ]
-    fn fg_style_always<F, S>( &self ) -> Painter<Self, F, S>
-    where
-        F: Color,
         S: Style
     {
         Painter::new( self, true )
@@ -283,7 +264,7 @@ mod test {
     #[ test ]
     fn print_something_to_see_theres_no_automated_tests() {
         println!( "{:?}", "wooo".fg::<Blue>() );
-        println!( "{}", "uh".fg_style::<Yellow, Bold>() );
+        println!( "{}", "uh".fg::<Yellow>().style::<Italic>() );
     }
 
 }
