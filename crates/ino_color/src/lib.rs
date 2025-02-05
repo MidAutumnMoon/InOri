@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 
 /// One color from SGR named colors.
 pub trait Color {
-    const ANSI_FG: &'static str;
-    const ANSI_BG: &'static str;
+    const ATTR_FG: &'static str;
+    const ATTR_BG: &'static str;
 }
 
 pub trait Style {
@@ -19,8 +19,8 @@ pub mod colors {
         ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => { $(
             pub struct $name;
             impl crate::Color for $name {
-                const ANSI_FG: &'static str = stringify!( $fg );
-                const ANSI_BG: &'static str = stringify!( $bg );
+                const ATTR_FG: &'static str = stringify!( $fg );
+                const ATTR_BG: &'static str = stringify!( $bg );
             }
         )* }
     }
@@ -141,7 +141,7 @@ macro_rules! impl_painter {
                 }
                 if self.object.should_colorize() {
                     f.write_str( "\x1b[" )?;
-                    f.write_str( FG::ANSI_FG )?;
+                    f.write_str( FG::ATTR_FG )?;
                     f.write_str( "m" )?;
                     f.write_str( "\x1b[" )?;
                     f.write_str( STYLE::ATTR )?;
