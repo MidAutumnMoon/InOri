@@ -6,5 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+readme = "README.md"
+description = "A output coloring crate with limited functionality, limit platform support and limited allocations."
+categories = [ "command-line-interface" ]
 
 [dependencies]
+
+# vim: set nowrap:
