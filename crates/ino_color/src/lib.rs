@@ -10,7 +10,7 @@ pub trait Color {
 }
 
 pub trait Style {
-    const ATTRIBUTE: &'static str;
+    const ATTR: &'static str;
 }
 
 /// Named ANSI SGR colors.
@@ -51,7 +51,7 @@ pub mod styles {
         ( $( $name:ident $attr:literal ),* $(,)? ) => { $(
             pub struct $name;
             impl crate::Style for $name {
-                const ATTRIBUTE: &'static str = stringify!( $attr );
+                const ATTR: &'static str = stringify!( $attr );
             }
         )* }
     }
@@ -144,7 +144,7 @@ macro_rules! impl_painter {
                     f.write_str( FG::ANSI_FG )?;
                     f.write_str( "m" )?;
                     f.write_str( "\x1b[" )?;
-                    f.write_str( STYLE::ATTRIBUTE )?;
+                    f.write_str( STYLE::ATTR )?;
                     f.write_str( "m" )?;
                     snippet!();
                     f.write_str( "\x1b[0m" )?;
