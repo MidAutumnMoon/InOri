@@ -3,24 +3,24 @@ pub use has_colors::HasColors;
 
 use std::marker::PhantomData;
 
-/// One color from SGR named colors.
-pub trait Color {
-    const ATTR_FG: &'static str;
-    const ATTR_BG: &'static str;
-}
-
-pub trait Style {
+pub trait SgrParam<T> {
     const ATTR: &'static str;
 }
+
+pub struct ColorFG;
+pub struct ColorBG;
+pub struct Style;
 
 /// Named ANSI SGR colors.
 pub mod colors {
     macro_rules! lets_colors {
         ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => { $(
             pub struct $name;
-            impl crate::Color for $name {
-                const ATTR_FG: &'static str = stringify!( $fg );
-                const ATTR_BG: &'static str = stringify!( $bg );
+            impl crate::SgrParam<crate::ColorFG> for $name {
+                const ATTR: &'static str = stringify!( $fg );
+            }
+            impl crate::SgrParam<crate::ColorBG> for $name {
+                const ATTR: &'static str = stringify!( $bg );
             }
         )* }
     }
@@ -50,7 +50,7 @@ pub mod styles {
     macro_rules! lets_styles {
         ( $( $name:ident $attr:literal ),* $(,)? ) => { $(
             pub struct $name;
-            impl crate::Style for $name {
+            impl crate::SgrParam<crate::Style> for $name {
                 const ATTR: &'static str = stringify!( $attr );
             }
         )* }
@@ -95,22 +95,18 @@ impl<OBJ> ShouldColorize<'_, OBJ> {
     }
 }
 
+/// Add colors to some object. The color and style information
+/// is embedded in its type, cool!
 #[ repr( transparent ) ]
-pub struct Painter<'painter, OBJ, FG, STYLE>
-where
-    OBJ: 'painter,
-    FG: Color,
-    STYLE: Style,
-{
+pub struct Painter<'painter, OBJ, SGR, KIND> {
     object: ShouldColorize<'painter, OBJ>,
-    _phantom: PhantomData<(FG, STYLE)>,
+    _phantom: PhantomData<(SGR, KIND)>,
 }
 
-impl<'painter, OBJ, FG, STYLE> Painter<'painter, OBJ, FG, STYLE>
+impl<'painter, OBJ, SGR, KIND> Painter<'painter, OBJ, SGR, KIND>
 where
     OBJ: 'painter,
-    FG: Color,
-    STYLE: Style,
+    SGR: SgrParam<KIND>,
 {
     #[ inline ]
     fn new( object: &'painter OBJ, colorize: bool ) -> Self {
@@ -126,25 +122,21 @@ macro_rules! impl_painter {
     // $trait : a trait to be implemented, repeated
     // $(,) : allow trailling comma
     ( $( $trait:path ),* $(,)? ) => { $(
-        impl<O, FG, STYLE> $trait for Painter<'_, O, FG, STYLE>
+        impl<OBJ, SGR, KIND> $trait for Painter<'_, OBJ, SGR, KIND>
         where
-            FG: crate::Color,
-            STYLE: crate::Style,
-            O: $trait,
+            OBJ: $trait,
+            SGR: SgrParam<KIND>
         {
             fn fmt( &self, f: &mut std::fmt::Formatter<'_> )
                 -> std::fmt::Result
             {
                 // Of course it's the right use case for macro
                 macro_rules! snippet {
-                    () => { <O as $trait>::fmt( self.object.get(), f )?; }
+                    () => { <OBJ as $trait>::fmt( self.object.get(), f )?; }
                 }
                 if self.object.should_colorize() {
                     f.write_str( "\x1b[" )?;
-                    f.write_str( FG::ATTR_FG )?;
-                    f.write_str( "m" )?;
-                    f.write_str( "\x1b[" )?;
-                    f.write_str( STYLE::ATTR )?;
+                    f.write_str( SGR::ATTR )?;
                     f.write_str( "m" )?;
                     snippet!();
                     f.write_str( "\x1b[0m" )?;
@@ -155,7 +147,6 @@ macro_rules! impl_painter {
             }
         }
     )* }
-
 }
 
 impl_painter! {
@@ -203,50 +194,52 @@ macro_rules! METHOD_NOTE { ( $name:ident ) => {
 ///
 /// # Note
 ///
-/// Background coloring is not yet implemented because I don't need them, yet.
+/// Background coloring is **not yet implemented** because I don't need them, yet.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use ino_color::InoColor;
 /// use ino_color::colors::*;
-/// let msg = "Hello Fancy".fg::<Blue>();
-/// ```
+/// use ino_color::styles::*;
 ///
+/// let _ = "Hello Fancy".fg::<Yellow>();
+///
+/// // It's also chainable!
+/// let _ = "Savoy blue"
+///     .fg::<Blue>()
+///     .style::<Italic>();
+/// ```
 pub trait InoColor
 where
     Self: Sized
 {
     #[ doc = METHOD_NOTE!( fg ) ]
     #[ inline ]
-    fn fg<F>( &self ) -> Painter<Self, F, styles::Default>
-    where
-        F: Color
+    fn fg<F: SgrParam<ColorFG>>( &self )
+        -> Painter<Self, F, ColorFG>
     {
         Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
     #[ inline ]
-    fn style<S>( &self ) -> Painter<Self, colors::Default, S>
-    where
-        S: Style
+    fn style<S: SgrParam<Style>>( &self )
+        -> Painter<Self, S, Style>
     {
         Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ inline ]
-    fn fg_always<F>( &self ) -> Painter<Self, F, styles::Default>
-    where
-        F: Color
+    fn fg_always<F: SgrParam<ColorFG>>( &self )
+        -> Painter<Self, F, ColorFG>
     {
         Painter::new( self, true )
     }
 
     #[ inline ]
-    fn style_always<S>( &self ) -> Painter<Self, colors::Default, S>
-    where
-        S: Style
+    fn style_always<S: SgrParam<Style>>( &self )
+        -> Painter<Self, S, Style>
     {
         Painter::new( self, true )
     }
