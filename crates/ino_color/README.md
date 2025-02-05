@@ -10,12 +10,14 @@ use ino_color::InoColor;
 use ino_color::colors::*;
 use ino_color::styles::*;
 
-let _ = "Hello Fancy".fg::<Yellow>();
+let msg = "Hello Fancy".fg::<Yellow>();
+println!( "{msg}" );
 
 // It's also chainable!
-let _ = "Savoy blue"
-    .fg::<Blue>()
-    .style::<Italic>();
+// Lifetime becomes annoying though.
+let msg = "Savoy blue".fg::<Blue>();
+let msg = msg.style::<Italic>();
+println!( "{msg}" );
 ```
 
 ## Pros & Cons
@@ -32,15 +34,15 @@ let _ = "Savoy blue"
 - Linux only.
   - However it doesn't use platfor specific API, so it might also works on Darwin and modern Windows
     as long as the terminal emulator speaks ANSI SGR.
-    
+
 - Can't set background color (yet?).
-  - Reason: After years of experience of using Linux, no legit usage of background colors has been encountered 
+  - Reason: After years of experience of using Linux, no legit usage of background colors has been encountered
     other than TUI frameworks. Remove it simplifies the implementation.
-  
+
 - All color and style selections are done in **type level**, meaning coloring can't be changed at runtime.
   - Such APIs will not be added in the near future.
   - Blame `owo-colors` for inventing this API, explained next section.
- 
+
 ## About `owo-colors`
 
 This implementation has similar interfaces with [owo-colors](https://github.com/jam1garner/owo-colors),
