@@ -96,22 +96,28 @@ impl<OBJ> ShouldColorize<'_, OBJ> {
 }
 
 #[ repr( transparent ) ]
-pub struct Painter<'object, OBJ, FG, STYLE>
+pub struct Painter<'painter, OBJ, FG, STYLE>
 where
-    OBJ: 'object,
+    OBJ: 'painter,
     FG: Color,
     STYLE: Style,
 {
-    object: ShouldColorize<'object, OBJ>,
+    object: ShouldColorize<'painter, OBJ>,
     _phantom: PhantomData<(FG, STYLE)>,
 }
 
-impl<'paint, OBJ, FG, STYLE> Painter<'paint, OBJ, FG, STYLE>
+impl<'painter, OBJ, FG, STYLE> Painter<'painter, OBJ, FG, STYLE>
 where
+    OBJ: 'painter,
     FG: Color,
     STYLE: Style,
 {
-    fn new( object: ShouldColorize<'paint, OBJ> ) -> Self {
+    #[ inline ]
+    fn new( object: &'painter OBJ, colorize: bool ) -> Self {
+        let object = match colorize {
+            true => ShouldColorize::Yes( object ),
+            false => ShouldColorize::No( object ),
+        };
         Self { object, _phantom: PhantomData }
     }
 }
@@ -217,7 +223,7 @@ where
     where
         F: Color
     {
-        self.color_style( should_colorize_snippet!() )
+        Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
@@ -226,7 +232,7 @@ where
     where
         S: Style
     {
-        self.color_style( should_colorize_snippet!() )
+        Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ doc = METHOD_NOTE!( color_style ) ]
@@ -236,7 +242,7 @@ where
         F: Color,
         S: Style
     {
-        self.color_style( should_colorize_snippet!() )
+        Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ inline ]
@@ -244,7 +250,7 @@ where
     where
         F: Color
     {
-        self.color_style( true )
+        Painter::new( self, true )
     }
 
     #[ inline ]
@@ -252,7 +258,7 @@ where
     where
         S: Style
     {
-        self.color_style( true )
+        Painter::new( self, true )
     }
 
     #[ inline ]
@@ -261,22 +267,7 @@ where
         F: Color,
         S: Style
     {
-        self.color_style( true )
-    }
-
-    #[ inline ]
-    fn color_style<F, S>( &self, colorize: bool ) -> Painter<Self, F, S>
-    where
-        F: Color,
-        S: Style,
-    {
-        Painter::new(
-            if colorize {
-                ShouldColorize::Yes( self )
-            } else {
-                ShouldColorize::No( self )
-            }
-        )
+        Painter::new( self, true )
     }
 }
 
