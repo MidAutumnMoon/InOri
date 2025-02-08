@@ -127,10 +127,7 @@ where
 
     #[ inline ]
     fn should_colorize( &self ) -> bool {
-        match self.object {
-            ShouldColorize::Yes(_) => true,
-            ShouldColorize::No(_) => false,
-        }
+        matches!( self.object, ShouldColorize::Yes(_) )
     }
 
     #[ inline ]
