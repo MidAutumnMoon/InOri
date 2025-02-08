@@ -103,16 +103,6 @@ enum ShouldColorize<'obj, OBJ> {
     No( &'obj OBJ ),
 }
 
-impl<OBJ> ShouldColorize<'_, OBJ> {
-    #[ inline ]
-    fn get( &self ) -> &OBJ {
-        match self {
-            Self::Yes( o ) => o,
-            Self::No( o ) => o,
-        }
-    }
-}
-
 /// Add colors to some object. The color and style information
 /// is embedded in its type, cool!
 #[ repr( transparent ) ]
@@ -142,6 +132,14 @@ where
             ShouldColorize::No(_) => false,
         }
     }
+
+    #[ inline ]
+    fn get_inner( &self ) -> &OBJ {
+        use ShouldColorize::*;
+        match self.object {
+            Yes( o ) | No( o ) => o
+        }
+    }
 }
 
 macro_rules! impl_painter {
@@ -158,7 +156,7 @@ macro_rules! impl_painter {
             {
                 // Of course it's the right use case for macro
                 macro_rules! snippet {
-                    () => { <OBJ as $trait>::fmt( self.object.get(), f )?; }
+                    () => { <OBJ as $trait>::fmt( self.get_inner(), f )?; }
                 }
                 if self.should_colorize() {
                     f.write_str( "\x1b[" )?;
