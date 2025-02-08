@@ -111,14 +111,6 @@ impl<OBJ> ShouldColorize<'_, OBJ> {
             Self::No( o ) => o,
         }
     }
-
-    #[ inline ]
-    fn should_colorize( &self ) -> bool {
-        match self {
-            Self::Yes(_) => true,
-            Self::No(_) => false,
-        }
-    }
 }
 
 /// Add colors to some object. The color and style information
@@ -142,6 +134,14 @@ where
         };
         Self { object, _phantom: PhantomData }
     }
+
+    #[ inline ]
+    fn should_colorize( &self ) -> bool {
+        match self.object {
+            ShouldColorize::Yes(_) => true,
+            ShouldColorize::No(_) => false,
+        }
+    }
 }
 
 macro_rules! impl_painter {
@@ -160,7 +160,7 @@ macro_rules! impl_painter {
                 macro_rules! snippet {
                     () => { <OBJ as $trait>::fmt( self.object.get(), f )?; }
                 }
-                if self.object.should_colorize() {
+                if self.should_colorize() {
                     f.write_str( "\x1b[" )?;
                     f.write_str( SGR::ATTR )?;
                     f.write_str( "m" )?;
