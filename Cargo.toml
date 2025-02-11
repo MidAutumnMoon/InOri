@@ -21,7 +21,7 @@ rust-version = "1.83.0"
 #
 
 [workspace.dependencies]
-anyhow = "1"
+anyhow = { version = "1", features = [ "backtrace" ] }
 clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
 itertools = "0"
 rayon = "1"
