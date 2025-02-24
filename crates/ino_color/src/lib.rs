@@ -7,23 +7,25 @@
 //! use ino_color::InoColor;
 //!
 //! // These two modules contain predefined colors and styles.
-//! use ino_color::fg::*;
-//! use ino_color::style::*;
+//! // As a personal preferrence, wildcard import is avoided,
+//! // even though doing so makes the function caller looks funny.
+//! use ino_color::fg;
+//! use ino_color::style;
 //!
 //! // The most basic usage
 //! println!(
-//!     "{}", "Hello Fancy".fg::<Yellow>()
+//!     "{}", "Hello Fancy".fg::<fg::Yellow>()
 //! );
 //!
 //! // It's also chainable!
 //! println!(
-//!     "{}", "Savoy blue".fg::<Blue>().style::<Italic>()
+//!     "{}", "Savoy blue".fg::<fg::Blue>().style::<style::Italic>()
 //! );
 //!
 //! // In fact, anything which implements `std::fmt` traits
 //! // can be colored.
-//! println!( "{:?}", vec![123].fg::<Green>() );
-//! println!( "{:X}", 123.fg::<Green>() );
+//! println!( "{:?}", vec![123].fg::<fg::Green>() );
+//! println!( "{:X}", 123.fg::<fg::Green>() );
 //! ```
 
 pub use has_colors::HasColors;
