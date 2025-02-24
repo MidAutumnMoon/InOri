@@ -4,22 +4,22 @@
 //!
 //! ```rust
 //! use ino_color::InoColor;
-//! use ino_color::colors;
-//! use ino_color::styles;
+//! use ino_color::fg;
+//! use ino_color::style;
 //!
 //! // The most basic usage
-//! let msg = "Hello Fancy".fg::<colors::Yellow>();
+//! let msg = "Hello Fancy".fg::<fg::Yellow>();
 //! println!( "{msg}" );
 //!
 //! // It's also chainable!
 //! // Lifetime becomes annoying though.
-//! let msg = "Savoy blue".fg::<colors::Blue>();
-//! let msg = msg.style::<styles::Italic>();
+//! let msg = "Savoy blue".fg::<fg::Blue>();
+//! let msg = msg.style::<style::Italic>();
 //! println!( "{msg}" );
 //!
 //! // Supports `std::fmt::*` formatting traits
-//! println!( "{:?}", vec![123].fg::<colors::Green>() );
-//! println!( "{:X}", 123.fg::<colors::Green>() );
+//! println!( "{:?}", vec![123].fg::<fg::Green>() );
+//! println!( "{:X}", 123.fg::<fg::Green>() );
 //! ```
 
 pub use has_colors::HasColors;
@@ -27,75 +27,83 @@ pub mod has_colors;
 
 use std::marker::PhantomData;
 
-/// An attribute on the [ANSI SGR](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR)
-/// list.
-pub trait SgrParam<KIND> {
+/// An attribute in the [ANSI SGR](https://w.wiki/DBZ2) list.
+pub trait AnsiSgr {
     const ATTR: &'static str;
 }
 
-pub struct ColorFG;
-pub struct ColorBG;
-pub struct Style;
+/// Foreground color
+pub trait FG : AnsiSgr {}
+/// Background color
+pub trait BG : AnsiSgr {}
+/// Style
+pub trait Style : AnsiSgr {}
 
 /// Named ANSI SGR colors.
-pub mod colors {
-    macro_rules! lets_colors {
-        ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => { $(
+macro_rules! lets_colors {
+    ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => {
+        pub mod fg { $(
             pub struct $name;
-            impl crate::SgrParam<crate::ColorFG> for $name {
+            impl crate::AnsiSgr for $name {
                 const ATTR: &'static str = stringify!( $fg );
             }
-            impl crate::SgrParam<crate::ColorBG> for $name {
+            impl crate::FG for $name {}
+        )* }
+        pub mod bg { $(
+            pub struct $name;
+            impl crate::AnsiSgr for $name {
                 const ATTR: &'static str = stringify!( $bg );
             }
+            impl crate::BG for $name {}
         )* }
     }
-    lets_colors! {
-        Default   39 49,
-        Black   30 40,
-        Red     31 41,
-        Green   32 42,
-        Yellow  33 43,
-        Blue    34 44,
-        Magenta 35 45,
-        Cyan    36 46,
-        White   37 47,
-        BrightBlack   90 100,
-        BrightRed     91 101,
-        BrightGreen   92 102,
-        BrightYellow  93 103,
-        BrightBlue    94 104,
-        BrightMagenta 95 105,
-        BrightCyan    96 106,
-        BrightWhite   97 107,
-    }
+}
+lets_colors! {
+    Default   39 49,
+    Black   30 40,
+    Red     31 41,
+    Green   32 42,
+    Yellow  33 43,
+    Blue    34 44,
+    Magenta 35 45,
+    Cyan    36 46,
+    White   37 47,
+    BrightBlack   90 100,
+    BrightRed     91 101,
+    BrightGreen   92 102,
+    BrightYellow  93 103,
+    BrightBlue    94 104,
+    BrightMagenta 95 105,
+    BrightCyan    96 106,
+    BrightWhite   97 107,
 }
 
 /// Commonly recognized and used ANSI SGR attributes.
-pub mod styles {
-    macro_rules! lets_styles {
-        ( $( $name:ident $attr:literal ),* $(,)? ) => { $(
+macro_rules! lets_styles {
+    ( $( $name:ident $attr:literal ),* $(,)? ) => {
+        pub mod style { $(
             pub struct $name;
-            impl crate::SgrParam<crate::Style> for $name {
+            impl crate::AnsiSgr for $name {
                 const ATTR: &'static str = stringify!( $attr );
             }
+            impl crate::Style for $name {}
         )* }
     }
-    lets_styles! {
-        Default 10,
-        Reset 0,
-        Bold 1,
-        Dim 2,
-        Italic 3,
-        Underline 4,
-        Blink 5,
-        // Rapid_blink 6,
-        Invert 7,
-        Hide 8,
-        Strike 9,
-        DoubleUnderline 21,
-        Overline 53,
-    }
+}
+lets_styles! {
+    Default 10,
+    Reset 0,
+    Bold 1,
+    Dim 2,
+    Italic 3,
+    Underline 4,
+    Blink 5,
+    // Rapid_blink 6,
+    Invert 7,
+    Hide 8,
+    Strike 9,
+    DoubleUnderline 21,
+    Overline 53,
 }
 
 enum ShouldColorize<'obj, OBJ> {
@@ -106,15 +114,15 @@ enum ShouldColorize<'obj, OBJ> {
 /// Add colors to some object. The color and style information
 /// is embedded in its type, cool!
 #[ repr( transparent ) ]
-pub struct Painter<'painter, OBJ, SGR, KIND> {
+pub struct Painter<'painter, OBJ, SGR> {
     object: ShouldColorize<'painter, OBJ>,
-    _phantom: PhantomData<(SGR, KIND)>,
+    _phantom: PhantomData<(SGR, )>,
 }
 
-impl<'painter, OBJ, SGR, KIND> Painter<'painter, OBJ, SGR, KIND>
+impl<'painter, OBJ, SGR> Painter<'painter, OBJ, SGR>
 where
     OBJ: 'painter,
-    SGR: SgrParam<KIND>,
+    SGR: AnsiSgr
 {
     #[ inline ]
     fn new( object: &'painter OBJ, colorize: bool ) -> Self {
@@ -143,10 +151,10 @@ macro_rules! impl_painter {
     // $trait : a trait to be implemented, repeated
     // $(,) : allow trailling comma
     ( $( $trait:path ),* $(,)? ) => { $(
-        impl<OBJ, SGR, KIND> $trait for Painter<'_, OBJ, SGR, KIND>
+        impl<OBJ, SGR> $trait for Painter<'_, OBJ, SGR>
         where
             OBJ: $trait,
-            SGR: SgrParam<KIND>
+            SGR: AnsiSgr
         {
             fn fmt( &self, f: &mut std::fmt::Formatter<'_> )
                 -> std::fmt::Result
@@ -221,31 +229,23 @@ where
 {
     #[ doc = METHOD_NOTE!( fg ) ]
     #[ inline ]
-    fn fg<F: SgrParam<ColorFG>>( &self )
-        -> Painter<Self, F, ColorFG>
-    {
+    fn fg<F: FG>( &self ) -> Painter<Self, F> {
         Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
     #[ inline ]
-    fn style<S: SgrParam<Style>>( &self )
-        -> Painter<Self, S, Style>
-    {
+    fn style<S: Style>( &self ) -> Painter<Self, S> {
         Painter::new( self, should_colorize_snippet!() )
     }
 
     #[ inline ]
-    fn fg_always<F: SgrParam<ColorFG>>( &self )
-        -> Painter<Self, F, ColorFG>
-    {
+    fn fg_always<F: FG>( &self ) -> Painter<Self, F> {
         Painter::new( self, true )
     }
 
     #[ inline ]
-    fn style_always<S: SgrParam<Style>>( &self )
-        -> Painter<Self, S, Style>
-    {
+    fn style_always<S: Style>( &self ) -> Painter<Self, S> {
         Painter::new( self, true )
     }
 }
@@ -256,8 +256,8 @@ impl<T: Sized> InoColor for T {}
 mod test {
 
     use super::*;
-    use colors::*;
-    use styles::*;
+    use fg::*;
+    use style::*;
 
     #[ test ]
     fn print_something_to_see_theres_no_automated_tests() {
