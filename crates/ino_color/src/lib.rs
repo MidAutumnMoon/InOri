@@ -131,7 +131,7 @@ where
     SGR: AnsiSgr
 {
     #[ inline ]
-    fn new( object: &'painter OBJ, colorize: bool ) -> Self {
+    const fn new( object: &'painter OBJ, colorize: bool ) -> Self {
         let object = match colorize {
             true => ShouldColorize::Yes( object ),
             false => ShouldColorize::No( object ),
@@ -140,12 +140,12 @@ where
     }
 
     #[ inline ]
-    fn should_colorize( &self ) -> bool {
+    const fn should_colorize( &self ) -> bool {
         matches!( self.object, ShouldColorize::Yes(_) )
     }
 
     #[ inline ]
-    fn get_inner( &self ) -> &OBJ {
+    const fn get_inner( &self ) -> &OBJ {
         use ShouldColorize::*;
         match self.object {
             Yes( o ) | No( o ) => o

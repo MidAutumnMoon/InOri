@@ -31,6 +31,7 @@ macro_rules! impl_has_color {
     // $(,)? : allow trailling comma
     ( $( $target:ty ),* $(,)? ) => { $(
         impl HasColors for $target {
+            #[ inline ]
             fn has_colors( &self ) -> bool {
                 // NO_COLOR set, don't output any color.
                 if ENV_SET.no_color {
