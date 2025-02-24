@@ -22,7 +22,7 @@ rust-version = "1.85.0"
 
 [workspace.dependencies]
 anyhow = { version = "1", features = [ "backtrace" ] }
-clap = { version = "4", features = [ "derive", "cargo", "wrap_help" ] }
+clap = { version = "4", features = [ "derive", "cargo" ] }
 itertools = "0"
 rayon = "1"
 tap = "1"
