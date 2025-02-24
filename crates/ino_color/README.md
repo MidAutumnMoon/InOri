@@ -3,21 +3,30 @@
 A output coloring crate with limited functionality, limit platform support
 and limited allocations. It's perfect for scratching tiny spot of itch.
 
-## Examples
+## Basic Usage
 
 ```rust
+// This's the trait that adds coloring methods.
 use ino_color::InoColor;
-use ino_color::colors::*;
-use ino_color::styles::*;
 
-let msg = "Hello Fancy".fg::<Yellow>();
-println!( "{msg}" );
+// These two modules contain predefined colors and styles.
+use ino_color::fg::*;
+use ino_color::style::*;
+
+// The most basic usage
+println!(
+    "{}", "Hello Fancy".fg::<Yellow>()
+);
 
 // It's also chainable!
-// Lifetime becomes annoying though.
-let msg = "Savoy blue".fg::<Blue>();
-let msg = msg.style::<Italic>();
-println!( "{msg}" );
+println!(
+    "{}", "Savoy blue".fg::<Blue>().style::<Italic>()
+);
+
+// In fact, anything which implements `std::fmt` traits
+// can be colored.
+println!( "{:?}", vec![123].fg::<Green>() );
+println!( "{:X}", 123.fg::<Green>() );
 ```
 
 ## Pros & Cons
