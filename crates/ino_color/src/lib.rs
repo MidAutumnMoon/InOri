@@ -1,25 +1,29 @@
-//! Add colors to output.
+//! Coloring the terminal output.
 //!
-//! # Example
+//! # Basic Usage
 //!
 //! ```rust
+//! // This's the trait that adds coloring methods.
 //! use ino_color::InoColor;
-//! use ino_color::fg;
-//! use ino_color::style;
+//!
+//! // These two modules contain predefined colors and styles.
+//! use ino_color::fg::*;
+//! use ino_color::style::*;
 //!
 //! // The most basic usage
-//! let msg = "Hello Fancy".fg::<fg::Yellow>();
-//! println!( "{msg}" );
+//! println!(
+//!     "{}", "Hello Fancy".fg::<Yellow>()
+//! );
 //!
 //! // It's also chainable!
-//! // Lifetime becomes annoying though.
-//! let msg = "Savoy blue".fg::<fg::Blue>();
-//! let msg = msg.style::<style::Italic>();
-//! println!( "{msg}" );
+//! println!(
+//!     "{}", "Savoy blue".fg::<Blue>().style::<Italic>()
+//! );
 //!
-//! // Supports `std::fmt::*` formatting traits
-//! println!( "{:?}", vec![123].fg::<fg::Green>() );
-//! println!( "{:X}", 123.fg::<fg::Green>() );
+//! // In fact, anything which implements `std::fmt` traits
+//! // can be colored.
+//! println!( "{:?}", vec![123].fg::<Green>() );
+//! println!( "{:X}", 123.fg::<Green>() );
 //! ```
 
 pub use has_colors::HasColors;
@@ -32,16 +36,17 @@ pub trait AnsiSgr {
     const ATTR: &'static str;
 }
 
-/// Foreground color
+/// The corresponding attribute is for *foreground color*.
 pub trait FG : AnsiSgr {}
-/// Background color
+/// The corresponding attribute is for *background color*.
 pub trait BG : AnsiSgr {}
-/// Style
+/// The corresponding attribute is for attributes which mainly
+/// effects the *style* of output, such as italic or bold.
 pub trait Style : AnsiSgr {}
 
-/// Named ANSI SGR colors.
 macro_rules! lets_colors {
     ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => {
+        /// Named 16 foreground colors.
         pub mod fg { $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
@@ -49,6 +54,7 @@ macro_rules! lets_colors {
             }
             impl crate::FG for $name {}
         )* }
+        /// Named 16 background colors.
         pub mod bg { $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
@@ -78,9 +84,9 @@ lets_colors! {
     BrightWhite   97 107,
 }
 
-/// Commonly recognized and used ANSI SGR attributes.
 macro_rules! lets_styles {
     ( $( $name:ident $attr:literal ),* $(,)? ) => {
+        /// Commonly used style attributes.
         pub mod style { $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
@@ -156,9 +162,7 @@ macro_rules! impl_painter {
             OBJ: $trait,
             SGR: AnsiSgr
         {
-            fn fmt( &self, f: &mut std::fmt::Formatter<'_> )
-                -> std::fmt::Result
-            {
+            fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
                 // Of course it's the right use case for macro
                 macro_rules! snippet {
                     () => { <OBJ as $trait>::fmt( self.get_inner(), f )?; }
