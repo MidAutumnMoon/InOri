@@ -30,6 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
 
 ino_color = { path = "./crates/ino_color" }
+ino_result = { path = "./crates/ino_result" }
 ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
 
