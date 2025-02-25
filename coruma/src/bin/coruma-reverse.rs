@@ -109,8 +109,12 @@ impl Iterator for SymlinkAncestor {
     fn next( &mut self ) -> Option< Self::Item > {
         let _s = tracing::debug_span!( "iter_next" ).entered();
 
+        // N.B. self.current became None after take()
+        // it stays None as long as not set again
         let current = self.current.take()?;
         debug!( ?current );
+
+        // Step 1. Check for symlink loop
 
         if self.visited_paths.contains( &current ) {
             debug!( "Already visited this path" );
@@ -121,6 +125,8 @@ impl Iterator for SymlinkAncestor {
             return Some( Err( errmsg ) )
         }
 
+        // Step 2. Guard against limitation
+
         if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
             return anyhow::anyhow!( "Exceeded the maximum symlink follows allowed" )
                 .pipe( |it| Some( Err( it ) ) )
@@ -130,32 +136,35 @@ impl Iterator for SymlinkAncestor {
 
         trace!( "Read symlink metadata" );
 
-        let metadata = match current
-            .symlink_metadata()
-            .context( "Error reading symlink metadata" )
-        {
-            Ok( m ) => m,
-            Err( err ) => return Some( Err( err.into() ) )
-        };
+        // Step 3. Prepare for next iteration
 
-        if metadata.is_symlink() {
+        // is_symlink() does not traverse symlink
+        if current.is_symlink() {
             debug!( "Found new symlink" );
-            trace!( "Read symlink target" );
-
-            let link_target = match current
+            let errmsg = || format!(
+                r#"Error reading symlink "{}""#,
+                current.display()
+            );
+            let symlink_target = match current
                 .read_link()
-                .context( "Failed to read_link" )
+                .with_context( errmsg )
             {
                 Ok( it ) => it,
                 Err( err ) => return Some( Err( err.into() ) )
             };
-
-            self.current = Some( link_target );
+            // Sets self.current to Some,
+            // so that the next iteration will happend
+            self.current = Some( symlink_target );
         } else {
+            // Here, self.current is not set and stays None,
+            // which skips next iteration
             trace!( "Not a symlink, the end of symlink chain is reached" );
         }
 
+        // Step 4. Book current as traversed and yield
+
         self.visited_paths.insert( current.clone() );
+
         return Some( Ok( current ) )
     }
 }
