@@ -9,7 +9,6 @@ use std::{
 
 use std::iter::Iterator;
 use std::fmt::Display;
-use std::fmt::Debug;
 
 use anyhow::Context;
 use tap::Pipe;
@@ -35,7 +34,6 @@ struct Application {
     program: String,
 }
 
-///
 enum ProgramKind {
     Name( String ),
     Path( String ),
@@ -73,13 +71,11 @@ impl Application {
 
         debug!( ?starter );
 
-        SymlinkAncestor::new( &starter )
+        let ancestors = SymlinkAncestor::new( &starter )
             .collect::< Result< Vec<_>, _ > >()
-                .context( "Unable to walk through symlink" )?
-            .into_iter()
-            .for_each( |path| {
-                Explainer::explain_path( &path.display() );
-            } ) ;
+            .context( "Unable to walk through symlink" )?;
+
+        Explainer::explain_paths( ancestors )?;
 
         Ok(())
     }
@@ -150,7 +146,7 @@ impl Iterator for SymlinkAncestor {
                 .with_context( errmsg )
             {
                 Ok( it ) => it,
-                Err( err ) => return Some( Err( err.into() ) )
+                Err( err ) => return Some( Err( err ) )
             };
             // Sets self.current to Some,
             // so that the next iteration will happend
@@ -165,18 +161,140 @@ impl Iterator for SymlinkAncestor {
 
         self.visited_paths.insert( current.clone() );
 
-        return Some( Ok( current ) )
+        Some( Ok( current ) )
     }
 }
 
+#[ derive( Debug, Clone ) ]
+enum SubjectKind {
+    BootedSystem,
+    CurrentSystem,
+    NixStore,
+    Normal,
+    PerUserProfile,
+    /// A special entry whose meaning depends on the context.
+    Relative,
+}
+
 #[ derive( Debug ) ]
+struct Subject {
+    kind: SubjectKind,
+    path: PathBuf,
+}
+
+impl Subject {
+    fn new_guess( path: &Path ) -> Self {
+        use SubjectKind::*;
+
+        let it = path.to_string_lossy();
+
+        const CHECKLIST: &[ ( &str, SubjectKind ) ] = &[
+            ( "/nix/store", NixStore ),
+            ( "/etc/profiles/per-user", PerUserProfile ),
+            ( "/run/current-system", CurrentSystem ),
+            ( "/run/booted-system", BootedSystem ),
+        ];
+
+        let kind = if path.is_absolute() {
+            CHECKLIST.iter()
+                .find( |(prefix, _)| it.starts_with( prefix ) )
+                .map( |(_, kind)| kind )
+                .unwrap_or( &SubjectKind::Normal )
+                .to_owned()
+        } else {
+            Relative
+        };
+
+        Self { kind, path: path.to_owned() }
+    }
+
+    fn fix_relative( self, base: &Path ) -> anyhow::Result<Self> {
+        if ! matches!( self.kind, SubjectKind::Relative ) {
+            return Ok( self )
+        }
+        base.join( self.path )
+            .pipe( std::path::absolute )?
+            .pipe( |it| Self::new_guess( &it ) )
+            .pipe( Ok )
+    }
+
+    fn describe( &self ) -> &'static str {
+        use SubjectKind::*;
+        match self.kind {
+            BootedSystem => "The generation activated at boot time",
+            CurrentSystem => "The current activated generation",
+            NixStore => "Path in nix store",
+            Normal => "Ordinary path",
+            PerUserProfile => "Per user profile",
+            Relative => "Relative path",
+        }
+    }
+
+    fn path( &self ) -> &Path {
+        &self.path
+    }
+}
+
+impl Display for Subject {
+    fn fmt( &self, f: &mut std::fmt::Formatter<'_> )
+        -> std::fmt::Result
+    {
+        use ino_color::InoColor;
+        use ino_color::fg::Blue;
+        use ino_color::style::Italic;
+
+        let path = self.path().to_string_lossy();
+        let path = path.fg::<Blue>();
+
+        Display::fmt( &path, f )?;
+
+        f.write_str( " " )?;
+
+        if ! matches!( self.kind, SubjectKind::Normal ) {
+            let desc = format!( "<- {}", self.describe() );
+            let desc = desc.style::<Italic>();
+            Display::fmt( &desc, f )?;
+        }
+
+        Ok(())
+    }
+}
+
 struct Explainer;
 
 impl Explainer {
-    fn explain_path<P>( path: &P )
-    where
-        P: Display + Debug
-    {
-        println!( "{path}" )
+    #[ tracing::instrument ]
+    fn explain_paths( paths: Vec<PathBuf> ) -> anyhow::Result<()> {
+        for ( index, it ) in paths
+            .iter()
+            .enumerate()
+        {
+            trace!( ?it );
+
+            let subject = match Subject::new_guess( it ) {
+                // Try its best to fixup relative path.
+                it @ Subject { kind: SubjectKind::Relative, .. } => {
+                    debug!( "Fixup relative path" );
+                    if let Some( dirname ) = index
+                        // get the index of previous item
+                        .checked_sub( 1 )
+                        // get the previous path
+                        .and_then( |idx| paths.get( idx ) )
+                        // get the parent aka dirname
+                        .and_then( |prev| prev.parent() )
+                    {
+                        it.fix_relative( dirname )?
+                    } else {
+                        // If nothing works, meh just give up
+                        it
+                    }
+                },
+                anything => anything,
+            };
+
+            println!( "{subject}" );
+        }
+
+        Ok(())
     }
 }

@@ -252,6 +252,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "ino_color",
  "ino_path",
  "ino_result",
  "ino_tracing",
