@@ -44,10 +44,9 @@ impl Application {
         let starter = coruma::lookup_executable_in_path( &self.program )
             .first()
             .ok_or_else( ||
-                anyhow::anyhow!( "Executable \"{}\" not found", self.program )
+                anyhow::anyhow!( r#"Program "{}" not found"#, self.program )
             )?
-            .to_owned()
-        ;
+            .to_owned() ;
 
         debug!( ?starter );
 
@@ -57,8 +56,7 @@ impl Application {
             .into_iter()
             .for_each( |path| {
                 Explainer::explain_path( &path.display() );
-            } )
-        ;
+            } ) ;
 
         Ok(())
     }
@@ -88,13 +86,12 @@ impl SymlinkAncestor {
 impl Iterator for SymlinkAncestor {
     type Item = anyhow::Result<PathBuf>;
 
-    #[ tracing::instrument ]
     fn next( &mut self ) -> Option< Self::Item > {
-        let current = self.current.take()?;
+        let _s = tracing::debug_span!( "next" ).entered();
 
+        let current = self.current.take()?;
         debug!( ?current );
 
-        // NOTE: early return
         if self.visited_paths.contains( &current ) {
             debug!( "Already visited this path" );
             // TODO: better error message
@@ -110,21 +107,28 @@ impl Iterator for SymlinkAncestor {
             self.symlink_followed += 1;
         }
 
-        trace!( "Read metadata" );
-        let metadata = current.symlink_metadata()
-            // TODO: better error message
-            .context( "Failed to read metadata" )
-            .ok()?
-        ;
+        trace!( "Read symlink metadata" );
+
+        let metadata = match current
+            .symlink_metadata()
+            .context( "Error reading symlink metadata" )
+        {
+            Ok( m ) => m,
+            Err( err ) => return Some( Err( err.into() ) )
+        };
 
         if metadata.is_symlink() {
             debug!( "Found new symlink" );
             trace!( "Read symlink target" );
-            let link_target = current.read_link()
-                // TODO: better error message
+
+            let link_target = match current
+                .read_link()
                 .context( "Failed to read_link" )
-                .ok()?
-            ;
+            {
+                Ok( it ) => it,
+                Err( err ) => return Some( Err( err.into() ) )
+            };
+
             self.current = Some( link_target );
         } else {
             trace!( "Not a symlink, the end of symlink chain reached" );
@@ -138,14 +142,11 @@ impl Iterator for SymlinkAncestor {
 #[ derive( Debug ) ]
 struct Explainer;
 
-impl Explainer
-{
-    #[ tracing::instrument ]
+impl Explainer {
     fn explain_path<P>( path: &P )
     where
         P: Display + Debug
     {
-        let path = path.to_string();
         println!( "{path}" )
     }
 }
