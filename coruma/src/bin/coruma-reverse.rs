@@ -13,6 +13,16 @@ use std::fmt::Debug;
 
 use anyhow::Context;
 
+
+fn main() {
+    use ino_result::ResultExt;
+    ino_tracing::init_tracing_subscriber();
+    <Application as clap::Parser>::parse()
+        .run()
+        .unwrap_print_error()
+    ;
+}
+
 ///  Find executable in $PATH, and print each ancestor in its symlink chain.
 #[ derive( clap::Parser ) ]
 #[ derive( Debug ) ]
@@ -52,20 +62,6 @@ impl Application {
 
         Ok(())
     }
-}
-
-fn main() {
-    ino_tracing::init_tracing_subscriber();
-
-    trace!( "Parse command line options" );
-
-    let _ = <Application as clap::Parser>::parse()
-        .run()
-        .inspect_err( |err| {
-            eprintln!( "{err:?}" );
-            std::process::exit( 1 )
-        } )
-    ;
 }
 
 

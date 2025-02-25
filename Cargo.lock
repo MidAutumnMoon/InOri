@@ -253,6 +253,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ino_path",
+ "ino_result",
  "ino_tracing",
  "tracing",
 ]
@@ -448,6 +449,10 @@ dependencies = [
  "libc",
  "tap",
 ]
+
+[[package]]
+name = "ino_result"
+version = "0.1.0"
 
 [[package]]
 name = "ino_tracing"
