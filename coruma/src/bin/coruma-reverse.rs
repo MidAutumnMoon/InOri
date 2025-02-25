@@ -13,6 +13,7 @@ use std::fmt::Debug;
 
 use anyhow::Context;
 
+const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
 fn main() {
     use ino_result::ResultExt;
@@ -29,11 +30,6 @@ fn main() {
 struct Application {
     /// The name of executable to find in $PATH.
     program: String,
-
-    /// Maximum symlink follows allowed, exceeding this value
-    /// will terminate the application.
-    #[ arg( long, short, default_value_t=32 ) ]
-    max_symlink_follows: u64,
 }
 
 impl Application {
@@ -50,7 +46,7 @@ impl Application {
 
         debug!( ?starter );
 
-        SymlinkAncestor::new( &starter, self.max_symlink_follows )
+        SymlinkAncestor::new( &starter )
             .collect::< Result< Vec<_>, _ > >()
                 .context( "Unable to continue digging symlink ancestors" )?
             .into_iter()
@@ -67,16 +63,14 @@ impl Application {
 struct SymlinkAncestor {
     current: Option<PathBuf>,
     visited_paths: HashSet<PathBuf>,
-    max_symlink_follows: u64,
     symlink_followed: u64,
 }
 
 impl SymlinkAncestor {
-    fn new( starter: &Path, max_symlink_follows: u64, ) -> Self {
+    fn new( starter: &Path ) -> Self {
         Self {
             current: Some( starter.to_owned() ),
             visited_paths: Default::default(),
-            max_symlink_follows,
             symlink_followed: 0,
         }
     }
@@ -98,7 +92,7 @@ impl Iterator for SymlinkAncestor {
             return Some( Err( err ) )
         }
 
-        if self.symlink_followed + 1 > self.max_symlink_follows {
+        if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
             // TODO: better error message
             let err = anyhow::anyhow!( "Max symlink follows reached" );
             return Some( Err(err) )
