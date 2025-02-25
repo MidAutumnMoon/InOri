@@ -72,10 +72,9 @@ struct SymlinkAncestor {
 }
 
 impl SymlinkAncestor {
-    #[ tracing::instrument ]
-    fn new( start: &Path, max_symlink_follows: u64, ) -> Self {
+    fn new( starter: &Path, max_symlink_follows: u64, ) -> Self {
         Self {
-            current: Some( start.to_owned() ),
+            current: Some( starter.to_owned() ),
             visited_paths: Default::default(),
             max_symlink_follows,
             symlink_followed: 0,
