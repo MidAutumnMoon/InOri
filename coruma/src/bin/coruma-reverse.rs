@@ -75,7 +75,7 @@ impl Application {
 
         SymlinkAncestor::new( &starter )
             .collect::< Result< Vec<_>, _ > >()
-                .context( "Unable to continue digging symlink ancestors" )?
+                .context( "Unable to walk through symlink" )?
             .into_iter()
             .for_each( |path| {
                 Explainer::explain_path( &path.display() );
@@ -114,8 +114,11 @@ impl Iterator for SymlinkAncestor {
 
         if self.visited_paths.contains( &current ) {
             debug!( "Already visited this path" );
-            let err = anyhow::anyhow!( "Symlink loop detected" );
-            return Some( Err( err ) )
+            let errmsg = anyhow::anyhow!(
+                r#"Symlink loop detected, path: "{}""#,
+                current.display()
+            );
+            return Some( Err( errmsg ) )
         }
 
         if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
@@ -149,7 +152,7 @@ impl Iterator for SymlinkAncestor {
 
             self.current = Some( link_target );
         } else {
-            trace!( "Not a symlink, the end of symlink chain reached" );
+            trace!( "Not a symlink, the end of symlink chain is reached" );
         }
 
         self.visited_paths.insert( current.clone() );
