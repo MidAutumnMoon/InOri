@@ -1,0 +1,14 @@
+{
+
+    "meta": {
+        "version": 1
+    },
+
+    "links": [
+        {
+            "source": "some path",
+            "target": "dest path",
+        },
+    ]
+
+}
