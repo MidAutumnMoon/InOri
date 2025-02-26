@@ -16,5 +16,6 @@ ino_color.workspace = true
 ino_path.workspace = true
 ino_result.workspace = true
 ino_tracing.workspace = true
+path-clean = "1.0.1"
 tap.workspace = true
 tracing.workspace = true

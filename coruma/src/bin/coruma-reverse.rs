@@ -213,8 +213,8 @@ impl Subject {
             return Ok( self )
         }
         base.join( self.path )
-            .pipe( std::path::absolute )?
-            .pipe( |it| Self::new_guess( &it ) )
+            .pipe_ref( path_clean::PathClean::clean )
+            .pipe_as_ref( Self::new_guess )
             .pipe( Ok )
     }
 
