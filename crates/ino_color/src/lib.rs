@@ -133,8 +133,8 @@ where
     SGR: AnsiSgr
 {
     #[ inline ]
-    const fn new( object: &'painter OBJ, colorize: bool ) -> Self {
-        let object = match colorize {
+    const fn new<const COLOR: bool>( object: &'painter OBJ ) -> Self {
+        let object = match COLOR {
             true => ShouldColorize::Yes( object ),
             false => ShouldColorize::No( object ),
         };
@@ -202,7 +202,14 @@ macro_rules! should_colorize_snippet {
         use std::io::stdout;
         use std::io::stderr;
         stdout().has_colors() && stderr().has_colors()
-    } }
+    } };
+    ( $self:ident ) => {
+        if should_colorize_snippet!() {
+            Painter::new::<true>( $self )
+        } else {
+            Painter::new::<false>( $self )
+        }
+    };
 }
 
 macro_rules! METHOD_NOTE { ( $name:ident ) => {
@@ -236,23 +243,23 @@ where
     #[ doc = METHOD_NOTE!( fg ) ]
     #[ inline ]
     fn fg<F: FG>( &self ) -> Painter<Self, F> {
-        Painter::new( self, should_colorize_snippet!() )
+        should_colorize_snippet!( self )
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
     #[ inline ]
     fn style<S: Style>( &self ) -> Painter<Self, S> {
-        Painter::new( self, should_colorize_snippet!() )
+        should_colorize_snippet!( self )
     }
 
     #[ inline ]
     fn fg_always<F: FG>( &self ) -> Painter<Self, F> {
-        Painter::new( self, true )
+        Painter::new::<true>( self )
     }
 
     #[ inline ]
     fn style_always<S: Style>( &self ) -> Painter<Self, S> {
-        Painter::new( self, true )
+        Painter::new::<true>( self )
     }
 }
 
