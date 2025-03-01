@@ -11,7 +11,7 @@ use ino_color::InoColor;
 
 // These two modules contain predefined colors and styles.
 // As a personal preferrence, wildcard import is avoided,
-// even though doing so makes the function caller looks funny.
+// even though doing so makes the function call looks funnier.
 use ino_color::fg;
 use ino_color::style;
 
@@ -25,8 +25,7 @@ println!(
     "{}", "Savoy blue".fg::<fg::Blue>().style::<style::Italic>()
 );
 
-// In fact, anything which implements `std::fmt` traits
-// can be colored.
+// In fact, anything implements `std::fmt` traits can be colored.
 println!( "{:?}", vec![123].fg::<fg::Green>() );
 println!( "{:X}", 123.fg::<fg::Green>() );
 ```
@@ -49,6 +48,9 @@ println!( "{:X}", 123.fg::<fg::Green>() );
 - Can't set background color (yet?).
   - Reason: After years of experience of using Linux, no legit usage of background colors has been encountered
     other than TUI frameworks. Remove it simplifies the implementation.
+
+- Only supports 16 named (4-bit) colors.
+  - Support for 8-bit color and true color isn't on the roadmap.
 
 - All color and style selections are done in **type level**, meaning coloring can't be changed at runtime.
   - Such APIs will not be added in the near future.
