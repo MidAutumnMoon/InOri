@@ -98,7 +98,6 @@ macro_rules! lets_styles {
     }
 }
 lets_styles! {
-    Default 10,
     Reset 0,
     Bold 1,
     Dim 2,
