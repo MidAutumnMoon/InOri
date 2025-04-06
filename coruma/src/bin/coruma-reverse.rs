@@ -93,7 +93,7 @@ impl SymlinkAncestor {
     fn new( starter: &Path ) -> Self {
         Self {
             current: Some( starter.to_owned() ),
-            visited_paths: Default::default(),
+            visited_paths: HashSet::default(),
             symlink_followed: 0,
         }
     }
@@ -126,9 +126,9 @@ impl Iterator for SymlinkAncestor {
         if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
             return anyhow::anyhow!( "Exceeded the maximum symlink follows allowed" )
                 .pipe( |it| Some( Err( it ) ) )
-        } else {
-            self.symlink_followed += 1;
         }
+
+        self.symlink_followed += 1;
 
         trace!( "Read symlink metadata" );
 
@@ -184,9 +184,8 @@ struct Subject {
 
 impl Subject {
     fn new_guess( path: &Path ) -> Self {
+        #[ allow( clippy::enum_glob_use ) ]
         use SubjectKind::*;
-
-        let it = path.to_string_lossy();
 
         const CHECKLIST: &[ ( &str, SubjectKind ) ] = &[
             ( "/nix/store", NixStore ),
@@ -195,11 +194,12 @@ impl Subject {
             ( "/run/booted-system", BootedSystem ),
         ];
 
+        let it = path.to_string_lossy();
+
         let kind = if path.is_absolute() {
             CHECKLIST.iter()
                 .find( |(prefix, _)| it.starts_with( prefix ) )
-                .map( |(_, kind)| kind )
-                .unwrap_or( &SubjectKind::Normal )
+                .map_or( &SubjectKind::Normal, |(_, kind)| kind )
                 .to_owned()
         } else {
             Relative
@@ -219,6 +219,7 @@ impl Subject {
     }
 
     fn describe( &self ) -> &'static str {
+        #[ allow( clippy::enum_glob_use ) ]
         use SubjectKind::*;
         match self.kind {
             BootedSystem => "The generation activated at boot time",

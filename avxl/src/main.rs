@@ -13,7 +13,7 @@ use tracing::{
 mod avif;
 mod jxl;
 mod tool;
-
+use tap::Tap;
 
 /// Name of the directory for storing original pictures.
 pub const ARCHIVE_DIR_NAME: &str = "original";
@@ -118,7 +118,7 @@ fn main() -> anyhow::Result<()> {
             debug!( "JXL mode" );
             ( &jxl::Jxl, input.dir_and_files )
         },
-        _ => unimplemented!(),
+        CliOpts::Compare { .. } => unimplemented!()
     };
 
 
@@ -151,11 +151,10 @@ fn main() -> anyhow::Result<()> {
                         it.display()
                     );
                     continue;
-                } else {
-                    dirs.push( it )
                 }
+                dirs.push( it );
             } else if it.is_file() {
-                files.push( it )
+                files.push( it );
             } else {
                 eprintln!(
                     "\"{}\" is not a file nor dir, which is not supported.",
@@ -165,8 +164,6 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        use tap::Tap;
-
         Vec::with_capacity( dirs.len() + 1 )
             .tap_mut( |s| {
                 let mut dirs = dirs.into_iter()
@@ -175,7 +172,7 @@ fn main() -> anyhow::Result<()> {
                 s.append( &mut dirs );
             } )
             .tap_mut( |s| {
-                s.push( DirOrFiles::Files( files ) )
+                s.push( DirOrFiles::Files( files ) );
             } )
     };
 

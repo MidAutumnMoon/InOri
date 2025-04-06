@@ -44,9 +44,9 @@ pub fn filter_by_supported_exts(
 
         if encoder.is_ext_supported( &ext ) {
             debug!( "ext .{ext} ok" );
-            collected.push( p )
+            collected.push( p );
         } else {
-            debug!( "ext .{ext} is not supported" )
+            debug!( "ext .{ext} is not supported" );
         }
     }
 

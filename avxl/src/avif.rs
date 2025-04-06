@@ -1,6 +1,7 @@
 use std::process::ExitStatus;
 use std::path::Path;
 use tracing::debug;
+use tap::Tap;
 
 
 /// Path to the "avifenc" executable.
@@ -48,8 +49,6 @@ impl crate::Encoder for Avif {
         let mut avifenc = std::process::Command::new(
             AVIFENC_PATH.unwrap_or( "avifenc" )
         );
-
-        use tap::Tap;
 
         let output = input.to_owned()
             .tap_mut( |s| { s.set_extension( "avif" ); } );

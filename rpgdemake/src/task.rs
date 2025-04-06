@@ -59,7 +59,7 @@ impl TryFrom< Task<Create> > for Task<Validate> {
         Validate::validate_header( &origin )?;
 
         let target = Validate::fix_extension( &origin )
-            .ok_or( anyhow::anyhow!( "Can't fix extension" ) )?
+            .ok_or_else( || anyhow::anyhow!( "Can't fix extension" ) )?
         ;
 
         Ok( Self { step: Validate { origin, target, key } } )
@@ -234,7 +234,7 @@ impl TaskRunner {
                     Ok( t ) => format!( "(ok) {:?}", t.step.target ),
                     Err( e ) => format!( "(err: {e:?})" ),
                 };
-                println!( "{idx}/{}: {message}", paths.len() )
+                println!( "{idx}/{}: {message}", paths.len() );
             } )
         ;
 

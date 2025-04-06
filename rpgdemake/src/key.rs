@@ -4,7 +4,7 @@ use anyhow::{
 };
 
 use tracing::debug;
-
+use itertools::Itertools;
 
 /// Length of encryption key.
 /// Since the encryption method is a naive XOR,
@@ -30,8 +30,6 @@ impl TryFrom<&str> for Key {
     fn try_from( raw_key: &str ) -> anyhow::Result<Self> {
         debug!( "parse encryption key from str" );
 
-        use itertools::Itertools;
-
         ensure! { raw_key.len() == RAW_KEY_LEN,
             "String \"{raw_key}\" is not a valid encryption key. \
             Maybe it's fake, obfuscated or broken.",
@@ -47,9 +45,8 @@ impl TryFrom<&str> for Key {
             .into_iter().flatten().collect_vec()
         ;
 
-        let value = match key.try_into() {
-            Ok( v ) => v,
-            Err( _ ) => anyhow::bail!( "Failed to convert key" )
+        let Ok( value ) = key.try_into() else {
+            anyhow::bail!( "Failed to convert key" )
         };
 
         Ok( Self { value } )

@@ -15,7 +15,7 @@ struct CliOpts {
     stdin: bool,
 }
 
-fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
+fn run( cliopts: &CliOpts ) -> anyhow::Result<()> {
 
     // Generate Qrcode
 
@@ -42,8 +42,8 @@ fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
         },
 
         CliOpts { clipboard: false, stdin: true } => {
-            debug!( "data source is stdin" );
             use std::io::{ read_to_string, stdin };
+            debug!( "data source is stdin" );
             read_to_string( stdin().lock() )
                 .context( "Unable to read from stdin" )?
         },
@@ -73,8 +73,7 @@ fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
     // file collinsion or clean up at all.
     let svg_path = {
         // Using UUIDv7 to make files nicely sorted
-        let filename =
-            format! { "quraa:{}.svg", uuid::Uuid::now_v7() };
+        let filename = format!( "quraa:{}.svg", uuid::Uuid::now_v7() );
         let path = std::env::temp_dir().join( filename );
         std::fs::write( &path, &qrcode )?;
         path
@@ -102,7 +101,7 @@ fn main() {
 
     debug!( ?cliopts );
 
-    let _ = run( cliopts )
+    let _ = run( &cliopts )
         .inspect_err( |err| {
             eprintln!( "{err:?}" );
             std::process::exit( 1 );

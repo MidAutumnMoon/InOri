@@ -1,4 +1,5 @@
 use tracing::debug;
+use tap::Tap;
 
 /// Path to the "cjxl" executable.
 const CJXL_PATH: Option<&str> = std::option_env!( "CFG_CJXL_PATH" );
@@ -24,8 +25,6 @@ impl crate::Encoder for Jxl {
         let mut cjxl = std::process::Command::new(
             CJXL_PATH.unwrap_or( "cjxl" )
         );
-
-        use tap::Tap;
 
         let output = input.to_owned()
             .tap_mut( |s| { s.set_extension( "jxl" ); } );
