@@ -27,10 +27,7 @@ pub struct Key {
 impl TryFrom<&str> for Key {
     type Error = anyhow::Error;
 
-    #[ tracing::instrument ]
-    fn try_from( raw_key: &str )
-        -> anyhow::Result<Self>
-    {
+    fn try_from( raw_key: &str ) -> anyhow::Result<Self> {
         debug!( "parse encryption key from str" );
 
         use itertools::Itertools;
@@ -50,10 +47,12 @@ impl TryFrom<&str> for Key {
             .into_iter().flatten().collect_vec()
         ;
 
-        Ok( Self {
-            value: key.try_into()
-                .expect( "Decoded key has wrong length somehow" )
-        } )
+        let value = match key.try_into() {
+            Ok( v ) => v,
+            Err( _ ) => anyhow::bail!( "Failed to convert key" )
+        };
+
+        Ok( Self { value } )
     }
 }
 

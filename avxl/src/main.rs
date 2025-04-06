@@ -170,7 +170,7 @@ fn main() -> anyhow::Result<()> {
         Vec::with_capacity( dirs.len() + 1 )
             .tap_mut( |s| {
                 let mut dirs = dirs.into_iter()
-                    .map( |d| DirOrFiles::Dir( d ) )
+                    .map( DirOrFiles::Dir )
                     .collect();
                 s.append( &mut dirs );
             } )
@@ -247,6 +247,7 @@ fn main() -> anyhow::Result<()> {
             debug!( ?archive_dir );
 
             // UNWRAP: when archive_after_encode is set archive_dir is also set
+            #[ allow( clippy::unwrap_used ) ]
             let dir = archive_dir.clone().unwrap();
 
             eprintln!(
@@ -299,6 +300,8 @@ fn main() -> anyhow::Result<()> {
                 eprintln!( "{progress_percent} Archive original file");
                 let basename = file.file_name()
                     .expect( "It doesn't have a basename, how come?!" );
+                // TODO: this is code smell, do something later
+                #[ allow( clippy::unwrap_used ) ]
                 let target = archive_dir.clone().unwrap().join( basename );
                 std::fs::rename( file, target )?;
             }

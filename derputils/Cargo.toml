@@ -20,3 +20,6 @@ itertools.workspace = true
 qrcode = { version = "0", features = ["svg"] }
 tracing.workspace = true
 uuid = { version = "1", features = ["v7"] }
+
+[lints]
+workspace = true

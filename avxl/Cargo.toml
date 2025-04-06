@@ -14,3 +14,6 @@ ino_tracing.workspace = true
 itertools.workspace = true
 tap.workspace = true
 tracing.workspace = true
+
+[lints]
+workspace = true

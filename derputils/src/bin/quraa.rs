@@ -24,7 +24,8 @@ fn run( cliopts: CliOpts ) -> anyhow::Result<()> {
     let data: String = match cliopts {
         CliOpts { clipboard: true, stdin: true } => {
             // Prevented by setting exclusive on arguments
-            unreachable!()
+            #[ allow( clippy::unreachable ) ]
+            { unreachable!() }
         },
 
         CliOpts { clipboard: false, stdin: false } => {

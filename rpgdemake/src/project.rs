@@ -62,14 +62,14 @@ impl EngineRev {
     }
 }
 
-#[ derive( Debug ) ]
-pub struct Project {
-    engine: EngineRev,
-    files: Vec<PathBuf>,
-}
-
-impl Project {
-    pub fn new( engine: EngineRev ) -> anyhow::Result<Self> {
-        todo!()
-    }
-}
+// #[ derive( Debug ) ]
+// pub struct Project {
+//     engine: EngineRev,
+//     files: Vec<PathBuf>,
+// }
+//
+// impl Project {
+//     pub fn new( engine: EngineRev ) -> anyhow::Result<Self> {
+//         todo!()
+//     }
+// }

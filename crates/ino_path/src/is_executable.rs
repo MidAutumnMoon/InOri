@@ -32,10 +32,6 @@ mod unix {
 
     use super::IsExecutable;
 
-    use libc::faccessat;
-    use libc::AT_FDCWD;
-    use libc::X_OK;
-
     impl IsExecutable for Path {
         #[ inline( always ) ]
         fn is_executable( &self ) -> std::io::Result<bool> {
@@ -43,7 +39,13 @@ mod unix {
                 .as_bytes()
                 .pipe( CString::new )?
             ;
+            // SAFETY: calling a libc function is unsafe, this is the best
+            // this code can do without switching to another crate like rustix.
             let ret = unsafe {
+                use libc::faccessat;
+                use libc::AT_FDCWD;
+                use libc::X_OK;
+
                 // Check if `path` is executable (X_OK)
                 // using the real user id (`0` means no addtional flags,
                 // which invokes the default behivior)

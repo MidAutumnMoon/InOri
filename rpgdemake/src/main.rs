@@ -13,7 +13,7 @@ mod lore;
 mod project;
 
 use project::EngineRev;
-use project::Project;
+// use project::Project;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[ derive( clap::Parser, Debug ) ]
@@ -22,13 +22,13 @@ struct CliOpts {
     game_dir: PathBuf,
 }
 
-struct App {}
-
-impl App {
-    fn run_with( cliopts: CliOpts ) -> anyhow::Result<()> {
-        todo!()
-    }
-}
+// struct App {}
+//
+// impl App {
+//     fn run_with( cliopts: CliOpts ) -> anyhow::Result<()> {
+//         todo!()
+//     }
+// }
 
 fn main() -> anyhow::Result<()> {
 

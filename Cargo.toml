@@ -45,3 +45,16 @@ strip = "debuginfo"
 inherits = "release"
 debug = true
 strip = false
+
+#
+# Lints
+#
+
+[workspace.lints.clippy]
+all = "warn"
+unwrap_used = "warn"
+panic = "warn"
+indexing_slicing = "warn"
+unreachable = "warn"
+undocumented_unsafe_blocks = "warn"
+unwrap_in_result = "warn"

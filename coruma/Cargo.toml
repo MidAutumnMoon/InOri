@@ -19,3 +19,6 @@ ino_tracing.workspace = true
 path-clean = "1.0.1"
 tap.workspace = true
 tracing.workspace = true
+
+[lints]
+workspace = true

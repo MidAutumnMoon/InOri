@@ -148,8 +148,10 @@ impl TryFrom< Task<Validate> > for Task<Decrypt> {
         let Validate { origin, target, key } = prev.step;
 
         let mut content = std::fs::read( &origin )?;
+        #[ allow( clippy::indexing_slicing ) ]
         let content = &mut content[ crate::lore::RPG_HEADER_LEN.. ];
 
+        #[ allow( clippy::indexing_slicing ) ]
         key.value
             .iter().enumerate()
             .for_each( |( idx, b )| content[idx] ^= b )
