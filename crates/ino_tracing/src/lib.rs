@@ -1,4 +1,4 @@
-/// Init custom tracing_subscriber configuration.
+/// Init custom [`tracing_subscriber`] configuration.
 #[ inline( always ) ]
 pub fn init_tracing_subscriber() {
 
