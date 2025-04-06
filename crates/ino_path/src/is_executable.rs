@@ -18,6 +18,11 @@ pub trait IsExecutable
 where
     Self: AsRef<Path>
 {
+    /// Check whether the file pointed by given path is an executable.
+    ///
+    /// # Errors
+    ///
+    /// See [`std::io::Error`]
     fn is_executable( &self ) -> std::io::Result<bool>;
 }
 
@@ -33,7 +38,7 @@ mod unix {
     use super::IsExecutable;
 
     impl IsExecutable for Path {
-        #[ inline( always ) ]
+        #[ inline ]
         fn is_executable( &self ) -> std::io::Result<bool> {
             let path = self.as_os_str()
                 .as_bytes()

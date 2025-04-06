@@ -1,5 +1,6 @@
 /// Init custom [`tracing_subscriber`] configuration.
 #[ inline( always ) ]
+#[ allow( clippy::wildcard_imports ) ]
 pub fn init_tracing_subscriber() {
 
     use tracing_subscriber::prelude::*;
@@ -27,6 +28,6 @@ pub fn init_tracing_subscriber() {
     registry()
         .with( fmt_layer )
         .with( env_layer )
-        .init()
+        .init();
 
 }

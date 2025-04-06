@@ -2,6 +2,7 @@
 //!
 //! This implements <https://bixense.com/clicolors>.
 
+#[ allow( clippy::wildcard_imports ) ]
 use std::io::*;
 use std::sync::LazyLock;
 

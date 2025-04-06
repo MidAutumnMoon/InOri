@@ -132,9 +132,10 @@ where
 {
     #[ inline ]
     const fn new<const COLOR: bool>( object: &'painter OBJ ) -> Self {
-        let object = match COLOR {
-            true => ShouldColorize::Yes( object ),
-            false => ShouldColorize::No( object ),
+        let object = if COLOR {
+            ShouldColorize::Yes( object )
+        } else {
+            ShouldColorize::No( object )
         };
         Self { object, _phantom: PhantomData }
     }
@@ -146,7 +147,7 @@ where
 
     #[ inline ]
     const fn get_inner( &self ) -> &OBJ {
-        use ShouldColorize::*;
+        use ShouldColorize::{ Yes, No };
         match self.object {
             Yes( o ) | No( o ) => o
         }
