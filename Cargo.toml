@@ -15,7 +15,6 @@ repository = "https://github.com/MidAutumnMoon/InOri"
 edition = "2024"
 rust-version = "1.85.0"
 
-
 #
 # Dependencies
 #
@@ -33,7 +32,6 @@ ino_color = { path = "./crates/ino_color" }
 ino_result = { path = "./crates/ino_result" }
 ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
-
 
 #
 # Profiles
