@@ -20,7 +20,7 @@ fn main() {
     ino_tracing::init_tracing_subscriber();
     <Application as clap::Parser>::parse()
         .run()
-        .unwrap_print_error()
+        .print_error_exit_process()
     ;
 }
 

@@ -1,17 +1,17 @@
 //! Extension methods for [`Result`]
 
-pub trait ResultExt<OK, ERR> {
+pub trait ResultExt<T, E> {
     /// Peek at the Err and print it to stderr.
     #[ must_use ]
     fn print_error( self ) -> Self;
 
     /// Print Err and exit the program, or unwrap the value if Ok.
-    fn unwrap_print_error( self ) -> OK;
+    fn print_error_exit_process( self ) -> T;
 }
 
-impl<OK, ERR> ResultExt<OK, ERR> for Result<OK, ERR>
+impl<T, E> ResultExt<T, E> for Result<T, E>
 where
-    ERR: std::fmt::Debug
+    E: std::fmt::Debug
 {
     #[ inline ]
     fn print_error( self ) -> Self {
@@ -19,7 +19,7 @@ where
     }
 
     #[ inline ]
-    fn unwrap_print_error( self ) -> OK {
+    fn print_error_exit_process( self ) -> T {
         self
             .print_error()
             .map_err( |_| std::process::exit( 1 ) )
