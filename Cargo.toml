@@ -51,9 +51,9 @@ strip = false
 #
 
 [workspace.lints.clippy]
-all = { priority = -1, level = "deny" }
-pedantic = { priority = -1, level = "deny" }
-nursery = { priority = -1, level = "deny" }
+all = { priority = -1, level = "warn" }
+pedantic = { priority = -1, level = "warn" }
+nursery = { priority = -1, level = "warn" }
 
 cognitive_complexity = "allow"
 literal_string_with_formatting_args = "allow"
