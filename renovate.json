@@ -9,6 +9,8 @@
     "automergeStrategy": "rebase",
     "fetchChangeLogs": "branch",
 
+    "lockFileMaintenance": { "enabled": true },
+
     "packageRules": [
         {
             "matchUpdateTypes": [ "minor", "patch", "pin", "digest" ],
