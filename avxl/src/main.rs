@@ -28,13 +28,6 @@ struct CliInput {
 /// A CLI tool for converting pictures to AVIF or JXL.
 #[ derive( clap::Parser, Debug ) ]
 enum CliOpts {
-    /// Encode to both AVIF and JXL for the user to compare the outputs.
-    /// *(unimplemented)*
-    Compare {
-        #[ command( flatten ) ]
-        input: CliInput
-    },
-
     /// Encode to **lossy** AVIF using `avifenc`.
     Avif {
         /// Disable constant quality mode.
@@ -114,7 +107,6 @@ fn main() -> anyhow::Result<()> {
             debug!( "JXL mode" );
             ( &jxl::Jxl, input.dir_and_files )
         },
-        CliOpts::Compare { .. } => unimplemented!()
     };
 
 
