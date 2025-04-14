@@ -38,6 +38,10 @@ enum CliOpts {
         #[ arg( long, short ) ]
         cq_level: Option<u8>,
 
+        /// Predefined quality parameter to use. Effects "qcolor".
+        #[ arg( long, short, default_value="medium" ) ]
+        quality_preset: avif::QualityPreset,
+
         #[ command( flatten ) ]
         input: CliInput,
     },
@@ -92,12 +96,13 @@ fn main() -> anyhow::Result<()> {
      */
 
     let ( encoder, dir_and_files ): ( &dyn Encoder, _ ) = match cliopts {
-        CliOpts::Avif { no_cq, cq_level, input } => {
+        CliOpts::Avif { no_cq, cq_level, input, quality_preset } => {
             debug!( "AVIF mode" );
             let default = &avif::Avif::default();
             (
                 &avif::Avif {
                     no_cq,
+                    quality_preset,
                     cq_level: cq_level.unwrap_or( default.cq_level )
                 },
                 input.dir_and_files

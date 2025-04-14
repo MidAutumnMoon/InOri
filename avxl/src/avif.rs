@@ -1,18 +1,18 @@
 use std::process::ExitStatus;
 use std::path::Path;
+use tap::Pipe;
 use tracing::debug;
 use tap::Tap;
 use anyhow::Context;
 
-
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!( "CFG_AVIFENC_PATH" );
-
 
 #[ derive( Debug ) ]
 pub struct Avif {
     pub no_cq: bool,
     pub cq_level: u8,
+    pub quality_preset: QualityPreset,
 }
 
 impl Default for Avif {
@@ -20,8 +20,16 @@ impl Default for Avif {
         Self {
             no_cq: false,
             cq_level: 20,
+            quality_preset: QualityPreset::Medium,
         }
     }
+}
+
+#[ derive( Debug, Clone, clap::ValueEnum ) ]
+pub enum QualityPreset {
+    Low,
+    Medium,
+    High,
 }
 
 impl crate::Encoder for Avif {
@@ -46,42 +54,41 @@ impl crate::Encoder for Avif {
 
         debug!( "encoding using avifenc" );
 
-        let mut avifenc = std::process::Command::new(
-            AVIFENC_PATH.unwrap_or( "avifenc" )
-        );
+        let mut avifenc = AVIFENC_PATH.unwrap_or( "avifenc" )
+            .pipe( std::process::Command::new );
 
-        let output = input.to_owned()
-            .tap_mut( |s| { s.set_extension( "avif" ); } );
+        let avifenc = {
+            let quality = match self.quality_preset {
+                QualityPreset::Low => "27",
+                QualityPreset::Medium => "47",
+                QualityPreset::High => "77",
+            };
+            avifenc.args( [
+                "--qcolor", quality,
+                "--qalpha", quality,
+            ] )
+        };
 
         let avifenc = avifenc
             // All following arguments are tuned for AOM encodoer
             .args([ "--codec", "aom" ])
-            // The maxium/minium amount of quantization.
-            .args([ "--qcolor", "45" ])
-            .args([ "--qalpha", "45" ])
             // Let it use all cores.
             .args([ "--jobs", "all" ])
             // Effects the size of output.
             // However speed < 3 increases the encoding time
             // considerably and has no almost no gain.
-            .args([ "--speed", "3" ])
+            .args([ "--speed", "4" ])
             // AVIF can save extra, and normally a lot, spaces
             // at higher bit depth.
             .args([ "--depth", "12" ])
-            // Better alpha handling
-            .args([ "--premultiply" ])
-            // Let the encodoer tile the input automatically.
-            // Speedup encoding.
+            .arg( "--premultiply" )
             .arg( "--autotiling" )
             // Better RGB-YUV processing
             .arg( "--sharpyuv" )
-            // No need to document this.
-            // The reason of giving a switch to change YUV
-            // is that Yuv444 takes extra spaces but does have benefits
-            // of having better details on color pictures.
             .args([ "--yuv", "420" ])
             .args([ "--cicp", "1/13/1" ])
             .arg( "--ignore-icc" )
+            .arg( "--ignore-exif" )
             // Advanced options.
             // This poke into the heart of AOM encoder,
             // which effects the output every so slightly.
@@ -113,6 +120,9 @@ impl crate::Encoder for Avif {
             let cq_level = format!( "cq-level={}", self.cq_level );
             avifenc.args([ "-a", &cq_level ]);
         }
+
+        let output = input.to_owned()
+            .tap_mut( |it| { it.set_extension( "avif" ); } );
 
         let status = avifenc.arg( "--" )
             .args([ input, &output ])
