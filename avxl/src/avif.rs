@@ -2,6 +2,7 @@ use std::process::ExitStatus;
 use std::path::Path;
 use tracing::debug;
 use tap::Tap;
+use anyhow::Context;
 
 
 /// Path to the "avifenc" executable.
@@ -18,7 +19,8 @@ pub struct Avif {
 impl Default for Avif {
     fn default() -> Self {
         Self {
-            no_cq: false, yuv444: false,
+            no_cq: false,
+            yuv444: false,
             cq_level: 20,
         }
     }
@@ -57,10 +59,8 @@ impl crate::Encoder for Avif {
             // All following arguments are tuned for AOM encodoer
             .args([ "--codec", "aom" ])
             // The maxium/minium amount of quantization.
-            // 0..63 permits the encoder to use any value
-            // it considered to be proper.
-            .args([ "--min", "0", "--max", "63" ])
-            .args([ "--minalpha", "0", "--maxalpha", "63" ])
+            .args([ "--qcolor", "45" ])
+            .args([ "--qalpha", "45" ])
             // Let it use all cores.
             .args([ "--jobs", "all" ])
             // Effects the size of output.
@@ -74,15 +74,16 @@ impl crate::Encoder for Avif {
             .args([ "--premultiply" ])
             // Let the encodoer tile the input automatically.
             // Speedup encoding.
-            .args([ "--autotiling" ])
+            .arg( "--autotiling" )
             // Better RGB-YUV processing
-            .args([ "--sharpyuv" ])
+            .arg( "--sharpyuv" )
             // No need to document this.
             // The reason of giving a switch to change YUV
             // is that Yuv444 takes extra spaces but does have benefits
             // of having better details on color pictures.
             .args([ "--yuv", if self.yuv444 { "444" } else { "420" } ])
             .args([ "--cicp", "1/13/1" ])
+            .arg( "--ignore-icc" )
             // Advanced options.
             // This poke into the heart of AOM encoder,
             // which effects the output every so slightly.
@@ -117,7 +118,8 @@ impl crate::Encoder for Avif {
 
         let status = avifenc.arg( "--" )
             .args([ input, &output ])
-            .spawn()?
+            .spawn()
+            .context( "Failed to spawn avifenc" )?
             .wait()?
         ;
 
