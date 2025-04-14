@@ -12,7 +12,6 @@ const AVIFENC_PATH: Option<&str> = std::option_env!( "CFG_AVIFENC_PATH" );
 #[ derive( Debug ) ]
 pub struct Avif {
     pub no_cq: bool,
-    pub yuv444: bool,
     pub cq_level: u8,
 }
 
@@ -20,7 +19,6 @@ impl Default for Avif {
     fn default() -> Self {
         Self {
             no_cq: false,
-            yuv444: false,
             cq_level: 20,
         }
     }
@@ -81,7 +79,7 @@ impl crate::Encoder for Avif {
             // The reason of giving a switch to change YUV
             // is that Yuv444 takes extra spaces but does have benefits
             // of having better details on color pictures.
-            .args([ "--yuv", if self.yuv444 { "444" } else { "420" } ])
+            .args([ "--yuv", "420" ])
             .args([ "--cicp", "1/13/1" ])
             .arg( "--ignore-icc" )
             // Advanced options.

@@ -41,10 +41,6 @@ enum CliOpts {
         #[ arg( long, short, action, default_value_t=false ) ]
         no_cq: bool,
 
-        /// Encode using Yuv444 instead of Yuv420.
-        #[ arg( long, short, action, default_value_t=false ) ]
-        yuv444: bool,
-
         /// Custom CQ level value.
         #[ arg( long, short ) ]
         cq_level: Option<u8>,
@@ -103,12 +99,12 @@ fn main() -> anyhow::Result<()> {
      */
 
     let ( encoder, dir_and_files ): ( &dyn Encoder, _ ) = match cliopts {
-        CliOpts::Avif { no_cq, yuv444, cq_level, input } => {
+        CliOpts::Avif { no_cq, cq_level, input } => {
             debug!( "AVIF mode" );
             let default = &avif::Avif::default();
             (
                 &avif::Avif {
-                    no_cq, yuv444,
+                    no_cq,
                     cq_level: cq_level.unwrap_or( default.cq_level )
                 },
                 input.dir_and_files
