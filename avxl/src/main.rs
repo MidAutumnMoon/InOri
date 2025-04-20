@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::path::{
     PathBuf,
     Path
@@ -10,20 +11,20 @@ use tracing::{
     debug_span,
 };
 
+use tap::Tap;
+
 mod avif;
 mod jxl;
 mod tool;
-use tap::Tap;
+mod imagemagick;
 
 /// Name of the directory for storing original pictures.
 pub const ARCHIVE_DIR_NAME: &str = "original";
-
 
 #[ derive( clap::Args, Debug ) ]
 struct CliInput {
     dir_and_files: Vec<PathBuf>
 }
-
 
 /// A CLI tool for converting pictures to AVIF or JXL.
 #[ derive( clap::Parser, Debug ) ]
@@ -48,6 +49,16 @@ enum CliOpts {
 
     /// Encode to **lossless** JXL using `cjxl`.
     Jxl {
+        #[ command( flatten ) ]
+        input: CliInput
+    },
+
+    /// Remove speckles in picture, using imagemagick.
+    Despeckle {
+        /// How many despeckles to run on the picture.
+        #[ arg( short, long, default_value="1" ) ]
+        iteration: NonZeroUsize,
+
         #[ command( flatten ) ]
         input: CliInput
     },
@@ -112,6 +123,15 @@ fn main() -> anyhow::Result<()> {
             debug!( "JXL mode" );
             ( &jxl::Jxl, input.dir_and_files )
         },
+        CliOpts::Despeckle { iteration, input } => {
+            debug!( "Despeckle" );
+            (
+                &imagemagick::Despeckle {
+                    iteration: iteration.get()
+                },
+                input.dir_and_files
+            )
+        }
     };
 
 
