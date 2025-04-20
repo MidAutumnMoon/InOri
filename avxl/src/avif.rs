@@ -35,8 +35,13 @@ pub enum QualityPreset {
 impl crate::Encoder for Avif {
 
     #[ inline ]
-    fn is_ext_supported( &self, input: &str ) -> bool {
-        [ "png", "jpg", "jpeg", "y4m" ].contains( &input )
+    fn is_ext_supported( &self, src: &str ) -> bool {
+        matches!( src, "png" | "jpg" | "jpeg" | "y4m" )
+    }
+
+    #[ inline ]
+    fn output_extension( &self ) -> &'static str {
+        "avif"
     }
 
     /// Encode the input to AVIF using avifenc.

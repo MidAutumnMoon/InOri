@@ -71,16 +71,21 @@ pub enum DirOrFiles {
     Files( Vec<PathBuf> ),
 }
 
-
 trait Encoder {
     /// Files of such extensions the encoder supported to use as input.
-    fn is_ext_supported( &self, input_ext: &str ) -> bool;
+    fn is_ext_supported( &self, src_ext: &str ) -> bool;
+
+    fn output_extension( &self ) -> &'static str;
 
     /// Run the encoder on `picture`.
-    fn perform_encode( &self, input: &Path )
+    fn perform_encode( &self, source: &Path )
         -> anyhow::Result< ExitStatus >;
 }
 
+pub struct Task {
+    source: PathBuf,
+    output: PathBuf,
+}
 
 fn main() -> anyhow::Result<()> {
 

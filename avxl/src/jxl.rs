@@ -10,8 +10,13 @@ pub struct Jxl;
 impl crate::Encoder for Jxl {
 
     #[ inline ]
-    fn is_ext_supported( &self, input: &str ) -> bool {
-        [ "jpg", "jpeg", "png", "apng", "gif" ].contains( &input )
+    fn is_ext_supported( &self, src: &str ) -> bool {
+        matches!( src, "png" | "jpg" | "jpeg" | "apng" | "gif" )
+    }
+
+    #[ inline ]
+    fn output_extension( &self ) -> &'static str {
+        "jxl"
     }
 
     /// Jpeg XL has a suprior lossless encoding algorithm which also

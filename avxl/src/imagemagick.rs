@@ -23,8 +23,13 @@ impl Default for Despeckle {
 impl crate::Encoder for Despeckle {
 
     #[ inline ]
-    fn is_ext_supported( &self, input: &str ) -> bool {
-        [ "png", "jpg", "jpeg" ].contains( &input )
+    fn is_ext_supported( &self, src: &str ) -> bool {
+        matches!( src, "png" | "jpg" | "jpeg" )
+    }
+
+    #[ inline ]
+    fn output_extension( &self ) -> &'static str {
+        "png"
     }
 
     /// Encode the input to AVIF using avifenc.
