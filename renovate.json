@@ -9,7 +9,10 @@
     "automergeStrategy": "rebase",
     "fetchChangeLogs": "branch",
 
-    "lockFileMaintenance": { "enabled": true },
+    "lockFileMaintenance": {
+        "enabled": true,
+        "automerge": true
+    },
 
     "packageRules": [
         {
