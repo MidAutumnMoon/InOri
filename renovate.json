@@ -8,6 +8,7 @@
 
     "automergeStrategy": "rebase",
     "fetchChangeLogs": "branch",
+    "automergeType": "branch",
 
     "lockFileMaintenance": {
         "enabled": true,
@@ -17,13 +18,11 @@
     "packageRules": [
         {
             "matchUpdateTypes": [ "minor", "patch", "pin", "digest" ],
-            "automerge": true,
-            "automergeType": "branch"
+            "automerge": true
         },
         {
             "matchDepTypes": [ "devDependencies" ],
-            "automerge": true,
-            "automergeType": "branch"
+            "automerge": true
         },
         {
             "matchCategories": [ "ci" ],
