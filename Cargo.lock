@@ -412,7 +412,7 @@ version = "3.0.0"
 name = "ino_path"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "rustix 1.0.5",
  "tap",
 ]
 

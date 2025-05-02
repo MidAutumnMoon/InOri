@@ -10,7 +10,7 @@ rust-version.workspace = true
 [lib]
 
 [dependencies]
-libc = "0.2"
+rustix.workspace = true
 tap.workspace = true
 
 [lints]

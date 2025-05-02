@@ -29,49 +29,35 @@ where
 #[ cfg( unix ) ]
 mod unix {
 
-    use tap::Pipe;
-
-    use std::path::Path;
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
     use super::IsExecutable;
+    use std::path::Path;
 
     impl IsExecutable for Path {
         #[ inline ]
         fn is_executable( &self ) -> std::io::Result<bool> {
-            let path = self.as_os_str()
-                .as_bytes()
-                .pipe( CString::new )?
-            ;
-            // SAFETY: calling a libc function is unsafe, this is the best
-            // this code can do without switching to another crate like rustix.
-            let ret = unsafe {
-                use libc::faccessat;
-                use libc::AT_FDCWD;
-                use libc::X_OK;
-
-                // Check if `path` is executable (X_OK)
-                // using the real user id (`0` means no addtional flags,
-                // which invokes the default behivior)
-                // (Note: Use AT_EACCESS to use the effcitive user id instead)
-                faccessat( AT_FDCWD, path.as_ptr(), X_OK, 0 )
+            let ret = {
+                use rustix::fs::accessat;
+                use rustix::fs::CWD;
+                use rustix::fs::Access;
+                use rustix::fs::AtFlags;
+                accessat( CWD, self, Access::EXEC_OK, AtFlags::empty() )
             };
-            if ret == 0 {
-                Ok( true )
-            } else {
-                use std::io::ErrorKind;
-                use std::io::Error;
-                let err = Error::last_os_error();
-                match err.kind() {
-                    ErrorKind::PermissionDenied => Ok( false ),
-                    _ => Err( err )
-                }
+            match ret {
+                Err( err ) => {
+                    use std::io::ErrorKind;
+                    if matches!( err.kind(), ErrorKind::PermissionDenied ) {
+                        Ok( false )
+                    } else {
+                        Err( err.into() )
+                    }
+                },
+                Ok(()) => Ok( true ),
             }
         }
     }
 
     #[ test ]
+    #[ allow( clippy::unwrap_used ) ]
     fn unix_test() {
         use tap::Pipe;
         use std::path::PathBuf;
@@ -92,13 +78,13 @@ mod unix {
         };
 
         let manifest = env!( "CARGO_MANIFEST_PATH" )
-            .pipe( PathBuf::from )
-        ;
+            .pipe( PathBuf::from );
         assert! {
             !manifest.is_executable()
                 .inspect_err( |err| println!( "{err:?}" ) )
                 .unwrap()
         };
+
     }
 
 }
