@@ -1,0 +1,22 @@
+[package]
+name = "fujinoka"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ctrlc = "3.4.7"
+ino_result.workspace = true
+ino_tracing.workspace = true
+ratatui = "0.29.0"
+tap.workspace = true
+
+[lints]
+workspace = true

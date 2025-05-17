@@ -5,6 +5,7 @@ members = [
     "avxl",
     "coruma",
     "derputils",
+    "fujinoka",
     "rpgdemake",
 ]
 
