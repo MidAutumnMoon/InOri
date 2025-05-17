@@ -2,6 +2,7 @@ mod fuji;
 
 use anyhow::Context;
 use ratatui::prelude::*;
+use tap::Pipe;
 
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -31,6 +32,15 @@ pub struct State {
     padding: usize,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            last_frame: Instant::now(),
+            padding: 0,
+        }
+    }
+}
+
 pub struct Planet {
     state: State,
     terminal: ratatui::DefaultTerminal,
@@ -40,16 +50,11 @@ pub struct Planet {
 #[ allow( clippy::missing_errors_doc ) ]
 impl Planet {
     pub fn new() -> anyhow::Result<Self> {
-        let state = State {
-            last_frame: Instant::now(),
-            padding: 0,
-        };
-        let terminal = ratatui::try_init()?;
-        Ok( Self {
-            state,
-            terminal,
+        Self {
+            state: State::default(),
+            terminal: ratatui::try_init()?,
             message: VecDeque::new(),
-        } )
+        }.pipe( Ok )
     }
 
     pub fn run( mut self ) -> anyhow::Result<()> {
