@@ -1,4 +1,8 @@
 mod fuji;
+mod soil;
+
+use fuji::Wisteria;
+use soil::Soil;
 
 use anyhow::Context;
 use ratatui::prelude::*;
@@ -29,14 +33,16 @@ pub enum PostUpdate {
 
 pub struct Model {
     last_frame: Instant,
-    padding: usize,
+    wisteria: Wisteria,
+    soil: Soil,
 }
 
 impl Default for Model {
     fn default() -> Self {
         Self {
             last_frame: Instant::now(),
-            padding: 0,
+            wisteria: Wisteria::default(),
+            soil: Soil::default(),
         }
     }
 }
@@ -71,7 +77,7 @@ impl Planet {
             }
             // N.B. handle_event is a blocking function with timeout,
             // which means this won't be a busy loop even without sleep
-            self.handle_event( 
+            self.handle_event(
                 TIME_QUOTA_PER_FRAME.saturating_sub( now.elapsed() )
             )?;
             self.model.last_frame = now;
@@ -93,10 +99,27 @@ impl Planet {
     }
 
     pub fn view( &mut self ) -> anyhow::Result<()> {
+        use fuji::WisteriaWidget;
+        use soil::SoilWidget;
+
         self.terminal.draw( |frame| {
-            let text = format!( "{:->padding$}", "a", padding = self.model.padding );
-            let a = Text::from( text ).blue().italic();
-            frame.render_widget( a, frame.area() );
+            use Constraint::Percentage;
+            let [ wisteria_area, soil_area ] = Layout::default()
+                .direction( Direction::Vertical )
+                .constraints( [ Percentage( 95 ), Percentage( 5 ) ] )
+                .areas( frame.area() );
+            // Kind of a workaround of the fact `render_widget` takes
+            // ownership of the widget.
+            frame.render_stateful_widget(
+                WisteriaWidget,
+                wisteria_area,
+                &mut self.model.wisteria,
+            );
+            frame.render_stateful_widget(
+                SoilWidget,
+                soil_area,
+                &mut self.model.soil
+            );
         } )?;
         Ok(())
     }

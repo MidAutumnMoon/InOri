@@ -1,18 +1,31 @@
 use ratatui::prelude::*;
 
-pub struct Trunk;
+struct Trunk {}
 
-pub struct Flower;
+struct Flower {}
 
-pub struct Leaf;
+struct Leaf {}
 
-pub struct Wisteria;
+pub struct Wisteria {
+    // trunk: Trunk,
+    // flower: Flower,
+    // leaf: Leaf,
+}
 
-impl Widget for Wisteria {
-    fn render( self, area: Rect, buf: &mut Buffer )
-    where
-        Self: Sized
-    {
-        todo!()
+impl Default for Wisteria {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+pub struct WisteriaWidget;
+
+impl StatefulWidget for WisteriaWidget {
+    type State = Wisteria;
+    fn render( self, area: Rect, buf: &mut Buffer, state: &mut Self::State ) {
+        Text::from( "Hello" )
+            .blue()
+            .centered()
+            .render( area, buf );
     }
 }
