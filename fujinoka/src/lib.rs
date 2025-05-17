@@ -71,7 +71,9 @@ impl Planet {
             }
             // N.B. handle_event is a blocking function with timeout,
             // which means this won't be a busy loop even without sleep
-            self.handle_event( TIME_QUOTA_PER_FRAME - now.elapsed() )?;
+            self.handle_event( 
+                TIME_QUOTA_PER_FRAME.saturating_sub( now.elapsed() )
+            )?;
             self.model.last_frame = now;
         };
         ratatui::try_restore()?;
