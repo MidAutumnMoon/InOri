@@ -4,9 +4,10 @@ members = [
     "crates/*",
     "avxl",
     "coruma",
+    "dbulunr",
     "derputils",
     "fujinoka",
-    "rpgdemake", "dbulunr",
+    "rpgdemake",
 ]
 
 [workspace.package]
