@@ -27,6 +27,8 @@ clap = { version = "4", features = [ "derive", "cargo" ] }
 itertools = "0"
 rayon = "1"
 rustix = { version = "1", features = [ "all-apis" ] }
+serde = "1"
+serde_json = "1"
 tap = "1"
 tokio = { version = "1", features = [ "full" ] }
 tracing = "0.1"
