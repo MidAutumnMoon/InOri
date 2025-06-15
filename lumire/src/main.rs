@@ -14,16 +14,16 @@ use ino_result::ResultExt;
 
 use std::path::PathBuf;
 
-/// Creating and destroying symlinks.
+/// Maintaining symlinks.
 #[ derive( clap::Parser, Debug ) ]
 struct CliOpts {
-    // TODO: reword help
-    /// The new plan to activate.
-    #[ arg( long, short ) ]
-    new: Option<PathBuf>,
-    /// Old plans waiting to be cleaned.
-    #[ arg( long, short ) ]
-    olds: Option< Vec<PathBuf> >,
+    /// Plan for symlinks to be created.
+    #[ arg( long, short, value_name="PATH" ) ]
+    new_plan: Option<PathBuf>,
+    /// Plans for old symlinks to be removed. Can repeat multiple times
+    /// to select more old plans.
+    #[ arg( long="old-plan", short, value_name="PATH" ) ]
+    old_plans: Option< Vec<PathBuf> >,
 }
 
 impl CliOpts {
@@ -33,8 +33,8 @@ impl CliOpts {
 }
 
 struct App {
-    new: Option<Plan>,
-    olds: Option<Vec<Plan>>,
+    new_plan: Option<Plan>,
+    old_plans: Option<Vec<Plan>>,
 }
 
 impl App {
@@ -43,13 +43,13 @@ impl App {
         debug!( "Construct app" );
         eprintln!( "Prepareing the plan" );
 
-        let new = cliopts.new
+        let new_plan = cliopts.new_plan
             .map( |it| Plan::from_file( &it ) )
             .transpose()
             .context( "Failed to load the new plan" )?
             .tap( |it| trace!( ?it ) );
 
-        let olds = cliopts.olds
+        let old_plans = cliopts.old_plans
             .map( |it| {
                 it.into_iter()
                     .map( |it| Plan::from_file( &it ) )
@@ -61,7 +61,7 @@ impl App {
 
         eprintln!( "Finished processing plan" );
 
-        Ok( Self { new, olds } )
+        Ok( Self { new_plan, old_plans } )
     }
 
     #[ tracing::instrument( name = "App::run", skip_all ) ]
@@ -69,7 +69,7 @@ impl App {
         debug!( "Run the app" );
         eprintln!( "Run the app" );
 
-        if self.new.is_none() && self.olds.is_none() {
+        if self.new_plan.is_none() && self.old_plans.is_none() {
             eprintln!( "No new or old plans provided, nothing to do" );
             return Ok(());
         }

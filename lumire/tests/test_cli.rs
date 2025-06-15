@@ -48,7 +48,7 @@ fn test_create_symlink() {
     new.write_str( &json ).unwrap();
 
     let mut child = app
-        .arg( "--new" ).arg( new.path() )
+        .arg( "--new-plan" ).arg( new.path() )
         .spawn().unwrap();
 
     let ret = child.wait().unwrap();
@@ -81,7 +81,7 @@ fn abs_path() {
     new.write_str( &json ).unwrap();
 
     let res = app
-        .arg( "--new" ).arg( new.path() )
+        .arg( "--new-plan" ).arg( new.path() )
         .output().unwrap()
     ;
 
