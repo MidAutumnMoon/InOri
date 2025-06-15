@@ -74,7 +74,7 @@ impl App {
 
         if self.new_plan.is_none() && self.old_plans.is_none() {
             eprintln!( "{}",
-                "No new or old plans, nothing to do".fg::<Yellow>() );
+                "No new nor old plans, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
 
