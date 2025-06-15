@@ -1,8 +1,8 @@
-mod manifest;
+mod plan;
 mod template;
 mod executor;
 
-use crate::manifest::Manifest;
+use crate::plan::Plan;
 
 use anyhow::Result as AnyResult;
 use anyhow::Context;
@@ -18,10 +18,10 @@ use std::path::PathBuf;
 #[ derive( clap::Parser, Debug ) ]
 struct CliOpts {
     // TODO: reword help
-    /// The new manifest to activate.
+    /// The new plan to activate.
     #[ arg( long, short ) ]
     new: Option<PathBuf>,
-    /// Old manifests waiting to be cleaned.
+    /// Old plans waiting to be cleaned.
     #[ arg( long, short ) ]
     olds: Option< Vec<PathBuf> >,
 }
@@ -33,33 +33,33 @@ impl CliOpts {
 }
 
 struct App {
-    new: Option<Manifest>,
-    olds: Option<Vec<Manifest>>,
+    new: Option<Plan>,
+    olds: Option<Vec<Plan>>,
 }
 
 impl App {
     #[ tracing::instrument( name = "App::new", skip_all ) ]
     fn new( cliopts: CliOpts ) -> AnyResult<Self> {
         debug!( "Construct app" );
-        eprintln!( "Prepareing the manifest" );
+        eprintln!( "Prepareing the plan" );
 
         let new = cliopts.new
-            .map( |it| Manifest::from_file( &it ) )
+            .map( |it| Plan::from_file( &it ) )
             .transpose()
-            .context( "Failed to load the new manifest" )?
+            .context( "Failed to load the new plan" )?
             .tap( |it| trace!( ?it ) );
 
         let olds = cliopts.olds
             .map( |it| {
                 it.into_iter()
-                    .map( |it| Manifest::from_file( &it ) )
+                    .map( |it| Plan::from_file( &it ) )
                     .collect::< Result<Vec<_>, _> >()
-                    .context( "Failed to load (one of) old manifest file" )
+                    .context( "Failed to load (one of) old plan files" )
             } )
             .transpose()?
             .tap( |it| trace!( ?it ) );
 
-        eprintln!( "Finished processing manifests" );
+        eprintln!( "Finished processing plan" );
 
         Ok( Self { new, olds } )
     }
@@ -70,7 +70,7 @@ impl App {
         eprintln!( "Run the app" );
 
         if self.new.is_none() && self.olds.is_none() {
-            eprintln!( "No new or old manifests provided, nothing to do" );
+            eprintln!( "No new or old plans provided, nothing to do" );
             return Ok(());
         }
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use crate::manifest::Manifest;
-use crate::manifest::Symlink;
+use crate::plan::Plan;
+use crate::plan::Symlink;
 
 use anyhow::Result as AnyResult;
 
@@ -46,7 +46,7 @@ pub struct Executor {
 impl Executor {
 
     #[ tracing::instrument( skip_all ) ]
-    pub fn new( new: Option<Manifest>, olds: Option<Vec<Manifest>> )
+    pub fn new( new: Option<Plan>, olds: Option<Vec<Plan>> )
         -> AnyResult<()>
     {
         todo!()
