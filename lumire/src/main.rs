@@ -78,28 +78,28 @@ impl App {
     }
 }
 
-fn main_but_result() -> AnyResult<()> {
-
-    ino_tracing::init_tracing_subscriber();
-
-    eprintln!( "Warming up" );
-
-    let cliopt = {
-        debug!( "Parse cliopts" );
-        CliOpts::parse().tap( |it| trace!( ?it ) )
-    };
-
-    App::new( cliopt )
-        .context( "Failed to construct app" )?
-        .run()
-        .context( "Error ocurred when running app" )?
-    ;
-
-
-    Ok(())
-
-}
-
 fn main() {
+
+    fn main_but_result() -> AnyResult<()> {
+
+        ino_tracing::init_tracing_subscriber();
+
+        eprintln!( "Warming up" );
+
+        let cliopt = {
+            debug!( "Parse cliopts" );
+            CliOpts::parse().tap( |it| trace!( ?it ) )
+        };
+
+        App::new( cliopt )
+            .context( "Failed to construct app" )?
+            .run()
+            .context( "Error ocurred when running app" )?
+        ;
+
+        Ok(())
+
+    }
+
     main_but_result().print_error_exit_process();
 }
