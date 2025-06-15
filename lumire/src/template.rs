@@ -41,9 +41,9 @@ pub struct Engine {
 }
 
 impl Engine {
-    #[ tracing::instrument( skip( self ) ) ]
+    #[ tracing::instrument( skip_all ) ]
     pub fn render( &self, tmpl: &str ) -> AnyResult<String> {
-        debug!( "Render template" );
+        debug!( ?tmpl, "Render template" );
         self.environ.render_str( tmpl, &self.context )
             .with_context(
                 || format!( r#"Failed to render template "{tmpl}""# )
@@ -66,7 +66,7 @@ pub struct ContextOfTemplate {
 }
 
 impl ContextOfTemplate {
-    #[ tracing::instrument( name="ContextOfTemplate::new" ) ]
+    #[ tracing::instrument( name="context_new" ) ]
     pub fn new() -> AnyResult<Self> {
         use etcetera::choose_base_strategy;
         use etcetera::BaseStrategy;
@@ -104,6 +104,20 @@ pub struct RenderedPath {
     inner: PathBuf
 }
 
+impl RenderedPath {
+    pub fn new_unrendered( input: &str ) -> AnyResult<Self> {
+        use serde::de::IntoDeserializer;
+        use serde::de::value::StrDeserializer;
+        use serde::de::value::Error as DeError;
+        let der: StrDeserializer<DeError> = input.into_deserializer();
+        Self::deserialize( der )?.pipe( Ok )
+    }
+
+    pub fn path( &self ) -> &Path {
+        &self.inner
+    }
+}
+
 impl<'de> Deserialize<'de> for RenderedPath {
     #[ tracing::instrument( skip_all ) ]
     fn deserialize<D>( der: D ) -> Result<Self, D::Error>
@@ -130,20 +144,9 @@ impl<'de> Deserialize<'de> for RenderedPath {
     }
 }
 
-impl RenderedPath {
-    pub fn path( &self ) -> &Path {
-        &self.inner
-    }
-}
-
-// TODO: FromStr for RenderedPath?
-
 #[ cfg( test ) ]
 mod test {
     use super::*;
-    use serde::de::value::StrDeserializer;
-    use serde::de::value::Error as DeError;
-    use serde::de::IntoDeserializer;
 
     #[ test ]
     #[ allow( clippy::unwrap_used ) ]
@@ -171,16 +174,14 @@ mod test {
         ];
 
         for t in tmpls_to_ok {
-            let der: StrDeserializer<DeError> = t.into_deserializer();
-            let rp = RenderedPath::deserialize( der );
-            trace!( ?rp );
-            assert!( rp.is_ok() );
+            let p = RenderedPath::new_unrendered( t );
+            trace!( ?p );
+            assert!( p.is_ok() );
         }
         for t in tmpls_to_err {
-            let der: StrDeserializer<DeError> = t.into_deserializer();
-            let rp = RenderedPath::deserialize( der );
-            trace!( ?rp );
-            assert!( rp.is_err() );
+            let p = RenderedPath::new_unrendered( t );
+            trace!( ?p );
+            assert!( p.is_err() );
         }
     }
 }

@@ -1,4 +1,4 @@
-#![ allow( clippy::unwrap_used ) ]
+
 #![ allow( clippy::expect_used ) ]
 
 use assert_fs::prelude::*;
@@ -16,14 +16,6 @@ fn main_program() -> Command {
     cmd
 }
 
-fn setup_tracing() {
-    use std::sync::Once;
-    static TRACING_ONCE: Once = Once::new();
-    TRACING_ONCE.call_once( || {
-        ino_tracing::init_tracing_subscriber();
-    } );
-}
-
 macro_rules! create_tempdir {
     () => { {
         TempDir::new().expect( "Failed to setup tempdir" )
@@ -32,8 +24,6 @@ macro_rules! create_tempdir {
 
 #[ test ]
 fn create_symlink() {
-    setup_tracing();
-
     let mut app = main_program();
     let top = create_tempdir!();
 
@@ -61,14 +51,11 @@ fn create_symlink() {
     assert!( ret.success() );
     assert!( dst.path().is_symlink() );
     assert!( dst.path().read_link().unwrap() == src.path() );
-
 }
 
 #[ test ]
-fn remove_dangling_symlink() {
+fn remove_old_symlinks() {
     use std::os::unix::fs::symlink;
-
-    setup_tracing();
 
     let mut app = main_program();
     let top = create_tempdir!();
@@ -104,13 +91,10 @@ fn remove_dangling_symlink() {
 
 #[ test ]
 fn test_collinsion_precheck() {
-    setup_tracing();
 }
 
 #[ test ]
 fn abs_path() {
-    setup_tracing();
-
     let mut app = main_program();
     let top = create_tempdir!();
 

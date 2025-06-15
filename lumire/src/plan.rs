@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::path::Path;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::ensure;
@@ -9,9 +11,7 @@ use ino_tap::TapExt;
 use itertools::Itertools;
 use serdev::Deserialize;
 use tap::Pipe;
-use tap::Tap;
 use tracing::debug;
-use tracing::trace;
 
 use crate::template::RenderedPath;
 
@@ -22,7 +22,8 @@ const CURRENT_PLAN_VERSION: usize = 1;
 #[ serde( validate="Self::validate" ) ]
 pub struct Plan {
     version: usize,
-    symlinks: Vec<Symlink>,
+    // TODO avoid direct field access
+    pub symlinks: Vec<Symlink>,
 }
 
 // TODO: implement Deserialize manually for better checking,
@@ -56,16 +57,12 @@ impl Plan {
         };
         Ok(())
     }
-
-    fn empty() -> Self {
-        Self { version: CURRENT_PLAN_VERSION, symlinks: vec![] }
-    }
 }
 
 impl FromStr for Plan {
     type Err = anyhow::Error;
 
-    #[ tracing::instrument ]
+    #[ tracing::instrument( skip( raw ) ) ]
     fn from_str( raw: &str ) -> Result<Self, Self::Err> {
         debug!( "Parse plan json data" );
         serde_json::from_str::<Self>( raw )
@@ -75,11 +72,27 @@ impl FromStr for Plan {
     }
 }
 
+impl Default for Plan {
+    fn default() -> Self {
+        Self { version: CURRENT_PLAN_VERSION, symlinks: vec![] }
+    }
+}
+
 #[ derive( Deserialize, Debug ) ]
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
-    src: RenderedPath,
-    dst: RenderedPath,
+    /// Only the `dst` matters as it's not our job to validate src.
+    pub dst: RenderedPath,
+    pub src: RenderedPath,
+}
+
+impl Symlink {
+    pub fn dst( &self ) -> &RenderedPath {
+        &self.dst
+    }
+    pub fn src( &self ) -> &RenderedPath {
+        &self.src
+    }
 }
 
 #[ cfg( test ) ]
@@ -87,6 +100,7 @@ mod test {
 
     use super::*;
     use serde::de::IntoDeserializer;
+    use tap::Tap;
 
     #[ test ]
     #[ allow( clippy::unwrap_used ) ]

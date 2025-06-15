@@ -2,6 +2,7 @@ mod plan;
 mod template;
 mod executor;
 
+use crate::executor::Executor;
 use crate::plan::Plan;
 
 use anyhow::Result as AnyResult;
@@ -18,6 +19,8 @@ use ino_color::fg::Blue;
 use ino_color::fg::Yellow;
 
 use std::path::PathBuf;
+
+// TODO: use thiserror to replace adhoc string errors
 
 /// Maintaining symlinks.
 #[ derive( clap::Parser, Debug ) ]
@@ -36,10 +39,10 @@ impl CliOpts {
     }
 }
 
-struct App { }
+struct App;
 
 impl App {
-    #[ tracing::instrument( name = "App::new", skip_all ) ]
+    #[ tracing::instrument( name = "app_run_with", skip_all ) ]
     fn run_with( cliopts: CliOpts ) -> AnyResult<()> {
         eprintln!( "{}", "Prepareing plan".fg::<Blue>() );
 
@@ -62,6 +65,9 @@ impl App {
                 "No new nor old plan, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
+
+        Executor::run_with( new_plan, old_plan )
+            .context( "Failed to execute the plan" )?;
 
         Ok(())
     }
