@@ -20,7 +20,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new( || {
 
     debug!( "Initialize global template engine" );
 
-    let context = ContextForTemplate::new()
+    let context = ContextOfTemplate::new()
         .context( "Failed to initialize context for template" )
         .print_error()
         .unwrap();
@@ -36,11 +36,11 @@ static ENGINE: LazyLock<Engine> = LazyLock::new( || {
 #[ derive( Debug ) ]
 pub struct Engine {
     environ: Environment<'static>,
-    context: ContextForTemplate,
+    context: ContextOfTemplate,
 }
 
 #[ derive( serde::Serialize, Debug ) ]
-pub struct ContextForTemplate {
+pub struct ContextOfTemplate {
     home: PathBuf,
     config: PathBuf,
     data: PathBuf,
@@ -62,8 +62,8 @@ impl Engine {
     }
 }
 
-impl ContextForTemplate {
-    #[ tracing::instrument( name="ContextForTemplate::new" ) ]
+impl ContextOfTemplate {
+    #[ tracing::instrument( name="ContextOfTemplate::new" ) ]
     pub fn new() -> AnyResult<Self> {
         use etcetera::choose_base_strategy;
         use etcetera::BaseStrategy;
