@@ -15,7 +15,7 @@ impl Executor {
 
     #[ allow( clippy::new_ret_no_self ) ]
     #[ tracing::instrument( skip_all ) ]
-    pub fn run_with( new: Option<Plan>, olds: Option<Vec<Plan>> )
+    pub fn run_with( new_plan: Option<Plan>, old_plan: Option<Plan> )
         -> AnyResult<()>
     {
         todo!()

@@ -25,10 +25,9 @@ struct CliOpts {
     /// Plan for symlinks to be created.
     #[ arg( long, short, value_name="PATH" ) ]
     new_plan: Option<PathBuf>,
-    /// Plans for old symlinks to be removed. Can repeat multiple times
-    /// to select more old plans.
-    #[ arg( long="old-plan", short, value_name="PATH" ) ]
-    old_plans: Option< Vec<PathBuf> >,
+    /// Plans for old symlinks to be removed.
+    #[ arg( long, short, value_name="PATH" ) ]
+    old_plan: Option<PathBuf>,
 }
 
 impl CliOpts {
@@ -39,14 +38,14 @@ impl CliOpts {
 
 struct App {
     new_plan: Option<Plan>,
-    old_plans: Option<Vec<Plan>>,
+    old_plan: Option<Plan>,
 }
 
 impl App {
     #[ allow( clippy::new_ret_no_self ) ]
     #[ tracing::instrument( name = "App::new", skip_all ) ]
     fn new( cliopts: CliOpts ) -> AnyResult<()> {
-        eprintln!( "{}", "Prepareing plans".fg::<Blue>() );
+        eprintln!( "{}", "Prepareing plan".fg::<Blue>() );
 
         let new_plan = cliopts.new_plan
             .map( |it| Plan::from_file( &it ) )
@@ -54,21 +53,17 @@ impl App {
             .context( "Failed to load the new plan" )?
             .tap_trace();
 
-        let old_plans = cliopts.old_plans
-            .map( |it| {
-                it.into_iter()
-                    .map( |it| Plan::from_file( &it ) )
-                    .collect::< Result<Vec<_>, _> >()
-                    .context( "Failed to load (one of) old plan files" )
-            } )
-            .transpose()?
+        let old_plan = cliopts.old_plan
+            .map( |it| Plan::from_file( &it ) )
+            .transpose()
+            .context( "Failed to load the old plan" )?
             .tap_trace();
 
         eprintln!( "{}", "Run the app".fg::<Blue>() );
 
-        if new_plan.is_none() && old_plans.is_none() {
+        if new_plan.is_none() && old_plan.is_none() {
             eprintln!( "{}",
-                "No new nor old plans, nothing to do".fg::<Yellow>() );
+                "No new nor old plan, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
 
