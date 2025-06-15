@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "symlinks": [
+        {
+            "src": "a",
+            "dst": "b",
+            "mode": "755"
+        }
+    ]
+}

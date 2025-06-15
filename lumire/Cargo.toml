@@ -1,0 +1,35 @@
+[package]
+name = "lumire"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+etcetera = "0.10.0"
+ino_result.workspace = true
+ino_tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tap.workspace = true
+tracing.workspace = true
+
+[dependencies.minijinja]
+version = "2.10.2"
+default-features = false
+features = [
+    "debug",
+    "serde",
+    "std_collections",
+    "unicode",
+]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+assert_fs = "1"
