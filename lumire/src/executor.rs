@@ -6,7 +6,7 @@ use crate::manifest::Symlink;
 use anyhow::Result as AnyResult;
 
 #[ derive( Debug ) ]
-pub enum Plan {
+pub enum Action {
     Add {
         src: PathBuf,
         dst: PathBuf,
@@ -23,7 +23,7 @@ pub enum Plan {
     }
 }
 
-impl Plan {
+impl Action {
 
     /// Generate a change by diffing two [`Symlink`]
     #[ inline ]
@@ -59,7 +59,7 @@ impl Executor {
 
 #[ derive( Debug ) ]
 pub struct Works {
-    changeset: Vec<Plan>,
+    changeset: Vec<Action>,
 }
 
 impl Iterator for Works {
