@@ -36,10 +36,7 @@ impl CliOpts {
     }
 }
 
-struct App {
-    new_plan: Option<Plan>,
-    old_plan: Option<Plan>,
-}
+struct App { }
 
 impl App {
     #[ allow( clippy::new_ret_no_self ) ]

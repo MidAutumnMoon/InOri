@@ -924,9 +924,11 @@ dependencies = [
  "ino_result",
  "ino_tap",
  "ino_tracing",
+ "itertools 0.13.0",
  "minijinja",
  "serde",
  "serde_json",
+ "serdev",
  "tap",
  "tracing",
 ]
@@ -1468,6 +1470,27 @@ name = "serde_repr"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "serdev"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d3bf61b4d80fddb7984d8e610eaf55eaba9d0e7d8d6c238c6790244d9404d8"
+dependencies = [
+ "serde",
+ "serdev_derive",
+]
+
+[[package]]
+name = "serdev_derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc03d4e38cf459d729bc0d4cf4833a5b6be60516279f57d31a1af1354ab836f6"
 dependencies = [
  "proc-macro2",
  "quote",

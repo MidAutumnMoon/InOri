@@ -99,7 +99,7 @@ impl ContextOfTemplate {
 
 /// A [`Path`] wrapper that guaranteed to not contains unrendered
 /// templates and be absolute.
-#[ derive( Debug ) ]
+#[ derive( Debug, Hash, PartialEq, Eq ) ]
 pub struct RenderedPath {
     inner: PathBuf
 }

@@ -15,8 +15,10 @@ ino_color.workspace = true
 ino_result.workspace = true
 ino_tap.workspace = true
 ino_tracing.workspace = true
+itertools.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serdev = "0.2.0"
 tap.workspace = true
 tracing.workspace = true
 
