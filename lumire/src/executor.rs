@@ -13,7 +13,6 @@ pub struct Executor {
 
 impl Executor {
 
-    #[ allow( clippy::new_ret_no_self ) ]
     #[ tracing::instrument( skip_all ) ]
     pub fn run_with( new_plan: Option<Plan>, old_plan: Option<Plan> )
         -> AnyResult<()>

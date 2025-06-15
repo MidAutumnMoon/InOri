@@ -39,9 +39,8 @@ impl CliOpts {
 struct App { }
 
 impl App {
-    #[ allow( clippy::new_ret_no_self ) ]
     #[ tracing::instrument( name = "App::new", skip_all ) ]
-    fn new( cliopts: CliOpts ) -> AnyResult<()> {
+    fn run_with( cliopts: CliOpts ) -> AnyResult<()> {
         eprintln!( "{}", "Prepareing plan".fg::<Blue>() );
 
         let new_plan = cliopts.new_plan
@@ -74,7 +73,7 @@ fn main() {
             debug!( "Parse cliopts" );
             CliOpts::parse().tap_trace()
         };
-        App::new( cliopt ).context( "Error ocurred when running app" )?;
+        App::run_with( cliopt ).context( "Error ocurred when running app" )?;
         Ok(())
     }
 
