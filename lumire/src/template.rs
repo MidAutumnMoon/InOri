@@ -14,6 +14,7 @@ use tap::Tap;
 use tracing::debug;
 use tracing::trace;
 
+/// Constructing an [`Environment`] is expensive.
 #[ allow( clippy::unwrap_used ) ]
 static ENGINE: LazyLock<Engine> = LazyLock::new( || {
     use ino_result::ResultExt;
@@ -39,16 +40,6 @@ pub struct Engine {
     context: ContextOfTemplate,
 }
 
-#[ derive( serde::Serialize, Debug ) ]
-pub struct ContextOfTemplate {
-    home: PathBuf,
-    config: PathBuf,
-    data: PathBuf,
-    cache: PathBuf,
-    state: PathBuf,
-    runtime: PathBuf,
-}
-
 impl Engine {
     #[ tracing::instrument( skip( self ) ) ]
     pub fn render( &self, tmpl: &str ) -> AnyResult<String> {
@@ -60,6 +51,16 @@ impl Engine {
             .tap_trace()
             .pipe( Ok )
     }
+}
+
+#[ derive( serde::Serialize, Debug ) ]
+pub struct ContextOfTemplate {
+    home: PathBuf,
+    config: PathBuf,
+    data: PathBuf,
+    cache: PathBuf,
+    state: PathBuf,
+    runtime: PathBuf,
 }
 
 impl ContextOfTemplate {
@@ -100,7 +101,6 @@ pub struct RenderedPath {
 }
 
 impl<'de> Deserialize<'de> for RenderedPath {
-    #[ allow( clippy::unwrap_in_result ) ]
     #[ tracing::instrument( skip_all ) ]
     fn deserialize<D>( der: D ) -> Result<Self, D::Error>
     where
@@ -108,8 +108,8 @@ impl<'de> Deserialize<'de> for RenderedPath {
     {
         #[ inline ]
         fn ren( tmpl: &str ) -> AnyResult<PathBuf> {
-            let rendered = ENGINE.render( tmpl )?;
-            let path = PathBuf::from( rendered );
+            let path = ENGINE.render( tmpl )?
+                .pipe( PathBuf::from );
             ensure!( path.is_absolute(),
                 r#"Path must be absolute. Raw: "{}" Rendered: "{}""#,
                 tmpl, path.display(),

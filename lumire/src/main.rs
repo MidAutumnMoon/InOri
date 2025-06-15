@@ -13,6 +13,9 @@ use tracing::trace;
 
 use ino_result::ResultExt;
 use ino_tap::TapExt;
+use ino_color::InoColor;
+use ino_color::fg::Blue;
+use ino_color::fg::Yellow;
 
 use std::path::PathBuf;
 
@@ -42,8 +45,7 @@ struct App {
 impl App {
     #[ tracing::instrument( name = "App::new", skip_all ) ]
     fn new( cliopts: CliOpts ) -> AnyResult<Self> {
-        debug!( "Construct app" );
-        eprintln!( "Prepareing the plan" );
+        eprintln!( "{}", "Prepareing plans".fg::<Blue>() );
 
         let new_plan = cliopts.new_plan
             .map( |it| Plan::from_file( &it ) )
@@ -61,18 +63,18 @@ impl App {
             .transpose()?
             .tap_trace();
 
-        eprintln!( "Finished processing plan" );
+        eprintln!( "{}", "Finished processing plan".fg::<Blue>() );
 
         Ok( Self { new_plan, old_plans } )
     }
 
     #[ tracing::instrument( name = "App::run", skip_all ) ]
     fn run( self ) -> AnyResult<()> {
-        debug!( "Run the app" );
-        eprintln!( "Run the app" );
+        eprintln!( "{}", "Run the app".fg::<Blue>() );
 
         if self.new_plan.is_none() && self.old_plans.is_none() {
-            eprintln!( "No new or old plans provided, nothing to do" );
+            eprintln!( "{}",
+                "No new or old plans, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
 
@@ -81,27 +83,21 @@ impl App {
 }
 
 fn main() {
-
     fn main_but_result() -> AnyResult<()> {
-
-        ino_tracing::init_tracing_subscriber();
-
-        eprintln!( "Warming up" );
-
         let cliopt = {
             debug!( "Parse cliopts" );
             CliOpts::parse().tap_trace()
         };
-
         App::new( cliopt )
             .context( "Failed to construct app" )?
             .run()
-            .context( "Error ocurred when running app" )?
-        ;
-
+            .context( "Error ocurred when running app" )?;
         Ok(())
-
     }
+
+    ino_tracing::init_tracing_subscriber();
+
+    eprintln!( "{}", "Strech hands".fg::<Blue>() );
 
     main_but_result().print_error_exit_process();
 }

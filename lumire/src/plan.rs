@@ -21,13 +21,6 @@ pub struct Plan {
     symlinks: Vec<Symlink>,
 }
 
-#[ derive( Deserialize, Debug ) ]
-pub struct Symlink {
-    src: RenderedPath,
-    dst: RenderedPath,
-    mode: String,
-}
-
 impl Plan {
     #[ tracing::instrument ]
     pub fn from_file( path: &Path ) -> AnyResult<Self> {
@@ -69,4 +62,9 @@ impl PartialEq for Plan {
     }
 }
 
-impl Symlink {}
+#[ derive( Deserialize, Debug ) ]
+pub struct Symlink {
+    src: RenderedPath,
+    dst: RenderedPath,
+    mode: String,
+}
