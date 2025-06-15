@@ -1,5 +1,4 @@
 use anyhow::Context;
-use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
 use tracing::trace;

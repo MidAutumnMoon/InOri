@@ -6,17 +6,13 @@ struct Flower {}
 
 struct Leaf {}
 
+#[derive(Default)]
 pub struct Wisteria {
     // trunk: Trunk,
     // flower: Flower,
     // leaf: Leaf,
 }
 
-impl Default for Wisteria {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 pub struct WisteriaWidget;
 

@@ -2,7 +2,6 @@ use std::process::ExitStatus;
 use std::path::Path;
 use itertools::Itertools;
 use tap::Pipe;
-use tracing::debug;
 use tap::Tap;
 use anyhow::Context;
 

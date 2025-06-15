@@ -1,12 +1,8 @@
 use ratatui::prelude::*;
 
+#[derive(Default)]
 pub struct Soil {}
 
-impl Default for Soil {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 pub struct SoilWidget;
 

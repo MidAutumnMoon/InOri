@@ -10,9 +10,7 @@ use minijinja::Environment;
 use serde::Deserialize;
 use tap::Pipe;
 
-use tap::Tap;
 use tracing::debug;
-use tracing::trace;
 
 /// Constructing an [`Environment`] is expensive.
 #[ allow( clippy::unwrap_used ) ]

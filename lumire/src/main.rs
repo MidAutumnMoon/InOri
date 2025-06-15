@@ -7,10 +7,7 @@ use crate::plan::Plan;
 
 use anyhow::Result as AnyResult;
 use anyhow::Context;
-use tap::Pipe;
-use tap::Tap;
 use tracing::debug;
-use tracing::trace;
 
 use ino_result::ResultExt;
 use ino_tap::TapExt;
