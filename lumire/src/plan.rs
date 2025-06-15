@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use ino_tap::TapExt;
 use serde::Deserialize;
 use tap::Pipe;
 use tap::Tap;
@@ -45,7 +46,7 @@ impl Plan {
         debug!( "Parse plan data" );
         let plan = serde_json::from_str::<Self>( text )
             .context( "Plan contains invalid JSON" )?
-            .tap( |it| trace!( ?it ) );
+            .tap_trace();
         ensure! { plan.version == CURRENT_PLAN_VERSION,
             "Plan version mismatch, expect {}, but got {}",
             CURRENT_PLAN_VERSION,

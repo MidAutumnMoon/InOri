@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use ino_tap::TapExt;
 use minijinja::Environment;
 use serde::Deserialize;
 use tap::Pipe;
@@ -29,8 +30,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new( || {
     environ.set_undefined_behavior( UndefinedBehavior::Strict );
     environ.set_recursion_limit( 0 );
 
-    Engine { environ, context }
-        .tap( |it| trace!( ?it ) )
+    Engine { environ, context }.tap_trace()
 } );
 
 #[ derive( Debug ) ]
@@ -57,7 +57,7 @@ impl Engine {
             .with_context(
                 || format! { r#"Failed to render template "{tmpl}""# }
             )?
-            .tap( |it| trace!( ?it ) )
+            .tap_trace()
             .pipe( Ok )
     }
 }
@@ -89,7 +89,7 @@ impl ContextOfTemplate {
         };
 
         Self { home, config, data, cache, state, runtime, }
-            .tap( |it| trace!( ?it ) )
+            .tap_trace()
             .pipe( Ok )
     }
 }
@@ -121,7 +121,7 @@ impl<'de> Deserialize<'de> for RenderedPath {
             inner: String::deserialize( der )?
                 .pipe_deref( ren )
                 .map_err( serde::de::Error::custom )?
-                .tap( |it| trace!( ?it ) )
+                .tap_trace()
         } )
     }
 }

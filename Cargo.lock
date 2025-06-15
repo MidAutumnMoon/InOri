@@ -921,6 +921,7 @@ dependencies = [
  "clap",
  "etcetera",
  "ino_result",
+ "ino_tap",
  "ino_tracing",
  "minijinja",
  "serde",

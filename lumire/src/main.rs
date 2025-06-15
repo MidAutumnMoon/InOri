@@ -10,7 +10,9 @@ use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
 use tracing::trace;
+
 use ino_result::ResultExt;
+use ino_tap::TapExt;
 
 use std::path::PathBuf;
 
@@ -47,7 +49,7 @@ impl App {
             .map( |it| Plan::from_file( &it ) )
             .transpose()
             .context( "Failed to load the new plan" )?
-            .tap( |it| trace!( ?it ) );
+            .tap_trace();
 
         let old_plans = cliopts.old_plans
             .map( |it| {
@@ -57,7 +59,7 @@ impl App {
                     .context( "Failed to load (one of) old plan files" )
             } )
             .transpose()?
-            .tap( |it| trace!( ?it ) );
+            .tap_trace();
 
         eprintln!( "Finished processing plan" );
 
@@ -88,7 +90,7 @@ fn main() {
 
         let cliopt = {
             debug!( "Parse cliopts" );
-            CliOpts::parse().tap( |it| trace!( ?it ) )
+            CliOpts::parse().tap_trace()
         };
 
         App::new( cliopt )
