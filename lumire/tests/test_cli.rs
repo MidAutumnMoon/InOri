@@ -1,3 +1,6 @@
+#![ allow( clippy::unwrap_used ) ]
+#![ allow( clippy::expect_used ) ]
+
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
 
@@ -7,9 +10,18 @@ const VERSION: usize = 1;
 
 fn main_program() -> Command {
     let exe = std::env!( "CARGO_BIN_EXE_lumire" );
+    #[ allow( unused_mut ) ]
     let mut cmd = std::process::Command::new( exe );
-    cmd.env( "RUST_LOG", "trace" );
+    // cmd.env( "RUST_LOG", "trace" );
     cmd
+}
+
+fn setup_tracing() {
+    use std::sync::Once;
+    static TRACING_ONCE: Once = Once::new();
+    TRACING_ONCE.call_once( || {
+        ino_tracing::init_tracing_subscriber();
+    } );
 }
 
 macro_rules! create_tempdir {
@@ -19,20 +31,14 @@ macro_rules! create_tempdir {
 }
 
 #[ test ]
-#[ allow( clippy::unwrap_used ) ]
-#[ allow( clippy::expect_used ) ]
-fn test_create_symlink() {
-    ino_tracing::init_tracing_subscriber();
+fn create_symlink() {
+    setup_tracing();
 
     let mut app = main_program();
     let top = create_tempdir!();
 
-    let message = "Helo!!!!!!!!!!!!!";
-    let mode = "755";
-
     let src = top.child( "this-source" );
-    src.write_str( message ).unwrap();
-
+    src.write_str( "hellllooo" ).unwrap();
     let dst = top.child( "link-here" );
 
     let json = serde_json::json!( {
@@ -40,29 +46,71 @@ fn test_create_symlink() {
         "symlinks": [ {
             "src": src.path(),
             "dst": dst.path(),
-            "mode": mode,
         } ]
     } ).to_string();
 
-    let new = top.child( "new.json" );
-    new.write_str( &json ).unwrap();
+    let new_plan = top.child( "new_plan.json" );
+    new_plan.write_str( &json ).unwrap();
 
-    let mut child = app
-        .arg( "--new-plan" ).arg( new.path() )
+    let mut cmd_process = app
+        .arg( "--new-plan" ).arg( new_plan.path() )
         .spawn().unwrap();
 
-    let ret = child.wait().unwrap();
+    let ret = cmd_process.wait().unwrap();
 
     assert!( ret.success() );
+    assert!( dst.path().is_symlink() );
+    assert!( dst.path().read_link().unwrap() == src.path() );
 
 }
 
 #[ test ]
-fn test_collinsion_precheck() {}
+fn remove_dangling_symlink() {
+    use std::os::unix::fs::symlink;
+
+    setup_tracing();
+
+    let mut app = main_program();
+    let top = create_tempdir!();
+
+    let src = top.child( "this-source" );
+    src.write_str( "hellllooo" ).unwrap();
+    let dst = top.child( "link-here" );
+
+    symlink( src.path(), dst.path() ).unwrap();
+
+    let old_plan = {
+        let json = serde_json::json!{ {
+            "version": VERSION,
+            "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
+        } }.to_string();
+        let child = top.child( "old_plan.json" );
+        child.write_str( &json ).unwrap();
+        child
+    };
+
+    let mut cmd_process = app
+        .arg( "--old-plan" ).arg( old_plan.path() )
+        .spawn().unwrap();
+
+    let ret = cmd_process.wait().unwrap();
+
+    unimplemented!();
+    assert!( ret.success() );
+    assert!( dst.path().is_symlink() );
+    assert!( dst.path().read_link().unwrap() == src.path() );
+
+}
 
 #[ test ]
-#[ allow( clippy::unwrap_used ) ]
+fn test_collinsion_precheck() {
+    setup_tracing();
+}
+
+#[ test ]
 fn abs_path() {
+    setup_tracing();
+
     let mut app = main_program();
     let top = create_tempdir!();
 

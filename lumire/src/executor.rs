@@ -2,32 +2,59 @@ use std::path::PathBuf;
 
 use crate::plan::Plan;
 use crate::plan::Symlink;
+use crate::template::RenderedPath;
 
 use anyhow::Result as AnyResult;
 
 #[ derive( Debug ) ]
-pub enum Action {
+pub struct Executor {
+    works: Vec<Action>,
+}
+
+impl Executor {
+
+    #[ allow( clippy::new_ret_no_self ) ]
+    #[ tracing::instrument( skip_all ) ]
+    pub fn run_with( new: Option<Plan>, olds: Option<Vec<Plan>> )
+        -> AnyResult<()>
+    {
+        todo!()
+    }
+
+    #[ tracing::instrument( skip_all ) ]
+    fn generate_works() {}
+
+}
+
+/// The action to be taken.
+/// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
+#[ derive( Debug ) ]
+enum Action {
+    /// Create a symlink
     Add {
-        src: PathBuf,
-        dst: PathBuf,
-        mode: String,
+        src: RenderedPath,
+        dst: RenderedPath,
     },
+    /// Remove a symlink
     Remove {
-        dst: PathBuf
+        /// Record the src to prevent TOCTOU.
+        old_src: RenderedPath,
+        dst: RenderedPath,
     },
+    /// Replace a symlink
     Replace {
-        src: PathBuf,
+        new_src: PathBuf,
         old_src: PathBuf,
         dst: PathBuf,
-        mode: u32,
-    }
+    },
+    Nothing,
 }
 
 impl Action {
 
     /// Generate a change by diffing two [`Symlink`]
     #[ inline ]
-    pub fn diff( left: &Symlink, right: &Symlink ) -> Self {
+    pub fn from_diff( left: &Symlink, right: &Symlink ) -> Self {
         todo!()
     }
 
@@ -38,34 +65,16 @@ impl Action {
 
 }
 
-#[ derive( Debug ) ]
-pub struct Executor {
-    works: Works,
-}
+#[ cfg( test ) ]
+mod test {
 
-impl Executor {
+    use super::*;
 
-    #[ tracing::instrument( skip_all ) ]
-    pub fn new( new: Option<Plan>, olds: Option<Vec<Plan>> )
-        -> AnyResult<()>
-    {
-        todo!()
+    #[ test ]
+    fn old_plan_unique() {
     }
 
-    #[ tracing::instrument( skip( self ) ) ]
-    pub fn run( self ) {}
+    #[ test ]
+    fn action_toctou() {}
 
-}
-
-#[ derive( Debug ) ]
-pub struct Works {
-    changeset: Vec<Action>,
-}
-
-impl Iterator for Works {
-    type Item = ();
-
-    fn next( &mut self ) -> Option<Self::Item> {
-        todo!()
-    }
 }

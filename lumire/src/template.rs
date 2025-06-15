@@ -46,13 +46,15 @@ impl Engine {
         debug!( "Render template" );
         self.environ.render_str( tmpl, &self.context )
             .with_context(
-                || format! { r#"Failed to render template "{tmpl}""# }
+                || format!( r#"Failed to render template "{tmpl}""# )
             )?
             .tap_trace()
             .pipe( Ok )
     }
 }
 
+// N.B. May cause test to fail in environment if XDG variables
+// are not set, e.g. nix. In this case, set the variables manually.
 #[ derive( serde::Serialize, Debug ) ]
 pub struct ContextOfTemplate {
     home: PathBuf,
@@ -95,6 +97,8 @@ impl ContextOfTemplate {
     }
 }
 
+/// A [`Path`] wrapper that guaranteed to not contains unrendered
+/// templates and be absolute.
 #[ derive( Debug ) ]
 pub struct RenderedPath {
     inner: PathBuf
@@ -131,6 +135,8 @@ impl RenderedPath {
         &self.inner
     }
 }
+
+// TODO: FromStr for RenderedPath?
 
 #[ cfg( test ) ]
 mod test {

@@ -16,6 +16,7 @@ use crate::template::RenderedPath;
 const CURRENT_PLAN_VERSION: usize = 1;
 
 #[ derive( Deserialize, Debug ) ]
+#[ serde( deny_unknown_fields ) ]
 pub struct Plan {
     version: usize,
     symlinks: Vec<Symlink>,
@@ -63,8 +64,28 @@ impl PartialEq for Plan {
 }
 
 #[ derive( Deserialize, Debug ) ]
+#[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
     src: RenderedPath,
     dst: RenderedPath,
-    mode: String,
+}
+
+#[ cfg( test ) ]
+mod test {
+    use super::*;
+
+    #[ test ]
+    fn plan_need_to_be_strict() {
+        use serde::de::IntoDeserializer;
+        // plan with arbitrary unknown fields
+        let json = serde_json::json!( {
+            "version": CURRENT_PLAN_VERSION,
+            "yolo": "once",
+            "symlinks": [ { "src": "/", "dst": "/", "aa": "bb" } ]
+        } );
+        let der = json.into_deserializer();
+        let res = Plan::deserialize( der );
+        assert!( res.is_err() );
+    }
+
 }
