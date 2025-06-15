@@ -43,8 +43,9 @@ struct App {
 }
 
 impl App {
+    #[ allow( clippy::new_ret_no_self ) ]
     #[ tracing::instrument( name = "App::new", skip_all ) ]
-    fn new( cliopts: CliOpts ) -> AnyResult<Self> {
+    fn new( cliopts: CliOpts ) -> AnyResult<()> {
         eprintln!( "{}", "Prepareing plans".fg::<Blue>() );
 
         let new_plan = cliopts.new_plan
@@ -63,16 +64,9 @@ impl App {
             .transpose()?
             .tap_trace();
 
-        eprintln!( "{}", "Finished processing plan".fg::<Blue>() );
-
-        Ok( Self { new_plan, old_plans } )
-    }
-
-    #[ tracing::instrument( name = "App::run", skip_all ) ]
-    fn run( self ) -> AnyResult<()> {
         eprintln!( "{}", "Run the app".fg::<Blue>() );
 
-        if self.new_plan.is_none() && self.old_plans.is_none() {
+        if new_plan.is_none() && old_plans.is_none() {
             eprintln!( "{}",
                 "No new nor old plans, nothing to do".fg::<Yellow>() );
             return Ok(());
@@ -88,10 +82,7 @@ fn main() {
             debug!( "Parse cliopts" );
             CliOpts::parse().tap_trace()
         };
-        App::new( cliopt )
-            .context( "Failed to construct app" )?
-            .run()
-            .context( "Error ocurred when running app" )?;
+        App::new( cliopt ).context( "Error ocurred when running app" )?;
         Ok(())
     }
 
