@@ -1,4 +1,3 @@
-
 use crate::plan::Plan;
 use crate::plan::Symlink;
 use crate::template::RenderedPath;
@@ -12,9 +11,7 @@ use tracing::debug;
 use tracing::trace;
 
 #[ derive( Debug ) ]
-pub struct Executor {
-    works: Vec<Action>
-}
+pub struct Executor;
 
 impl Executor {
 
@@ -39,9 +36,10 @@ impl Executor {
             .context( "Error happend when generating works" )?
             .tap_trace();
 
-        let me = Self { works };
+        Self::precheck_works( works.iter() )?;
+        Self::execute_works( works.iter() )?;
 
-        todo!()
+        Ok(())
     }
 
     #[ tracing::instrument( skip_all ) ]
@@ -53,10 +51,11 @@ impl Executor {
                 $input.into_iter()
                     .map( |it| Some( it ) )
                     .collect::<Vec<_>>()
+                    .tap_trace()
             } };
         }
 
-        debug!( "Calculate works" );
+        debug!( "Generate works" );
 
         let new = into_vec_opt!( new_plan.symlinks );
         let mut old = into_vec_opt!( old_plan.symlinks );
@@ -73,6 +72,11 @@ impl Executor {
         // No need to switch algorithm in the near future.
 
         // intersection + difference (new only)
+        //
+        // 1. If two symlinks with the same dst exist in both new and old
+        //  1.1 if the srcs are the same then it'll be nothing
+        //  1.2 if the srcs are different then it'll be a replace
+        // 2. If the symlink only exists in new, then it'll be a create
         for mut new_slk in new {
             let Some( new_slk ) = new_slk.take() else { continue; };
             let mut found = None;
@@ -110,34 +114,26 @@ impl Executor {
         works.tap_trace().pipe( Ok )
     }
 
-    // N.B. not resistent to TOCTOU bugs.
     #[ tracing::instrument( skip_all ) ]
-    fn check_collision<'f>( symlinks: impl Iterator<Item = &'f Symlink> )
+    fn precheck_works<'f>( actions: impl Iterator<Item = &'f Action> )
         -> AnyResult<()>
     {
-        debug!( "precheck collisions in plan" );
-        for link in symlinks {
-            trace!( ?link );
-            // TODO: use thiserror to replace string error
-            ensure! { !link.dst().path().exists(), }
-        }
-        Ok(())
-    }
-
-}
-
-impl Iterator for Executor {
-    type Item = AnyResult<()>;
-
-    fn next( &mut self ) -> Option<Self::Item> {
         todo!()
     }
+
+    #[ tracing::instrument( skip_all ) ]
+    fn execute_works<'f>( works: impl Iterator<Item = &'f Action> )
+        -> AnyResult<()>
+    {
+        todo!()
+    }
+
 }
 
 /// The action to be taken.
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
 #[ derive( Debug ) ]
-enum Action {
+pub enum Action {
     Create {
         src: RenderedPath,
         dst: RenderedPath,
@@ -158,8 +154,21 @@ enum Action {
 impl Action {
 
     pub fn execute( &self ) -> AnyResult<()> {
-        todo!()
+        use std::os::unix::fs::symlink;
+        use Action::Create;
+
+        match self {
+            action @ Create { src, dst } => {
+                debug!( "create symlink" );
+                symlink( src, dst )?;
+            },
+            _ => todo!(),
+        }
+
+        Ok(())
     }
+
+    // TODO replace string error with thiserror
 
     #[ tracing::instrument ]
     pub fn check( &self ) -> AnyResult<()> {

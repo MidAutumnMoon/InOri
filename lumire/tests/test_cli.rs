@@ -1,8 +1,9 @@
-
+#![ allow( clippy::unwrap_used ) ]
 #![ allow( clippy::expect_used ) ]
 
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
+use tap::Tap;
 
 use std::process::Command;
 
@@ -27,20 +28,22 @@ fn create_symlink() {
     let mut app = main_program();
     let top = create_tempdir!();
 
-    let src = top.child( "this-source" );
-    src.write_str( "hellllooo" ).unwrap();
+    let src = top.child( "this-source" )
+        .tap( |it| it.touch().unwrap() );
+
     let dst = top.child( "link-here" );
 
-    let json = serde_json::json!( {
-        "version": VERSION,
-        "symlinks": [ {
-            "src": src.path(),
-            "dst": dst.path(),
-        } ]
-    } ).to_string();
-
-    let new_plan = top.child( "new_plan.json" );
-    new_plan.write_str( &json ).unwrap();
+    let new_plan = {
+        let json = serde_json::json!( {
+            "version": VERSION,
+            "symlinks": [ {
+                "src": src.path(),
+                "dst": dst.path(),
+            } ]
+        } ).to_string();
+        top.child( "new_plan.json" )
+            .tap( |it| it.write_str( &json ).unwrap() )
+    };
 
     let mut cmd_process = app
         .arg( "--new-plan" ).arg( new_plan.path() )
@@ -52,6 +55,9 @@ fn create_symlink() {
     assert!( dst.path().is_symlink() );
     assert!( dst.path().read_link().unwrap() == src.path() );
 }
+
+#[ test ]
+fn collision_create_symlink() {}
 
 #[ test ]
 fn remove_old_symlinks() {
@@ -71,9 +77,8 @@ fn remove_old_symlinks() {
             "version": VERSION,
             "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
         } }.to_string();
-        let child = top.child( "old_plan.json" );
-        child.write_str( &json ).unwrap();
-        child
+        top.child( "old_plan.json" )
+            .tap( |it| it.write_str( &json ).unwrap() )
     };
 
     let mut cmd_process = app
@@ -90,8 +95,13 @@ fn remove_old_symlinks() {
 }
 
 #[ test ]
-fn test_collinsion_precheck() {
-}
+fn collision_remove_old_symlinks() {}
+
+#[ test ]
+fn replace_symlinks() {}
+
+#[ test ]
+fn collinsion_replace_symlinks() {}
 
 #[ test ]
 fn abs_path() {
@@ -104,7 +114,6 @@ fn abs_path() {
             {
                 "src": "not abs",
                 "dst": "not asb",
-                "mode": "755",
             }
         ],
     } ).to_string();

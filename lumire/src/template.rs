@@ -142,8 +142,17 @@ impl<'de> Deserialize<'de> for RenderedPath {
     }
 }
 
+impl AsRef<Path> for RenderedPath {
+    fn as_ref( &self ) -> &Path {
+        self.path()
+    }
+}
+
 #[ cfg( test ) ]
 mod test {
+
+    use tracing::trace;
+
     use super::*;
 
     #[ test ]
@@ -164,7 +173,7 @@ mod test {
         ];
 
         let tmpls_to_err = [
-            // non absolute
+            // not absolute
             "wow",
             // invalid template
             "{{ home",
@@ -182,4 +191,5 @@ mod test {
             assert!( p.is_err() );
         }
     }
+
 }
