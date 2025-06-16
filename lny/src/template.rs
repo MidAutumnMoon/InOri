@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -111,9 +112,18 @@ impl RenderedPath {
         let der: StrDeserializer<DeError> = input.into_deserializer();
         Self::deserialize( der )?.pipe( Ok )
     }
+}
 
-    pub fn path( &self ) -> &Path {
+impl Deref for RenderedPath {
+    type Target = Path;
+    fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl AsRef<Path> for RenderedPath {
+    fn as_ref( &self ) -> &Path {
+        self
     }
 }
 
@@ -140,12 +150,6 @@ impl<'de> Deserialize<'de> for RenderedPath {
                 .map_err( serde::de::Error::custom )?
                 .tap_trace()
         } )
-    }
-}
-
-impl AsRef<Path> for RenderedPath {
-    fn as_ref( &self ) -> &Path {
-        self.path()
     }
 }
 

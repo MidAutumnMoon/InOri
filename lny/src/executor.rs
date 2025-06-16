@@ -238,7 +238,7 @@ impl Action {
                 symlink( src, dst )
                     .with_context( || format!(
                         r#"Failed to create symlink on "{}""#,
-                        dst.path().display()
+                        dst.display()
                     ) )?;
             },
 
@@ -273,8 +273,7 @@ impl Display for Action {
             Self::Create { src, dst } => {
                 format!(
                     r#"Create symlink: src="{}" dst="{}""#,
-                    src.path().display(),
-                    dst.path().display(),
+                    src.display(), dst.display(),
                 ).pipe( |it| f.write_str( &it ) )?;
             },
             _ => todo!()

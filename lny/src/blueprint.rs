@@ -94,11 +94,11 @@ impl Symlink {
     }
 
     pub fn same_dst( &self, other: &Self ) -> bool {
-        self.dst.path() == other.dst().path()
+        self.dst == other.dst
     }
 
     pub fn same_src( &self, other: &Self ) -> bool {
-        self.src().path() == other.src().path()
+        self.src() == other.src()
     }
 }
 
