@@ -56,8 +56,6 @@ impl App {
             .context( "Failed to load the old blueprint" )?
             .tap_trace();
 
-        eprintln!( "{}", "Run the app".fg::<Blue>() );
-
         if new_blueprint.is_none() && old_blueprint.is_none() {
             eprintln!( "{}",
                 "No new nor old blueprint given, nothing to do".fg::<Yellow>() );

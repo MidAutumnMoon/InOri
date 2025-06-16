@@ -92,6 +92,14 @@ impl Symlink {
     pub fn src( &self ) -> &RenderedPath {
         &self.src
     }
+
+    pub fn same_dst( &self, other: &Self ) -> bool {
+        self.dst.path() == other.dst().path()
+    }
+
+    pub fn same_src( &self, other: &Self ) -> bool {
+        self.src().path() == other.src().path()
+    }
 }
 
 #[ cfg( test ) ]
