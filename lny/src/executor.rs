@@ -16,25 +16,30 @@ pub struct Executor;
 impl Executor {
 
     #[ tracing::instrument( name="executor_run_with", skip_all ) ]
-    pub fn run_with( new_plan: Option<Blueprint>, old_plan: Option<Blueprint> )
-        -> AnyResult<()>
+    pub fn run_with(
+        new_blueprint: Option<Blueprint>,
+        old_blueprint: Option<Blueprint>
+    ) -> AnyResult<()>
     {
-        trace!( ?new_plan );
-        trace!( ?old_plan );
+        trace!( ?new_blueprint );
+        trace!( ?old_blueprint );
 
-        let new_plan = new_plan.unwrap_or_else( || {
-            debug!( "No new plan provided, using default" );
-            Blueprint::default()
-        } );
+        let new_blueprint =
+            new_blueprint.unwrap_or_else( || {
+                debug!( "No new blueprint provided, using default" );
+                Blueprint::default()
+            } );
 
-        let old_plan = old_plan.unwrap_or_else( || {
-            debug!( "No old plan provided, using default" );
-            Blueprint::default()
-        } );
+        let old_blueprint =
+            old_blueprint.unwrap_or_else( || {
+                debug!( "No old blueprint provided, using default" );
+                Blueprint::default()
+            } );
 
-        let works = Self::generate_works( new_plan, old_plan )
-            .context( "Error happend when generating works" )?
-            .tap_trace();
+        let works =
+            Self::put_blueprint_into_action( new_blueprint, old_blueprint )
+                .context( "Error happend when generating works" )?
+                .tap_trace();
 
         Self::precheck_works( works.iter() )?;
         Self::execute_works( works.iter() )?;
@@ -43,8 +48,10 @@ impl Executor {
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn generate_works( new_plan: Blueprint, old_plan: Blueprint )
-        -> AnyResult< Vec<Action> >
+    fn put_blueprint_into_action(
+        new_blueprint: Blueprint,
+        old_blueprint: Blueprint
+    ) -> AnyResult<Vec<Action>>
     {
         macro_rules! into_vec_opt {
             ( $input:expr ) => { {
@@ -55,14 +62,17 @@ impl Executor {
             } };
         }
 
-        debug!( "Generate works" );
+        debug!( "make actions according to blueprint" );
 
-        let new = into_vec_opt!( new_plan.symlinks );
-        let mut old = into_vec_opt!( old_plan.symlinks );
+        let symlinks_in_new_blueprint =
+            into_vec_opt!( new_blueprint.symlinks );
+        let mut symlinks_in_old_blueprint =
+            into_vec_opt!( old_blueprint.symlinks );
 
-        let mut works = Vec::with_capacity(
-            new.len().max( old.len() )
-        );
+        let mut works =
+            symlinks_in_new_blueprint.len()
+                .max( symlinks_in_old_blueprint.len() )
+                .pipe( Vec::with_capacity );
 
         // This is inefficient, but also imcomplex and works well
         // for few thoudsands or even few tens of thoudsands paths.
@@ -77,11 +87,11 @@ impl Executor {
         //  1.1 if the srcs are the same then it'll be nothing
         //  1.2 if the srcs are different then it'll be a replace
         // 2. If the symlink only exists in new, then it'll be a create
-        for mut new_slk in new {
+        for mut new_slk in symlinks_in_new_blueprint {
             let Some( new_slk ) = new_slk.take() else { continue; };
             let mut found = None;
 
-            for old_slk in &mut old {
+            for old_slk in &mut symlinks_in_old_blueprint {
                 let Some( x ) = old_slk.as_ref() else { continue; };
                 if x.dst().path() == new_slk.dst().path() {
                     found = old_slk.take();
@@ -104,7 +114,7 @@ impl Executor {
         }
 
         // difference (old only)
-        for s in old {
+        for s in symlinks_in_old_blueprint {
             let Some( x ) = s else { continue; };
             Action::Remove { old_src: x.src, dst: x.dst }
                 .tap_trace()
@@ -191,10 +201,6 @@ mod test {
             .expect( "Failed to create tempdir" );
 
         let dst = top.child( "dsttttttt" );
-    }
-
-    #[ test ]
-    fn old_plan_unique() {
     }
 
     #[ test ]

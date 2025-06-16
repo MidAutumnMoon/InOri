@@ -12,7 +12,7 @@ use tap::Pipe;
 
 use tracing::debug;
 
-/// Constructing an [`Environment`] is expensive.
+// Constructing an [`Environment`] is expensive.
 #[ allow( clippy::unwrap_used ) ]
 static ENGINE: LazyLock<Engine> = LazyLock::new( || {
     use ino_result::ResultExt;
@@ -103,6 +103,7 @@ pub struct RenderedPath {
 }
 
 impl RenderedPath {
+    #[tracing::instrument(skip_all)]
     pub fn new_unrendered( input: &str ) -> AnyResult<Self> {
         use serde::de::IntoDeserializer;
         use serde::de::value::StrDeserializer;
