@@ -1,5 +1,5 @@
-use crate::plan::Plan;
-use crate::plan::Symlink;
+use crate::blueprint::Blueprint;
+use crate::blueprint::Symlink;
 use crate::template::RenderedPath;
 
 use anyhow::ensure;
@@ -16,7 +16,7 @@ pub struct Executor;
 impl Executor {
 
     #[ tracing::instrument( name="executor_run_with", skip_all ) ]
-    pub fn run_with( new_plan: Option<Plan>, old_plan: Option<Plan> )
+    pub fn run_with( new_plan: Option<Blueprint>, old_plan: Option<Blueprint> )
         -> AnyResult<()>
     {
         trace!( ?new_plan );
@@ -24,12 +24,12 @@ impl Executor {
 
         let new_plan = new_plan.unwrap_or_else( || {
             debug!( "No new plan provided, using default" );
-            Plan::default()
+            Blueprint::default()
         } );
 
         let old_plan = old_plan.unwrap_or_else( || {
             debug!( "No old plan provided, using default" );
-            Plan::default()
+            Blueprint::default()
         } );
 
         let works = Self::generate_works( new_plan, old_plan )
@@ -43,7 +43,7 @@ impl Executor {
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn generate_works( new_plan: Plan, old_plan: Plan )
+    fn generate_works( new_plan: Blueprint, old_plan: Blueprint )
         -> AnyResult< Vec<Action> >
     {
         macro_rules! into_vec_opt {

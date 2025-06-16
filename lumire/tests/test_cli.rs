@@ -33,7 +33,7 @@ fn create_symlink() {
 
     let dst = top.child( "link-here" );
 
-    let new_plan = {
+    let new_blueprint = {
         let json = serde_json::json!( {
             "version": VERSION,
             "symlinks": [ {
@@ -41,12 +41,12 @@ fn create_symlink() {
                 "dst": dst.path(),
             } ]
         } ).to_string();
-        top.child( "new_plan.json" )
+        top.child( "new_blueprint.json" )
             .tap( |it| it.write_str( &json ).unwrap() )
     };
 
     let mut cmd_process = app
-        .arg( "--new-plan" ).arg( new_plan.path() )
+        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
         .spawn().unwrap();
 
     let ret = cmd_process.wait().unwrap();
@@ -72,17 +72,17 @@ fn remove_old_symlinks() {
 
     symlink( src.path(), dst.path() ).unwrap();
 
-    let old_plan = {
+    let old_blueprint = {
         let json = serde_json::json!{ {
             "version": VERSION,
             "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
         } }.to_string();
-        top.child( "old_plan.json" )
+        top.child( "old_blueprint.json" )
             .tap( |it| it.write_str( &json ).unwrap() )
     };
 
     let mut cmd_process = app
-        .arg( "--old-plan" ).arg( old_plan.path() )
+        .arg( "--old-blueprint" ).arg( old_blueprint.path() )
         .spawn().unwrap();
 
     let ret = cmd_process.wait().unwrap();
@@ -122,7 +122,7 @@ fn abs_path() {
     new.write_str( &json ).unwrap();
 
     let res = app
-        .arg( "--new-plan" ).arg( new.path() )
+        .arg( "--new-blueprint" ).arg( new.path() )
         .output().unwrap()
     ;
 

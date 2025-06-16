@@ -1,9 +1,9 @@
-mod plan;
+mod blueprint;
 mod template;
 mod executor;
 
 use crate::executor::Executor;
-use crate::plan::Plan;
+use crate::blueprint::Blueprint;
 
 use anyhow::Result as AnyResult;
 use anyhow::Context;
@@ -22,12 +22,13 @@ use std::path::PathBuf;
 /// Maintaining symlinks.
 #[ derive( clap::Parser, Debug ) ]
 struct CliOpts {
-    /// Plan for symlinks to be created.
+    /// Blueprint for symlinks to be created.
     #[ arg( long, short, value_name="PATH" ) ]
-    new_plan: Option<PathBuf>,
-    /// Plans for old symlinks to be removed.
+    new_blueprint: Option<PathBuf>,
+    /// Previous generation of blueprint, symlinks in it
+    /// will be removed.
     #[ arg( long, short, value_name="PATH" ) ]
-    old_plan: Option<PathBuf>,
+    old_blueprint: Option<PathBuf>,
 }
 
 impl CliOpts {
@@ -41,30 +42,30 @@ struct App;
 impl App {
     #[ tracing::instrument( name = "app_run_with", skip_all ) ]
     fn run_with( cliopts: CliOpts ) -> AnyResult<()> {
-        eprintln!( "{}", "Prepareing plan".fg::<Blue>() );
+        eprintln!( "{}", "Prepareing blueprints".fg::<Blue>() );
 
-        let new_plan = cliopts.new_plan
-            .map( |it| Plan::from_file( &it ) )
+        let new_blueprint = cliopts.new_blueprint
+            .map( |it| Blueprint::from_file( &it ) )
             .transpose()
-            .context( "Failed to load the new plan" )?
+            .context( "Failed to load the new blueprint" )?
             .tap_trace();
 
-        let old_plan = cliopts.old_plan
-            .map( |it| Plan::from_file( &it ) )
+        let old_blueprint = cliopts.old_blueprint
+            .map( |it| Blueprint::from_file( &it ) )
             .transpose()
-            .context( "Failed to load the old plan" )?
+            .context( "Failed to load the old blueprint" )?
             .tap_trace();
 
         eprintln!( "{}", "Run the app".fg::<Blue>() );
 
-        if new_plan.is_none() && old_plan.is_none() {
+        if new_blueprint.is_none() && old_blueprint.is_none() {
             eprintln!( "{}",
-                "No new nor old plan, nothing to do".fg::<Yellow>() );
+                "No new nor old blueprint given, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
 
-        Executor::run_with( new_plan, old_plan )
-            .context( "Failed to execute the plan" )?;
+        Executor::run_with( new_blueprint, old_blueprint )
+            .context( "Error happened while executing the blueprint" )?;
 
         Ok(())
     }
