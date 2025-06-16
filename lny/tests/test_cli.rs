@@ -10,7 +10,7 @@ use std::process::Command;
 const VERSION: usize = 1;
 
 fn main_program() -> Command {
-    let exe = std::env!( "CARGO_BIN_EXE_lumire" );
+    let exe = std::env!( "CARGO_BIN_EXE_lny" );
     #[ allow( unused_mut ) ]
     let mut cmd = std::process::Command::new( exe );
     // cmd.env( "RUST_LOG", "trace" );

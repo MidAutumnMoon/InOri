@@ -888,6 +888,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
 
 [[package]]
+name = "lny"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_fs",
+ "clap",
+ "etcetera",
+ "ino_color",
+ "ino_result",
+ "ino_tap",
+ "ino_tracing",
+ "itertools 0.13.0",
+ "minijinja",
+ "serde",
+ "serde_json",
+ "serdev",
+ "tap",
+ "tracing",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -910,27 +931,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 dependencies = [
  "hashbrown",
-]
-
-[[package]]
-name = "lumire"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_fs",
- "clap",
- "etcetera",
- "ino_color",
- "ino_result",
- "ino_tap",
- "ino_tracing",
- "itertools 0.13.0",
- "minijinja",
- "serde",
- "serde_json",
- "serdev",
- "tap",
- "tracing",
 ]
 
 [[package]]
