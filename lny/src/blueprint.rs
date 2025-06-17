@@ -81,7 +81,7 @@ impl Default for Blueprint {
     }
 }
 
-#[ derive( Deserialize, Debug ) ]
+#[ derive( Deserialize, Debug, Clone ) ]
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
     src: RenderedPath,

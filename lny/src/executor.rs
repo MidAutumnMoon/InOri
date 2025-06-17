@@ -18,7 +18,7 @@ use tap::Tap;
 use tracing::debug;
 use tracing::trace;
 
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone ) ]
 pub struct Executor {
     steps: Vec<Step>
 }
@@ -139,7 +139,7 @@ impl Executor {
 
 /// The step to be taken.
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone ) ]
 pub enum Step {
     Create {
         new_symlink: Symlink,
