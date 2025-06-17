@@ -18,9 +18,11 @@ use tap::Tap;
 use tracing::debug;
 use tracing::trace;
 
+// TODO: move dst conflict check here?
+
 #[ derive( Debug, Clone ) ]
 pub struct StepQueue {
-    inner: Vec<Step>
+    steps: Vec<Step>
 }
 
 impl StepQueue {
@@ -119,9 +121,16 @@ impl StepQueue {
 
 }
 
+impl Iterator for StepQueue {
+    type Item = Step;
+    fn next( &mut self ) -> Option<Self::Item> {
+        self.steps.pop()
+    }
+}
+
 /// The step to be taken.
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
-#[ derive( Debug, Clone ) ]
+#[ derive( Debug, Clone, PartialEq, Eq ) ]
 pub enum Step {
     Create {
         new_symlink: Symlink,
@@ -206,6 +215,13 @@ impl Step {
 
 }
 
+impl Display for Step {
+    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+#[ allow( clippy::unwrap_used ) ]
 #[ cfg( test ) ]
 mod test {
 
@@ -214,10 +230,147 @@ mod test {
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
 
+    #[ macro_export ]
     macro_rules! make_tempdir {
         () => { {
             TempDir::new().expect( "Failed to setup tempdir" )
         } };
+    }
+
+    // TODO: move to blueprint.rs and make it public?
+    #[ macro_export ]
+    macro_rules! make_symlink {
+        () => { {
+            make_symlink!( "/ssrc", "/ddst" )
+        } };
+        ( $src:literal ) => {
+            make_symlink!( $src, "/ddst" )
+        };
+        ( $src:literal, $dst:literal ) => { {
+            let src = RenderedPath::from_unrendered( $src )
+                .expect( "Failed to make src RenderedPath" );
+            let dst = RenderedPath::from_unrendered( $dst )
+                .expect( "Failed to make dst RenderedPath" );
+            Symlink::new_test( src, dst )
+        } };
+    }
+
+    #[ test ]
+    fn generate_steps() {
+        // no step
+        {
+            let new_bp = Blueprint::empty();
+            let old_bp = Blueprint::empty();
+            let q = StepQueue::new( new_bp, old_bp );
+            assert!( q.is_ok_and( |it| it.steps.is_empty() ) );
+        }
+        // create
+        {
+            let sym = make_symlink!();
+            let new_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ sym.clone() ] );
+            let old_bp = Blueprint::empty();
+            let q = StepQueue::new( new_bp, old_bp );
+            assert! {
+                q.is_ok_and( |mut it| {
+                    it.steps.len() == 1
+                    && it.steps.pop().unwrap()
+                        == Step::Create { new_symlink: sym }
+                } )
+            };
+        }
+        // remove
+        {
+            let sym = make_symlink!();
+            let new_bp = Blueprint::empty();
+            let old_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ sym.clone() ] );
+            let q = StepQueue::new( new_bp, old_bp );
+            assert! {
+                q.is_ok_and( |mut it| {
+                    it.steps.len() == 1
+                    && it.steps.pop().unwrap()
+                        == Step::Remove { old_symlink: sym }
+                } )
+            };
+        }
+        // Replace
+        {
+            let new_symlink = make_symlink!( "/src_new", "/dst" );
+            let old_symlink = make_symlink!( "/src_old", "/dst" );
+
+            let new_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ new_symlink.clone() ] );
+            let old_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ old_symlink.clone() ] );
+            let q = StepQueue::new( new_bp, old_bp );
+            assert! {
+                q.is_ok_and( |mut it| {
+                    it.steps.len() == 1
+                    && it.steps.pop().unwrap()
+                        == Step::Replace { new_symlink, old_symlink }
+                } )
+            };
+        }
+        // Nothing
+        {
+            let new_symlink = make_symlink!( "/src_x", "/dst" );
+            let old_symlink = make_symlink!( "/src_x", "/dst" );
+
+            let new_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ new_symlink.clone() ] );
+            let old_bp = Blueprint::empty()
+                .tap_mut( |it| it.symlinks = vec![ old_symlink.clone() ] );
+            let q = StepQueue::new( new_bp, old_bp );
+            assert! {
+                q.is_ok_and( |mut it| {
+                    it.steps.len() == 1
+                    && it.steps.pop().unwrap() == Step::Nothing
+                } )
+            };
+        }
+        // Mixed
+        {
+            let unc_symlink = make_symlink!( "/uncha", "/unch_dst" );
+            let new_symlink = make_symlink!( "/src_new_1", "/dst_1" );
+            let del_symlink = make_symlink!( "/src_old", "/dst_dd" );
+            let rep_symlink_old = make_symlink!( "/src_ooo", "/dst_replace" );
+            let rep_symlink_new = make_symlink!( "/src_yee", "/dst_replace" );
+
+            let new_bp = Blueprint::empty()
+                .tap_mut( |it| {
+                    it.symlinks = vec![
+                        unc_symlink.clone(),
+                        new_symlink.clone(),
+                        rep_symlink_new.clone(),
+                    ];
+                } );
+
+            let old_bp = Blueprint::empty()
+                .tap_mut( |it| {
+                    it.symlinks = vec![
+                        unc_symlink.clone(),
+                        del_symlink.clone(),
+                        rep_symlink_old.clone(),
+                    ];
+                } );
+
+            let q = StepQueue::new( new_bp, old_bp );
+            assert!( q.is_ok() );
+            let q = q.unwrap();
+            assert!( q.steps.len() == 4 );
+            assert! {
+                q.steps.into_iter()
+                    .all( |it|
+                        it == Step::Nothing
+                        || it == Step::Create { new_symlink: new_symlink.clone() }
+                        || it == Step::Remove { old_symlink: del_symlink.clone() }
+                        || it == Step::Replace {
+                            new_symlink: rep_symlink_new.clone(),
+                            old_symlink: rep_symlink_old.clone()
+                        } )
+            };
+        }
     }
 
     #[ test ]

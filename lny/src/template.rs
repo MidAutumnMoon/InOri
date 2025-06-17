@@ -105,7 +105,7 @@ pub struct RenderedPath {
 
 impl RenderedPath {
     #[tracing::instrument(skip_all)]
-    pub fn new_unrendered( input: &str ) -> AnyResult<Self> {
+    pub fn from_unrendered( input: &str ) -> AnyResult<Self> {
         use serde::de::IntoDeserializer;
         use serde::de::value::StrDeserializer;
         use serde::de::value::Error as DeError;
@@ -187,12 +187,12 @@ mod test {
         ];
 
         for t in tmpls_to_ok {
-            let p = RenderedPath::new_unrendered( t );
+            let p = RenderedPath::from_unrendered( t );
             trace!( ?p );
             assert!( p.is_ok() );
         }
         for t in tmpls_to_err {
-            let p = RenderedPath::new_unrendered( t );
+            let p = RenderedPath::from_unrendered( t );
             trace!( ?p );
             assert!( p.is_err() );
         }

@@ -82,6 +82,7 @@ impl Default for Blueprint {
 }
 
 #[ derive( Deserialize, Debug, Clone ) ]
+#[ derive( PartialEq, Eq ) ]
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
     src: RenderedPath,
@@ -92,6 +93,13 @@ pub struct Symlink {
 impl Symlink {
     pub fn dst( &self ) -> &RenderedPath { &self.dst }
     pub fn src( &self ) -> &RenderedPath { &self.src }
+
+    #[ allow( unused ) ]
+    pub(crate) fn new_test( src: RenderedPath, dst: RenderedPath )
+        -> Self
+    {
+        Self { src, dst }
+    }
 
     pub fn into_inner( self ) -> ( RenderedPath, RenderedPath ) {
         ( self.src, self.dst )
