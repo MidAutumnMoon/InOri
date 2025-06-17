@@ -40,6 +40,7 @@ impl CliOpts {
 struct App;
 
 impl App {
+
     #[ tracing::instrument( name = "app_run_with", skip_all ) ]
     fn run_with( cliopts: CliOpts ) -> AnyResult<()> {
         eprintln!( "{}", "Prepareing blueprints".fg::<Blue>() );
@@ -61,6 +62,11 @@ impl App {
                 "No new nor old blueprint given, nothing to do".fg::<Yellow>() );
             return Ok(());
         }
+
+        let ( new_blueprint, old_blueprint ) =
+            [ new_blueprint, old_blueprint ]
+                .map( Option::unwrap_or_default )
+                .into();
 
         Executor::run_with( new_blueprint, old_blueprint )
             .context( "Error happened while executing the blueprint" )?;

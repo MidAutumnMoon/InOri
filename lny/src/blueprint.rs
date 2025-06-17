@@ -80,21 +80,21 @@ impl Default for Blueprint {
 #[ derive( Deserialize, Debug ) ]
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
+    src: RenderedPath,
     /// Only the `dst` matters as it's not our job to validate src.
-    pub dst: RenderedPath,
-    pub src: RenderedPath,
+    dst: RenderedPath,
 }
 
 impl Symlink {
-    pub fn dst( &self ) -> &RenderedPath {
-        &self.dst
-    }
-    pub fn src( &self ) -> &RenderedPath {
-        &self.src
+    pub fn dst( &self ) -> &RenderedPath { &self.dst }
+    pub fn src( &self ) -> &RenderedPath { &self.src }
+
+    pub fn into_inner( self ) -> ( RenderedPath, RenderedPath ) {
+        ( self.src, self.dst )
     }
 
     pub fn same_dst( &self, other: &Self ) -> bool {
-        self.dst == other.dst
+        self.dst() == other.dst()
     }
 
     pub fn same_src( &self, other: &Self ) -> bool {

@@ -23,31 +23,16 @@ pub struct Executor;
 impl Executor {
 
     #[ tracing::instrument( name="executor_run_with", skip_all ) ]
-    pub fn run_with(
-        new_blueprint: Option<Blueprint>,
-        old_blueprint: Option<Blueprint>
-    ) -> AnyResult<()>
+    pub fn run_with( new_blueprint: Blueprint, old_blueprint: Blueprint )
+        -> AnyResult<()>
     {
         eprintln!( "{}", "Understanding blueprint".fg::<Blue>() );
 
         trace!( ?new_blueprint );
         trace!( ?old_blueprint );
 
-        let new_blueprint =
-            new_blueprint.unwrap_or_else( || {
-                debug!( "No new blueprint provided, using default" );
-                Blueprint::default()
-            } );
-
-        let old_blueprint =
-            old_blueprint.unwrap_or_else( || {
-                debug!( "No old blueprint provided, using default" );
-                Blueprint::default()
-            } );
-
-        let actions =
-            Self::put_blueprint_into_action( new_blueprint, old_blueprint )
-                .context( "Error happended when generating works" )?;
+        let actions = Self::blueprint_into_action( new_blueprint, old_blueprint )
+            .context( "Error happended when generating works" )?;
 
         eprintln!( "{}", "Run preflight checks".fg::<Blue>() );
         Self::precheck_works( &actions )?;
@@ -60,9 +45,8 @@ impl Executor {
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn put_blueprint_into_action(
-        new_blueprint: Blueprint,
-        old_blueprint: Blueprint
+    fn blueprint_into_action(
+        new_blueprint: Blueprint, old_blueprint: Blueprint
     )
         -> AnyResult<Vec<Action>>
     {
@@ -124,17 +108,17 @@ impl Executor {
                 }
             }
 
-            if let Some( found_old_symlink ) = found_old_symlink {
-                if found_old_symlink.same_src( &new_symlink ) {
+            if let Some( old_symlink ) = found_old_symlink {
+                if old_symlink.same_src( &new_symlink ) {
                     trace!( "same src, do nothing" );
-                    Action::new_nothing()
+                    Action::Nothing
                 } else {
                     trace!( "replace symlink" );
-                    Action::new_replace( new_symlink, found_old_symlink )
+                    Action::Replace { new_symlink, old_symlink }
                 }
             } else {
                 trace!( "create new symlink" );
-                Action::new_create( new_symlink )
+                Action::Create { new_symlink }
             }
                 .tap_trace()
                 .pipe( |it| planned_actions.push( it ) );
@@ -147,7 +131,7 @@ impl Executor {
             let _s =
                 tracing::trace_span!( "iter_one_remaning", ?old_symlink ).entered();
             let Some( old_symlink ) = old_symlink.take() else { continue; };
-            Action::new_remove( old_symlink )
+            Action::Remove { old_symlink }
                 .tap_trace()
                 .pipe( |it| { planned_actions.push( it ); } );
         }
@@ -174,7 +158,7 @@ impl Executor {
     #[ tracing::instrument( skip_all ) ]
     fn execute_works( actions: &Vec<Action> ) -> AnyResult<()> {
         for act in actions {
-            eprintln!( "- {}", act.fg::<Blue>() );
+            // eprintln!( "- {}", act.fg::<Blue>() );
             act.execute()?;
         }
         Ok(())
@@ -187,70 +171,40 @@ impl Executor {
 #[ derive( Debug ) ]
 pub enum Action {
     Create {
-        src: RenderedPath,
-        dst: RenderedPath,
+        new_symlink: Symlink,
     },
     Remove {
         /// Record the src to prevent TOCTOU.
-        src: RenderedPath,
-        dst: RenderedPath,
+        old_symlink: Symlink,
     },
     Replace {
-        new_src: RenderedPath,
-        old_src: RenderedPath,
-        dst: RenderedPath,
+        new_symlink: Symlink,
+        old_symlink: Symlink,
     },
     Nothing,
 }
 
 impl Action {
 
-    #[ inline ]
-    pub fn new_create( new: Symlink ) -> Self {
-        Self::Create {
-            src: new.src,
-            dst: new.dst
-        }
-    }
-    #[ inline ]
-    pub fn new_remove( old: Symlink ) -> Self {
-        Self::Remove {
-            src: old.src,
-            dst: old.dst
-        }
-    }
-    #[ inline ]
-    pub fn new_replace( new: Symlink, old: Symlink ) -> Self {
-        Self::Replace {
-            new_src: new.src,
-            old_src: old.src,
-            dst: new.dst
-        }
-    }
-    #[ inline ]
-    pub fn new_nothing() -> Self {
-        Self::Nothing
-    }
-
     #[ tracing::instrument ]
     pub fn execute( &self ) -> AnyResult<()> {
         use std::os::unix::fs::symlink;
 
         match self {
-            Self::Create { src, dst } => {
+            Self::Create { new_symlink } => {
                 debug!( "create symlink" );
-                symlink( src, dst )
+                symlink( new_symlink.src(), new_symlink.dst() )
                     .with_context( || format!(
                         r#"Failed to create symlink on "{}""#,
-                        dst.display()
+                        new_symlink.dst().display()
                     ) )?;
             },
 
-            Self::Replace { new_src, old_src, dst } => {
+            Self::Replace { new_symlink, old_symlink } => {
                 todo!()
             },
 
-            Self::Remove { src, dst } => {
+            Self::Remove { old_symlink } => {
                 todo!()
             },
 
@@ -290,8 +244,8 @@ impl Action {
         }
 
         match self {
-            Self::Create { src, dst } => {
-                check_ours( src, dst )?;
+            Self::Create { new_symlink } => {
+                // check_ours( src, dst )?;
             },
             _ => todo!(),
         }
@@ -300,20 +254,20 @@ impl Action {
 
 }
 
-impl Display for Action {
-    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
-        match self {
-            Self::Create { src, dst } => {
-                format!(
-                    r#"Create symlink: src="{}" dst="{}""#,
-                    src.display(), dst.display(),
-                ).pipe( |it| f.write_str( &it ) )?;
-            },
-            _ => todo!()
-        }
-        Ok(())
-    }
-}
+// impl Display for Action {
+//     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+//         match self {
+//             Self::Create { src, dst } => {
+//                 format!(
+//                     r#"Create symlink: src="{}" dst="{}""#,
+//                     src.display(), dst.display(),
+//                 ).pipe( |it| f.write_str( &it ) )?;
+//             },
+//             _ => todo!()
+//         }
+//         Ok(())
+//     }
+// }
 
 #[ cfg( test ) ]
 mod test {
