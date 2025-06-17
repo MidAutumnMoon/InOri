@@ -31,24 +31,24 @@ impl Executor {
         trace!( ?new_blueprint );
         trace!( ?old_blueprint );
 
-        let actions = Self::blueprint_into_action( new_blueprint, old_blueprint )
+        let steps = Self::actualize_blueprint( new_blueprint, old_blueprint )
             .context( "Error happended when generating works" )?;
 
         eprintln!( "{}", "Run preflight checks".fg::<Blue>() );
-        Self::precheck_works( &actions )?;
+        Self::precheck_works( &steps )?;
 
         eprintln!( "{}", "Now it's time to do the real work".fg::<Blue>() );
-        Self::execute_works( &actions )
+        Self::execute_works( &steps )
             .context( "Failed to execute the blueprint" )?;
 
         Ok(())
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn blueprint_into_action(
+    fn actualize_blueprint(
         new_blueprint: Blueprint, old_blueprint: Blueprint
     )
-        -> AnyResult<Vec<Action>>
+        -> AnyResult<Vec<Step>>
     {
         macro_rules! into_vec_opt {
             ( $input:expr ) => { {
@@ -59,7 +59,7 @@ impl Executor {
             } };
         }
 
-        debug!( "make actions according to blueprint" );
+        debug!( "make blueprint actualization steps" );
 
         let mut symlinks_in_new_blueprint =
             into_vec_opt!( new_blueprint.symlinks );
@@ -67,10 +67,9 @@ impl Executor {
         let mut symlinks_in_old_blueprint =
             into_vec_opt!( old_blueprint.symlinks );
 
-        let mut planned_actions =
-            symlinks_in_new_blueprint.len()
-                .max( symlinks_in_old_blueprint.len() )
-                .pipe( Vec::with_capacity );
+        let mut steps = symlinks_in_new_blueprint.len()
+            .max( symlinks_in_old_blueprint.len() )
+            .pipe( Vec::with_capacity );
 
         // This is inefficient, but also imcomplex and works well
         // for few thoudsands or even few tens of thoudsands items.
@@ -111,17 +110,17 @@ impl Executor {
             if let Some( old_symlink ) = found_old_symlink {
                 if old_symlink.same_src( &new_symlink ) {
                     trace!( "same src, do nothing" );
-                    Action::Nothing
+                    Step::Nothing
                 } else {
                     trace!( "replace symlink" );
-                    Action::Replace { new_symlink, old_symlink }
+                    Step::Replace { new_symlink, old_symlink }
                 }
             } else {
                 trace!( "create new symlink" );
-                Action::Create { new_symlink }
+                Step::Create { new_symlink }
             }
                 .tap_trace()
-                .pipe( |it| planned_actions.push( it ) );
+                .pipe( |it| steps.push( it ) );
         }
 
         // At this point, the remaining symlinks in the old blueprint
@@ -131,9 +130,9 @@ impl Executor {
             let _s =
                 tracing::trace_span!( "iter_one_remaning", ?old_symlink ).entered();
             let Some( old_symlink ) = old_symlink.take() else { continue; };
-            Action::Remove { old_symlink }
+            Step::Remove { old_symlink }
                 .tap_trace()
-                .pipe( |it| { planned_actions.push( it ); } );
+                .pipe( |it| { steps.push( it ); } );
         }
 
         ensure!(
@@ -143,33 +142,33 @@ impl Executor {
             "Bug in the code, symlinks are not completely drained"
         );
 
-        planned_actions.tap_trace().pipe( Ok )
+        steps.tap_trace().pipe( Ok )
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn precheck_works( actions: &Vec<Action> ) -> AnyResult<()> {
-        for act in actions {
-            act.check_collision()
+    fn precheck_works( steps: &Vec<Step> ) -> AnyResult<()> {
+        for step in steps {
+            step.check_collision()
                 .context( "Error happend while checking for collision" )?;
         }
         Ok(())
     }
 
     #[ tracing::instrument( skip_all ) ]
-    fn execute_works( actions: &Vec<Action> ) -> AnyResult<()> {
-        for act in actions {
+    fn execute_works( steps: &Vec<Step> ) -> AnyResult<()> {
+        for step in steps {
             // eprintln!( "- {}", act.fg::<Blue>() );
-            act.execute()?;
+            step.execute()?;
         }
         Ok(())
     }
 
 }
 
-/// The action to be taken.
+/// The step to be taken.
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
 #[ derive( Debug ) ]
-pub enum Action {
+pub enum Step {
     Create {
         new_symlink: Symlink,
     },
@@ -184,7 +183,7 @@ pub enum Action {
     Nothing,
 }
 
-impl Action {
+impl Step {
 
     #[ tracing::instrument ]
     pub fn execute( &self ) -> AnyResult<()> {
@@ -254,21 +253,6 @@ impl Action {
 
 }
 
-// impl Display for Action {
-//     fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
-//         match self {
-//             Self::Create { src, dst } => {
-//                 format!(
-//                     r#"Create symlink: src="{}" dst="{}""#,
-//                     src.display(), dst.display(),
-//                 ).pipe( |it| f.write_str( &it ) )?;
-//             },
-//             _ => todo!()
-//         }
-//         Ok(())
-//     }
-// }
-
 #[ cfg( test ) ]
 mod test {
 
@@ -291,22 +275,11 @@ mod test {
     }
 
     #[ test ]
-    fn generate_action() {
-        let mut new = Blueprint::default();
-        new.symlinks = vec![];
-
-        let old = Blueprint::default();
-    }
-
-    #[ test ]
     fn collision_precheck() {
         let top = TempDir::new()
             .expect( "Failed to create tempdir" );
 
         let dst = top.child( "dsttttttt" );
     }
-
-    #[ test ]
-    fn action_toctou() {}
 
 }
