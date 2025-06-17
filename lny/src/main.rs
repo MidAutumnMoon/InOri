@@ -1,8 +1,8 @@
 mod blueprint;
 mod template;
-mod executor;
+mod step;
 
-use crate::executor::Executor;
+use crate::step::StepQueue;
 use crate::blueprint::Blueprint;
 
 use anyhow::Result as AnyResult;
@@ -68,7 +68,7 @@ impl App {
                 .map( Option::unwrap_or_default )
                 .into();
 
-        let executor = Executor::new( new_blueprint, old_blueprint )
+        let step_queue = StepQueue::new( new_blueprint, old_blueprint )
             .context( "Error happened while executing the blueprint" )?;
 
         Ok(())
@@ -81,7 +81,8 @@ fn main() {
             debug!( "Parse cliopts" );
             CliOpts::parse().tap_trace()
         };
-        App::run_with( cliopt ).context( "Error ocurred when running app" )?;
+        App::run_with( cliopt )
+            .context( "Error ocurred when running app" )?;
         Ok(())
     }
 

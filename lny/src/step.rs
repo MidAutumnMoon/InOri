@@ -19,11 +19,11 @@ use tracing::debug;
 use tracing::trace;
 
 #[ derive( Debug, Clone ) ]
-pub struct Executor {
-    steps: Vec<Step>
+pub struct StepQueue {
+    inner: Vec<Step>
 }
 
-impl Executor {
+impl StepQueue {
 
     #[ tracing::instrument( name="executor_new", skip_all ) ]
     pub fn new( new_blueprint: Blueprint, old_blueprint: Blueprint )
@@ -117,24 +117,6 @@ impl Executor {
         Ok( Self { steps } )
     }
 
-    #[ tracing::instrument( skip_all ) ]
-    fn precheck_works( steps: &Vec<Step> ) -> AnyResult<()> {
-        for step in steps {
-            step.check_collision()
-                .context( "Error happend while checking for collision" )?;
-        }
-        Ok(())
-    }
-
-    #[ tracing::instrument( skip_all ) ]
-    fn execute_works( steps: &Vec<Step> ) -> AnyResult<()> {
-        for step in steps {
-            // eprintln!( "- {}", act.fg::<Blue>() );
-            step.execute()?;
-        }
-        Ok(())
-    }
-
 }
 
 /// The step to be taken.
@@ -145,7 +127,6 @@ pub enum Step {
         new_symlink: Symlink,
     },
     Remove {
-        /// Record the src to prevent TOCTOU.
         old_symlink: Symlink,
     },
     Replace {
