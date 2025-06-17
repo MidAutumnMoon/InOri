@@ -12,63 +12,39 @@ use ino_color::fg::Blue;
 use ino_color::fg::Red;
 use ino_color::InoColor;
 use ino_tap::TapExt;
+use itertools::Itertools;
 use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
 use tracing::trace;
 
 #[ derive( Debug ) ]
-pub struct Executor;
+pub struct Executor {
+    steps: Vec<Step>
+}
 
 impl Executor {
 
-    #[ tracing::instrument( name="executor_run_with", skip_all ) ]
-    pub fn run_with( new_blueprint: Blueprint, old_blueprint: Blueprint )
-        -> AnyResult<()>
+    #[ tracing::instrument( name="executor_new", skip_all ) ]
+    pub fn new( new_blueprint: Blueprint, old_blueprint: Blueprint )
+        -> AnyResult<Self>
     {
-        eprintln!( "{}", "Understanding blueprint".fg::<Blue>() );
+
+        debug!( "actualize blueprint into steps" );
+
+        eprintln!( "{}", "Actualize blueprint".fg::<Blue>() );
 
         trace!( ?new_blueprint );
         trace!( ?old_blueprint );
 
-        let steps = Self::actualize_blueprint( new_blueprint, old_blueprint )
-            .context( "Error happended when generating works" )?;
+        let ( mut new_blueprint_symlinks, mut old_blueprint_symlinks ) =
+            [ new_blueprint.symlinks, old_blueprint.symlinks ]
+                .map( |it| it.into_iter().map( Some ) )
+                .map( |it| it.collect_vec().tap_trace() )
+                .into();
 
-        eprintln!( "{}", "Run preflight checks".fg::<Blue>() );
-        Self::precheck_works( &steps )?;
-
-        eprintln!( "{}", "Now it's time to do the real work".fg::<Blue>() );
-        Self::execute_works( &steps )
-            .context( "Failed to execute the blueprint" )?;
-
-        Ok(())
-    }
-
-    #[ tracing::instrument( skip_all ) ]
-    fn actualize_blueprint(
-        new_blueprint: Blueprint, old_blueprint: Blueprint
-    )
-        -> AnyResult<Vec<Step>>
-    {
-        macro_rules! into_vec_opt {
-            ( $input:expr ) => { {
-                $input.into_iter()
-                    .map( |it| Some( it ) )
-                    .collect::<Vec<_>>()
-                    .tap_trace()
-            } };
-        }
-
-        debug!( "make blueprint actualization steps" );
-
-        let mut symlinks_in_new_blueprint =
-            into_vec_opt!( new_blueprint.symlinks );
-
-        let mut symlinks_in_old_blueprint =
-            into_vec_opt!( old_blueprint.symlinks );
-
-        let mut steps = symlinks_in_new_blueprint.len()
-            .max( symlinks_in_old_blueprint.len() )
+        let mut steps = new_blueprint_symlinks.len()
+            .max( old_blueprint_symlinks.len() )
             .pipe( Vec::with_capacity );
 
         // This is inefficient, but also imcomplex and works well
@@ -84,26 +60,22 @@ impl Executor {
         //  1.1 if the srcs are the same then it'll be nothing
         //  1.2 if the srcs are different then it'll be a replace
         // 2. If the symlink only exists in new, then it'll be a create
-        for new_symlink in &mut symlinks_in_new_blueprint {
+        for new_symlink in &mut new_blueprint_symlinks {
+            use tracing::trace_span;
+
             let Some( new_symlink ) = new_symlink.take() else { continue; };
             let mut found_old_symlink = None;
 
-            let _s =
-                tracing::trace_span!( "iter_new", ?new_symlink )
-                .entered();
+            let _s = trace_span!( "iter_new", ?new_symlink ).entered();
 
-            for old_symlink in &mut symlinks_in_old_blueprint {
-                let _s =
-                    tracing::trace_span!( "iter_old", ?old_symlink )
-                    .entered();
+            for old_symlink in &mut old_blueprint_symlinks {
+                let _s = trace_span!( "iter_old", ?old_symlink ).entered();
                 if old_symlink.as_ref()
                     .map( |old| old.same_dst( &new_symlink ) )
                     .is_some_and( |cond| cond )
                 {
                     found_old_symlink = old_symlink.take();
                     trace!( ?found_old_symlink, "found matching symlink from old" );
-                } else {
-                    trace!( "not this one" );
                 }
             }
 
@@ -126,9 +98,9 @@ impl Executor {
         // At this point, the remaining symlinks in the old blueprint
         // are ones need to be removed, because they didn't match
         // any in the new blueprint.
-        for old_symlink in &mut symlinks_in_old_blueprint {
-            let _s =
-                tracing::trace_span!( "iter_one_remaning", ?old_symlink ).entered();
+        for old_symlink in &mut old_blueprint_symlinks {
+            let _s = tracing::trace_span!( "iter_one_remaning", ?old_symlink )
+                .entered();
             let Some( old_symlink ) = old_symlink.take() else { continue; };
             Step::Remove { old_symlink }
                 .tap_trace()
@@ -136,13 +108,13 @@ impl Executor {
         }
 
         ensure!(
-            symlinks_in_new_blueprint.into_iter()
-                .chain( symlinks_in_old_blueprint.into_iter() )
-                .all( |it| it.is_none() ),
-            "Bug in the code, symlinks are not completely drained"
+            new_blueprint_symlinks.iter()
+                .chain( old_blueprint_symlinks.iter() )
+                .all( Option::is_none ),
+            "[BUG] symlinks are not completely drained"
         );
 
-        steps.tap_trace().pipe( Ok )
+        Ok( Self { steps } )
     }
 
     #[ tracing::instrument( skip_all ) ]

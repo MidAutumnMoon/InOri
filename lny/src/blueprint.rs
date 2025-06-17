@@ -39,6 +39,10 @@ impl Blueprint {
             .context( "Failed to parse the blueprint's content" )
     }
 
+    pub fn empty() -> Self {
+        Self { version: CURRENT_BLUEPRINT_VERSION, symlinks: vec![] }
+    }
+
     #[ tracing::instrument( skip_all ) ]
     fn validate( &self ) -> AnyResult<()> {
         debug!( "validate the blueprint" );
@@ -73,7 +77,7 @@ impl FromStr for Blueprint {
 
 impl Default for Blueprint {
     fn default() -> Self {
-        Self { version: CURRENT_BLUEPRINT_VERSION, symlinks: vec![] }
+        Self::empty()
     }
 }
 

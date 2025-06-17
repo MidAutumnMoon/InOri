@@ -68,7 +68,7 @@ impl App {
                 .map( Option::unwrap_or_default )
                 .into();
 
-        Executor::run_with( new_blueprint, old_blueprint )
+        let executor = Executor::new( new_blueprint, old_blueprint )
             .context( "Error happened while executing the blueprint" )?;
 
         Ok(())
