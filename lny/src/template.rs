@@ -133,6 +133,8 @@ impl<'de> Deserialize<'de> for RenderedPath {
     where
         D: serde::Deserializer<'de>
     {
+        debug!( "Deserialize into RenderedPath" );
+
         #[ inline ]
         fn ren( tmpl: &str ) -> AnyResult<PathBuf> {
             let path = ENGINE.render( tmpl )?
@@ -143,7 +145,6 @@ impl<'de> Deserialize<'de> for RenderedPath {
             );
             Ok( path )
         }
-        debug!( "Deserialize into RenderedPath" );
         Ok( Self {
             inner: String::deserialize( der )?
                 .pipe_deref( ren )

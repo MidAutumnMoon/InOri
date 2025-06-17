@@ -9,7 +9,7 @@ use std::process::Command;
 
 const VERSION: usize = 1;
 
-fn main_program() -> Command {
+fn make_main_program() -> Command {
     let exe = std::env!( "CARGO_BIN_EXE_lny" );
     #[ allow( unused_mut ) ]
     let mut cmd = std::process::Command::new( exe );
@@ -17,20 +17,19 @@ fn main_program() -> Command {
     cmd
 }
 
-macro_rules! create_tempdir {
+macro_rules! make_tempdir {
     () => { {
         TempDir::new().expect( "Failed to setup tempdir" )
     } };
 }
 
+// Everything works according to plan.
 #[ test ]
-fn create_symlink() {
-    let mut app = main_program();
-    let top = create_tempdir!();
+fn create_symlink_ok() {
+    let mut app = make_main_program();
+    let top = make_tempdir!();
 
-    let src = top.child( "this-source" )
-        .tap( |it| it.touch().unwrap() );
-
+    let src = top.child( "this-source" ).tap( |it| it.touch().unwrap() );
     let dst = top.child( "link-here" );
 
     let new_blueprint = {
@@ -56,15 +55,77 @@ fn create_symlink() {
     assert!( dst.path().read_link().unwrap() == src.path() );
 }
 
+// There's a file already exists in the dst and not under our control.
 #[ test ]
-fn collision_create_symlink() {}
+fn create_symlink_collinsion() {
+    let mut app = make_main_program();
+    let top = make_tempdir!();
+
+    let src = top.child( "aaa" )
+        .tap( |it| it.write_str( "aaaa" ).unwrap() );
+
+    let dst = top.child( "bbb" )
+        .tap( |it| it.write_str( "bbbb" ).unwrap() );
+
+    let new_blueprint = {
+        let json = serde_json::json!( {
+            "version": VERSION,
+            "symlinks": [ {
+                "src": src.path(),
+                "dst": dst.path(),
+            } ]
+        } ).to_string();
+        top.child( "new_blueprint.json" )
+            .tap( |it| it.write_str( &json ).unwrap() )
+    };
+
+    let mut cmd_process = app
+        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
+        .spawn().unwrap();
+    let ret = cmd_process.wait().unwrap();
+
+    assert!( !ret.success() );
+    assert!( std::fs::read_to_string( src.path() ).unwrap() == "aaaa" );
+    assert!( std::fs::read_to_string( dst.path() ).unwrap() == "bbbb" );
+}
+
+// There's a collision, however the dst is already pointed to src
+#[ test ]
+fn create_symlink_collinsion_but_ours() {
+    let mut app = make_main_program();
+    let top = make_tempdir!();
+
+    let src = top.child( "aaa" ).tap( |it| it.touch().unwrap() );
+    let dst = top.child( "bbb" ).tap( |it| it.touch().unwrap() );
+
+    std::os::unix::fs::symlink( src.path(), dst.path() ).unwrap();
+
+    let new_blueprint = {
+        let json = serde_json::json!( {
+            "version": VERSION,
+            "symlinks": [ {
+                "src": src.path(),
+                "dst": dst.path(),
+            } ]
+        } ).to_string();
+        top.child( "new_blueprint.json" )
+            .tap( |it| it.write_str( &json ).unwrap() )
+    };
+
+    let mut cmd_process = app
+        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
+        .spawn().unwrap();
+    let ret = cmd_process.wait().unwrap();
+
+    assert!( ret.success() );
+}
 
 #[ test ]
 fn remove_old_symlinks() {
     use std::os::unix::fs::symlink;
 
-    let mut app = main_program();
-    let top = create_tempdir!();
+    let mut app = make_main_program();
+    let top = make_tempdir!();
 
     let src = top.child( "this-source" );
     src.write_str( "hellllooo" ).unwrap();
@@ -105,8 +166,8 @@ fn collinsion_replace_symlinks() {}
 
 #[ test ]
 fn abs_path() {
-    let mut app = main_program();
-    let top = create_tempdir!();
+    let mut app = make_main_program();
+    let top = make_tempdir!();
 
     let json = serde_json::json!( {
         "version": VERSION,

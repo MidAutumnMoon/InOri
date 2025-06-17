@@ -4,10 +4,12 @@ use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
 use crate::template::RenderedPath;
 
+use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use ino_color::fg::Blue;
+use ino_color::fg::Red;
 use ino_color::InoColor;
 use ino_tap::TapExt;
 use tap::Pipe;
@@ -48,7 +50,7 @@ impl Executor {
                 .context( "Error happended when generating works" )?;
 
         eprintln!( "{}", "Run preflight checks".fg::<Blue>() );
-        // Self::precheck_works( &actions )?;
+        Self::precheck_works( &actions )?;
 
         eprintln!( "{}", "Now it's time to do the real work".fg::<Blue>() );
         Self::execute_works( &actions )
@@ -163,7 +165,8 @@ impl Executor {
     #[ tracing::instrument( skip_all ) ]
     fn precheck_works( actions: &Vec<Action> ) -> AnyResult<()> {
         for act in actions {
-            act.check_collision()?;
+            act.check_collision()
+                .context( "Error happend while checking for collision" )?;
         }
         Ok(())
     }
@@ -171,6 +174,7 @@ impl Executor {
     #[ tracing::instrument( skip_all ) ]
     fn execute_works( actions: &Vec<Action> ) -> AnyResult<()> {
         for act in actions {
+            eprintln!( "- {}", act.fg::<Blue>() );
             act.execute()?;
         }
         Ok(())
@@ -262,7 +266,36 @@ impl Action {
     pub fn check_collision( &self ) -> AnyResult<()> {
         // TODO replace string error with thiserror
         // and don't do eprint here
-        todo!()
+        debug!( "check for collinsion" );
+
+        #[ allow( clippy::inline_always ) ]
+        #[ inline( always ) ]
+        #[ tracing::instrument ]
+        fn check_ours( src: &RenderedPath, dst: &RenderedPath )
+            -> AnyResult<()>
+        {
+            if dst.try_exists()? {
+                if dst.is_symlink() {
+                    if dst.read_link()? == src.as_ref() {
+                        Ok(())
+                    } else {
+                        bail!( r#"Conflict on "{}""#, dst.display() )
+                    }
+                } else {
+                    bail!( r#"Conflict on "{}""#, dst.display() )
+                }
+            } else {
+                Ok(())
+            }
+        }
+
+        match self {
+            Self::Create { src, dst } => {
+                check_ours( src, dst )?;
+            },
+            _ => todo!(),
+        }
+        Ok(())
     }
 
 }
@@ -289,6 +322,19 @@ mod test {
 
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
+
+    macro_rules! make_tempdir {
+        () => { {
+            TempDir::new().expect( "Failed to setup tempdir" )
+        } };
+    }
+
+    #[ test ]
+    fn create_collision() {
+        let top = make_tempdir!();
+        let src = top.child( "src" );
+        let dst = top.child( "dst" );
+    }
 
     #[ test ]
     fn generate_action() {
