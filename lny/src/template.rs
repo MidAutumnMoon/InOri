@@ -164,8 +164,6 @@ mod test {
     #[ test ]
     #[ allow( clippy::unwrap_used ) ]
     fn rendered_path() {
-        ino_tracing::init_tracing_subscriber();
-
         let tmpls_to_ok = [
             // absolute path
             "/home",

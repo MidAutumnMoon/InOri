@@ -71,11 +71,16 @@ impl App {
         let step_queue = StepQueue::new( new_blueprint, old_blueprint )
             .context( "Error happened while executing the blueprint" )?;
 
-        eprintln!( "{}", "Check collision".fg::<Blue>() );
+        eprintln!( "{}",
+            "Check collision".fg::<Blue>() );
 
+        // TODO: use new type for checked steps?
         for step in step_queue.clone() {
             step.check_collision()?;
         }
+
+        eprintln!( "{}",
+            "Execute blueprint".fg::<Blue>() );
 
         for step in step_queue {
             step.execute()?;

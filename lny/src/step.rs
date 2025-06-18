@@ -148,7 +148,7 @@ pub enum Step {
 impl Step {
 
     #[ tracing::instrument ]
-    pub fn execute( &self ) -> AnyResult<()> {
+    pub fn execute( self ) -> AnyResult<()> {
         use std::os::unix::fs::symlink;
 
         match self {
@@ -183,30 +183,35 @@ impl Step {
         // and don't do eprint here
         debug!( "check for collinsion" );
 
+        // TODO: thiserror
         #[ allow( clippy::inline_always ) ]
         #[ inline( always ) ]
-        #[ tracing::instrument ]
-        fn check_ours( src: &RenderedPath, dst: &RenderedPath )
-            -> AnyResult<()>
-        {
+        #[ tracing::instrument( skip_all ) ]
+        fn ck( src: &RenderedPath, dst: &RenderedPath ) -> AnyResult<()> {
+            trace!( ?src, ?dst );
             if dst.try_exists()? {
+                trace!( "something on dst" );
                 if dst.is_symlink() {
+                    trace!( "dst is symlink" );
                     if dst.read_link()? == src.as_ref() {
+                        trace!( "same src, not conflict" );
                         Ok(())
                     } else {
-                        bail!( r#"Conflict on "{}""#, dst.display() )
+                        trace!( "dst conflict, symlink not pointint to src" );
+                        bail!( r#"Conflict symlink "{}""#, dst.display() )
                     }
                 } else {
+                    trace!( "dst conflict" );
                     bail!( r#"Conflict on "{}""#, dst.display() )
                 }
             } else {
+                trace!( "dst is clean" );
                 Ok(())
             }
         }
-
         match self {
             Self::Create { new_symlink } => {
-                // check_ours( src, dst )?;
+                ck( new_symlink.src(), new_symlink.dst() )?;
             },
             _ => todo!(),
         }
@@ -230,6 +235,9 @@ mod test {
     use assert_fs::prelude::*;
     use assert_fs::TempDir;
 
+    use std::fs::remove_file;
+    use std::os::unix::fs::symlink;
+
     #[ macro_export ]
     macro_rules! make_tempdir {
         () => { {
@@ -243,10 +251,10 @@ mod test {
         () => { {
             make_symlink!( "/ssrc", "/ddst" )
         } };
-        ( $src:literal ) => {
+        ( $src:expr ) => {
             make_symlink!( $src, "/ddst" )
         };
-        ( $src:literal, $dst:literal ) => { {
+        ( $src:expr, $dst:expr ) => { {
             let src = RenderedPath::from_unrendered( $src )
                 .expect( "Failed to make src RenderedPath" );
             let dst = RenderedPath::from_unrendered( $dst )
@@ -374,18 +382,42 @@ mod test {
     }
 
     #[ test ]
-    fn create_collision() {
+    fn create_symlink() {
         let top = make_tempdir!();
-        let src = top.child( "src" );
+        let src = top.child( "src" ).tap( |it| it.touch().unwrap() );
         let dst = top.child( "dst" );
-    }
 
-    #[ test ]
-    fn collision_precheck() {
-        let top = TempDir::new()
-            .expect( "Failed to create tempdir" );
+        let sym = make_symlink!(
+            src.path().to_str().unwrap(),
+            dst.path().to_str().unwrap()
+        );
+        let step = Step::Create { new_symlink: sym };
 
-        let dst = top.child( "dsttttttt" );
+        // 1. if dst is not ours
+        dst.touch().unwrap();
+        // TODO structural error
+        assert!( {
+            let res = step.check_collision();
+            res.is_err() &&
+                res.err().unwrap().to_string().contains( "Conflict" )
+        } );
+        remove_file( dst.path() ).unwrap();
+
+        // 2. create symlink normally
+        assert!( step.clone().execute().is_ok() );
+        // TODO structural error
+        assert!( dst.path().is_symlink()
+            && dst.path().read_link().unwrap() == src.path() );
+
+        // 3. our symlinks
+        assert!( step.check_collision().is_ok() );
+        assert!( step.execute().is_ok() );
+
+        // 4. dst is symlink but not ours
+        let sym = make_symlink!( "/akjdssrc", dst.path().to_str().unwrap() );
+        let step = Step::Create { new_symlink: sym };
+        symlink( src.path(), dst.path() ).unwrap();
+        assert!( step.execute().is_err() );
     }
 
 }

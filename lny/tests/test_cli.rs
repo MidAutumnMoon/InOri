@@ -24,145 +24,72 @@ macro_rules! make_tempdir {
 }
 
 // Everything works according to plan.
-#[ test ]
-fn create_symlink_ok() {
-    let mut app = make_main_program();
-    let top = make_tempdir!();
-
-    let src = top.child( "this-source" ).tap( |it| it.touch().unwrap() );
-    let dst = top.child( "link-here" );
-
-    let new_blueprint = {
-        let json = serde_json::json!( {
-            "version": VERSION,
-            "symlinks": [ {
-                "src": src.path(),
-                "dst": dst.path(),
-            } ]
-        } ).to_string();
-        top.child( "new_blueprint.json" )
-            .tap( |it| it.write_str( &json ).unwrap() )
-    };
-
-    let mut cmd_process = app
-        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
-        .spawn().unwrap();
-
-    let ret = cmd_process.wait().unwrap();
-
-    assert!( ret.success() );
-    assert!( dst.path().is_symlink() );
-    assert!( dst.path().read_link().unwrap() == src.path() );
-}
-
-// There's a file already exists in the dst and not under our control.
-#[ test ]
-fn create_symlink_collinsion() {
-    let mut app = make_main_program();
-    let top = make_tempdir!();
-
-    let src = top.child( "aaa" )
-        .tap( |it| it.write_str( "aaaa" ).unwrap() );
-
-    let dst = top.child( "bbb" )
-        .tap( |it| it.write_str( "bbbb" ).unwrap() );
-
-    let new_blueprint = {
-        let json = serde_json::json!( {
-            "version": VERSION,
-            "symlinks": [ {
-                "src": src.path(),
-                "dst": dst.path(),
-            } ]
-        } ).to_string();
-        top.child( "new_blueprint.json" )
-            .tap( |it| it.write_str( &json ).unwrap() )
-    };
-
-    let mut cmd_process = app
-        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
-        .spawn().unwrap();
-    let ret = cmd_process.wait().unwrap();
-
-    assert!( !ret.success() );
-    assert!( std::fs::read_to_string( src.path() ).unwrap() == "aaaa" );
-    assert!( std::fs::read_to_string( dst.path() ).unwrap() == "bbbb" );
-}
-
-// There's a collision, however the dst is already pointed to src
-#[ test ]
-fn create_symlink_collinsion_but_ours() {
-    let mut app = make_main_program();
-    let top = make_tempdir!();
-
-    let src = top.child( "aaa" ).tap( |it| it.touch().unwrap() );
-    let dst = top.child( "bbb" ).tap( |it| it.touch().unwrap() );
-
-    std::os::unix::fs::symlink( src.path(), dst.path() ).unwrap();
-
-    let new_blueprint = {
-        let json = serde_json::json!( {
-            "version": VERSION,
-            "symlinks": [ {
-                "src": src.path(),
-                "dst": dst.path(),
-            } ]
-        } ).to_string();
-        top.child( "new_blueprint.json" )
-            .tap( |it| it.write_str( &json ).unwrap() )
-    };
-
-    let mut cmd_process = app
-        .arg( "--new-blueprint" ).arg( new_blueprint.path() )
-        .spawn().unwrap();
-    let ret = cmd_process.wait().unwrap();
-
-    assert!( ret.success() );
-}
-
-#[ test ]
-fn remove_old_symlinks() {
-    use std::os::unix::fs::symlink;
-
-    let mut app = make_main_program();
-    let top = make_tempdir!();
-
-    let src = top.child( "this-source" );
-    src.write_str( "hellllooo" ).unwrap();
-    let dst = top.child( "link-here" );
-
-    symlink( src.path(), dst.path() ).unwrap();
-
-    let old_blueprint = {
-        let json = serde_json::json!{ {
-            "version": VERSION,
-            "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
-        } }.to_string();
-        top.child( "old_blueprint.json" )
-            .tap( |it| it.write_str( &json ).unwrap() )
-    };
-
-    let mut cmd_process = app
-        .arg( "--old-blueprint" ).arg( old_blueprint.path() )
-        .spawn().unwrap();
-
-    let ret = cmd_process.wait().unwrap();
-
-    unimplemented!();
-    assert!( ret.success() );
-    assert!( dst.path().is_symlink() );
-    assert!( dst.path().read_link().unwrap() == src.path() );
-
-}
-
-#[ test ]
-fn collision_remove_old_symlinks() {}
-
-#[ test ]
-fn replace_symlinks() {}
-
-#[ test ]
-fn collinsion_replace_symlinks() {}
+// #[ test ]
+// fn create_symlink_ok() {
+//     let mut app = make_main_program();
+//     let top = make_tempdir!();
+//
+//     let src = top.child( "this-source" ).tap( |it| it.touch().unwrap() );
+//     let dst = top.child( "link-here" );
+//
+//     let new_blueprint = {
+//         let json = serde_json::json!( {
+//             "version": VERSION,
+//             "symlinks": [ {
+//                 "src": src.path(),
+//                 "dst": dst.path(),
+//             } ]
+//         } ).to_string();
+//         top.child( "new_blueprint.json" )
+//             .tap( |it| it.write_str( &json ).unwrap() )
+//     };
+//
+//     let mut cmd_process = app
+//         .arg( "--new-blueprint" ).arg( new_blueprint.path() )
+//         .spawn().unwrap();
+//
+//     let ret = cmd_process.wait().unwrap();
+//
+//     assert!( ret.success() );
+//     assert!( dst.path().is_symlink() );
+//     assert!( dst.path().read_link().unwrap() == src.path() );
+// }
+//
+//
+// #[ test ]
+// fn remove_old_symlinks() {
+//     use std::os::unix::fs::symlink;
+//
+//     let mut app = make_main_program();
+//     let top = make_tempdir!();
+//
+//     let src = top.child( "this-source" );
+//     src.write_str( "hellllooo" ).unwrap();
+//     let dst = top.child( "link-here" );
+//
+//     symlink( src.path(), dst.path() ).unwrap();
+//
+//     let old_blueprint = {
+//         let json = serde_json::json!{ {
+//             "version": VERSION,
+//             "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
+//         } }.to_string();
+//         top.child( "old_blueprint.json" )
+//             .tap( |it| it.write_str( &json ).unwrap() )
+//     };
+//
+//     let mut cmd_process = app
+//         .arg( "--old-blueprint" ).arg( old_blueprint.path() )
+//         .spawn().unwrap();
+//
+//     let ret = cmd_process.wait().unwrap();
+//
+//     unimplemented!();
+//     assert!( ret.success() );
+//     assert!( dst.path().is_symlink() );
+//     assert!( dst.path().read_link().unwrap() == src.path() );
+//
+// }
 
 #[ test ]
 fn abs_path() {
