@@ -24,10 +24,10 @@ jobs:
 
         -   uses: Swatinem/rust-cache@v2
 
-        -   name: Install extra tools
-            uses: taiki-e/install-action@v2
-            with:
-                tool: nextest
+        # -   name: Install extra tools
+        #     uses: taiki-e/install-action@v2
+        #     with:
+        #         tool: nextest@0.9.98
 
         # -   run: |
         #         sudo apt update -y
@@ -35,4 +35,4 @@ jobs:
 
         -   name: Run tests
             run: |
-                cargo nextest run --all-features
+                cargo test --all-features
