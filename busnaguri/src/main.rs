@@ -8,8 +8,9 @@ use std::path::PathBuf;
 
 const DEFAULT_NIX_STORE: &str = "/nix/store";
 
-const SERVICE_NAME: &str = "im._418.Dbulunr";
-const OBJECT_PATH: &str = "/Dbulunr";
+// fuck dbus
+const SERVICE_NAME: &str = "im._418.Busnaguri";
+const OBJECT_PATH: &str = "/Naguru";
 
 /// A dbus service to run arbitrary(!!) commands.
 #[ derive( clap::Parser, Debug ) ]
@@ -32,12 +33,12 @@ impl CliOpts {
 }
 
 #[ derive( Debug, Clone ) ]
-struct Dbulunr {
+struct Naguru {
     nix_store: PathBuf,
     unsafe_skip_store_check: bool,
 }
 
-impl Dbulunr {
+impl Naguru {
     #[ tracing::instrument ]
     fn new( cliopts: CliOpts ) -> Self {
         let CliOpts { nix_store, unsafe_skip_store_check } = cliopts;
@@ -63,8 +64,8 @@ impl Dbulunr {
     }
 }
 
-#[ zbus::interface( name = "im._418.dbulunr" ) ]
-impl Dbulunr {
+#[ zbus::interface( name = "im._418.busnaguri" ) ]
+impl Naguru {
 
     #[ tracing::instrument( skip( self ) ) ]
     async fn exec( &self, cmd_path: String ) -> String {
@@ -167,11 +168,11 @@ async fn main() -> anyhow::Result<()> {
 
     debug!( ?cliopts );
 
-    let dbulunr = Dbulunr::new( cliopts );
+    let nagaru = Naguru::new( cliopts );
 
-    debug!( ?dbulunr );
+    debug!( ?nagaru );
 
-    dbulunr.serve().await
+    nagaru.serve().await
         .context( "Failed to launch dbus service" )?;
 
     Ok(())

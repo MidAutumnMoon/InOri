@@ -209,6 +209,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "793db76d6187cd04dff33004d8e6c9cc4e05cd330500379d2394209271b4aeee"
 
 [[package]]
+name = "busnaguri"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ino_tracing",
+ "serde",
+ "serde_json",
+ "tap",
+ "tokio",
+ "tracing",
+ "zbus",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -439,21 +454,6 @@ dependencies = [
  "darling_core",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "dbulunr"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "ino_tracing",
- "serde",
- "serde_json",
- "tap",
- "tokio",
- "tracing",
- "zbus",
 ]
 
 [[package]]

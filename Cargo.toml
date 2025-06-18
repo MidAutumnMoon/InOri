@@ -3,8 +3,8 @@ resolver = "2"
 members = [
     "crates/*",
     "avxl",
+    "busnaguri",
     "coruma",
-    "dbulunr",
     "derputils",
     "fujinoka",
     "lny",
