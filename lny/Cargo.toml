@@ -20,6 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 serdev = "0.2.0"
 tap.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 
 [dependencies.minijinja]

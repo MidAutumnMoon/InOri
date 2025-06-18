@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::path::Path;
 
 use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
@@ -147,29 +148,67 @@ pub enum Step {
 
 impl Step {
 
-    #[ tracing::instrument ]
-    pub fn execute( self ) -> AnyResult<()> {
+    #[ inline ]
+    pub fn dry_execute( &self ) -> AnyResult<()> {
+        self.__execute( true )
+    }
+
+    #[ inline ]
+    pub fn execute( &self ) -> AnyResult<()> {
+        self.__execute( false )
+    }
+
+    #[ tracing::instrument( name="step_execute", skip( self ) ) ]
+    fn __execute( &self, dry: bool ) -> AnyResult<()> {
         use std::os::unix::fs::symlink;
+        use tracing::trace_span;
+
+        trace!( ?self );
 
         match self {
             Self::Create { new_symlink } => {
-                debug!( "create symlink" );
-                symlink( new_symlink.src(), new_symlink.dst() )
-                    .with_context( || format!(
-                        r#"Failed to create symlink on "{}""#,
-                        new_symlink.dst().display()
-                    ) )?;
+                let _s = trace_span!( "create_symlink", ?new_symlink ).entered();
+
+                let check = Collision::check(
+                    new_symlink.src(), new_symlink.dst() )?;
+
+                if check.is_collision() {
+                    debug!( "collision found" );
+                    bail!( r#"Symlink target "{}" is occupied by another file"#,
+                        new_symlink.dst().display(),
+                    );
+                }
+
+                if check.is_ours() {
+                    debug!( "our symlink already, nothing to do" );
+                    return Ok(())
+                }
+
+                if dry {
+                    debug!( "dry run" );
+                } else {
+                    debug!( "not dry run, do symlink" );
+                    symlink( new_symlink.src(), new_symlink.dst() )
+                        .with_context( || format!(
+                            r#"Failed to create symlink on "{}""#,
+                            new_symlink.dst().display()
+                        ) )?;
+                }
             },
 
             Self::Replace { new_symlink, old_symlink } => {
+                let _s = trace_span!( "replace_symlink",
+                        ?new_symlink, ?old_symlink ).entered();
                 todo!()
             },
 
             Self::Remove { old_symlink } => {
+                let _s = trace_span!( "remove_symlink", ?old_symlink ).entered();
                 todo!()
             },
 
             Self::Nothing => {
+                let _s = trace_span!( "nothig_to_do" ).entered();
                 debug!( "do nothing" );
             },
         }
@@ -177,52 +216,74 @@ impl Step {
         Ok(())
     }
 
-    #[ tracing::instrument ]
-    pub fn check_collision( &self ) -> AnyResult<()> {
-        // TODO replace string error with thiserror
-        // and don't do eprint here
-        debug!( "check for collinsion" );
-
-        // TODO: thiserror
-        #[ allow( clippy::inline_always ) ]
-        #[ inline( always ) ]
-        #[ tracing::instrument( skip_all ) ]
-        fn ck( src: &RenderedPath, dst: &RenderedPath ) -> AnyResult<()> {
-            trace!( ?src, ?dst );
-            if dst.try_exists()? {
-                trace!( "something on dst" );
-                if dst.is_symlink() {
-                    trace!( "dst is symlink" );
-                    if dst.read_link()? == src.as_ref() {
-                        trace!( "same src, not conflict" );
-                        Ok(())
-                    } else {
-                        trace!( "dst conflict, symlink not pointint to src" );
-                        bail!( r#"Conflict symlink "{}""#, dst.display() )
-                    }
-                } else {
-                    trace!( "dst conflict" );
-                    bail!( r#"Conflict on "{}""#, dst.display() )
-                }
-            } else {
-                trace!( "dst is clean" );
-                Ok(())
-            }
-        }
-        match self {
-            Self::Create { new_symlink } => {
-                ck( new_symlink.src(), new_symlink.dst() )?;
-            },
-            _ => todo!(),
-        }
-        Ok(())
-    }
-
 }
 
-impl Display for Step {
-    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
-        todo!()
+#[ derive( Debug ) ]
+pub enum Collision {
+    /// It's solid collision between two totally unrealted files.
+    Collide,
+    /// Same a [`Self::Collide`] but in addition this signals
+    /// `dst` is a symlink but it doesn't point to our `src`.
+    SymlinkCollide,
+    /// `dst` is occupied by a symlink but that symlink is pointing
+    /// to our `src`.
+    OurSymlink,
+    /// Nothing is occuping the `dst`.
+    CoastClear,
+}
+
+impl Collision {
+    #[ inline ]
+    #[ tracing::instrument( name="collision_check" ) ]
+    pub fn check( src: &Path, dst: &Path ) -> AnyResult<Self> {
+        debug!( "check potential collision" );
+        // N.B. Don't use [`Path::exists`] because it follows symlink
+        if Self::exist_no_travel( dst )? {
+            debug!( "dst is occupied" );
+            if dst.is_symlink() {
+                debug!( "dst is a symlink, do further checks" );
+                if dst.read_link()? == src {
+                    debug!( "dst symlink is ours" );
+                    Ok( Self::OurSymlink )
+                } else {
+                    debug!( "dst symlink doesn't point to our src" );
+                    Ok( Self::SymlinkCollide )
+                }
+            } else {
+                debug!( "dst is not a symlink, it can't be ours" );
+                Ok( Self::Collide )
+            }
+        } else {
+            debug!( "dst is clear from collision" );
+            Ok( Self::CoastClear )
+        }
+    }
+
+    pub fn is_collision( &self ) -> bool {
+        match self {
+            Self::Collide | Self::SymlinkCollide => true,
+            Self::OurSymlink | Self::CoastClear => false,
+        }
+    }
+
+    pub fn is_ours( &self ) -> bool {
+        matches!( self, Self::OurSymlink )
+    }
+
+    /// Check if a path exist without following the symlink (sigh).
+    #[ inline ]
+    fn exist_no_travel( p: &Path ) -> AnyResult<bool> {
+        use std::fs::symlink_metadata;
+        use std::io::ErrorKind;
+        match symlink_metadata( p ) {
+            Ok(_) => Ok( true ),
+            Err( err ) => {
+                match err.kind() {
+                    ErrorKind::NotFound => Ok( false ),
+                    _ => Err( err.into() )
+                }
+            }
+        }
     }
 }
 
@@ -382,6 +443,51 @@ mod test {
     }
 
     #[ test ]
+    fn check_collision() {
+        let top = make_tempdir!();
+        let src = top.child( "src" );
+        let dst = top.child( "dst" );
+
+        // 1. collide
+        dst.touch().unwrap();
+        assert! {
+            matches!(
+                Collision::check( src.path(), dst.path() ).unwrap(),
+                Collision::Collide
+            )
+        };
+        remove_file( dst.path() ).unwrap();
+
+        // 2. symlink collide
+        symlink( "/yeebie", dst.path() ).unwrap();
+        assert! {
+            matches!(
+                Collision::check( src.path(), dst.path() ).unwrap(),
+                Collision::SymlinkCollide
+            )
+        };
+        remove_file( dst.path() ).unwrap();
+
+        // 3. our symlink
+        symlink( src.path(), dst.path() ).unwrap();
+        assert!{
+            matches!(
+                Collision::check( src.path(), dst.path() ).unwrap(),
+                Collision::OurSymlink
+            )
+        };
+        remove_file( dst.path() ).unwrap();
+
+        // 4. coast is clear
+        assert!{
+            matches!(
+                Collision::check( src.path(), dst.path() ).unwrap(),
+                Collision::CoastClear
+            )
+        };
+    }
+
+    #[ test ]
     fn create_symlink() {
         let top = make_tempdir!();
         let src = top.child( "src" ).tap( |it| it.touch().unwrap() );
@@ -393,31 +499,61 @@ mod test {
         );
         let step = Step::Create { new_symlink: sym };
 
-        // 1. if dst is not ours
-        dst.touch().unwrap();
-        // TODO structural error
-        assert!( {
-            let res = step.check_collision();
-            res.is_err() &&
-                res.err().unwrap().to_string().contains( "Conflict" )
-        } );
-        remove_file( dst.path() ).unwrap();
-
-        // 2. create symlink normally
+        // 1. create symlink normally
         assert!( step.clone().execute().is_ok() );
         // TODO structural error
         assert!( dst.path().is_symlink()
             && dst.path().read_link().unwrap() == src.path() );
 
-        // 3. our symlinks
-        assert!( step.check_collision().is_ok() );
+        // 2. our symlinks (it has been executed once, dst now is to src)
         assert!( step.execute().is_ok() );
 
-        // 4. dst is symlink but not ours
+        // 3. dst is symlink but not ours
         let sym = make_symlink!( "/akjdssrc", dst.path().to_str().unwrap() );
         let step = Step::Create { new_symlink: sym };
+        remove_file( dst.path() ).unwrap();
         symlink( src.path(), dst.path() ).unwrap();
         assert!( step.execute().is_err() );
     }
 
+    //#[ test ]
+    // fn remove_symlink() {
+    //     let top = make_tempdir!();
+    //     let src = top.child( "src" ).tap( |it| it.touch().unwrap() );
+    //     let dst = top.child( "dst" );
+    //
+    //     let sym = make_symlink!(
+    //         src.path().to_str().unwrap(),
+    //         dst.path().to_str().unwrap()
+    //     );
+    //     let step = Step::Remove { old_symlink: sym };
+    //
+    //     // 1. if dst is not ours
+    //     dst.touch().unwrap();
+    //     // TODO structural error
+    //     assert!( {
+    //         let res = step.check_collision();
+    //         res.is_err() &&
+    //             res.err().unwrap().to_string().contains( "Conflict" )
+    //     } );
+    //     remove_file( dst.path() ).unwrap();
+    //
+    //     // 2. create symlink normally
+    //     assert!( step.clone().execute().is_ok() );
+    //     // TODO structural error
+    //     assert!( dst.path().is_symlink()
+    //         && dst.path().read_link().unwrap() == src.path() );
+    //
+    //     // TODO use thiserror and implement our symlink
+    //     // // 3. our symlinks
+    //     // assert!( step.check_collision().is_ok() );
+    //     // assert!( step.execute().is_ok() );
+    //
+    //     // 4. dst is symlink but not ours
+    //     let sym = make_symlink!( "/akjdssrc", dst.path().to_str().unwrap() );
+    //     let step = Step::Create { new_symlink: sym };
+    //     remove_file( dst.path() ).unwrap();
+    //     symlink( src.path(), dst.path() ).unwrap();
+    //     assert!( step.execute().is_err() );
+    // }
 }

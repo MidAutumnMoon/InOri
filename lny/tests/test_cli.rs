@@ -9,12 +9,12 @@ use std::process::Command;
 
 const VERSION: usize = 1;
 
-fn make_main_program() -> Command {
-    let exe = std::env!( "CARGO_BIN_EXE_lny" );
-    #[ allow( unused_mut ) ]
-    let mut cmd = std::process::Command::new( exe );
-    // cmd.env( "RUST_LOG", "trace" );
-    cmd
+macro_rules! make_app {
+    () => { {
+        let exe = std::env!( "CARGO_BIN_EXE_lny");
+        let cmd = std::process::Command::new( exe );
+        cmd
+    } };
 }
 
 macro_rules! make_tempdir {
@@ -23,63 +23,31 @@ macro_rules! make_tempdir {
     } };
 }
 
-// Everything works according to plan.
 // #[ test ]
-// fn create_symlink_ok() {
-//     let mut app = make_main_program();
-//     let top = make_tempdir!();
+// fn typical_workload() {
 //
-//     let src = top.child( "this-source" ).tap( |it| it.touch().unwrap() );
-//     let dst = top.child( "link-here" );
-//
-//     let new_blueprint = {
-//         let json = serde_json::json!( {
-//             "version": VERSION,
-//             "symlinks": [ {
-//                 "src": src.path(),
-//                 "dst": dst.path(),
-//             } ]
-//         } ).to_string();
-//         top.child( "new_blueprint.json" )
-//             .tap( |it| it.write_str( &json ).unwrap() )
-//     };
-//
-//     let mut cmd_process = app
-//         .arg( "--new-blueprint" ).arg( new_blueprint.path() )
-//         .spawn().unwrap();
-//
-//     let ret = cmd_process.wait().unwrap();
-//
-//     assert!( ret.success() );
-//     assert!( dst.path().is_symlink() );
-//     assert!( dst.path().read_link().unwrap() == src.path() );
-// }
-//
-//
-// #[ test ]
-// fn remove_old_symlinks() {
 //     use std::os::unix::fs::symlink;
 //
-//     let mut app = make_main_program();
+//     let mut app = make_app!();
 //     let top = make_tempdir!();
+//
+//     // first run
 //
 //     let src = top.child( "this-source" );
 //     src.write_str( "hellllooo" ).unwrap();
 //     let dst = top.child( "link-here" );
 //
-//     symlink( src.path(), dst.path() ).unwrap();
-//
-//     let old_blueprint = {
+//     let new_bp = {
 //         let json = serde_json::json!{ {
 //             "version": VERSION,
 //             "symlinks": [ { "src": src.path(), "dst": dst.path(), } ]
 //         } }.to_string();
-//         top.child( "old_blueprint.json" )
+//         top.child( "new_blueprint.json" )
 //             .tap( |it| it.write_str( &json ).unwrap() )
 //     };
 //
 //     let mut cmd_process = app
-//         .arg( "--old-blueprint" ).arg( old_blueprint.path() )
+//         .arg( "--old-blueprint" ).arg( new_bp.path() )
 //         .spawn().unwrap();
 //
 //     let ret = cmd_process.wait().unwrap();
@@ -93,7 +61,7 @@ macro_rules! make_tempdir {
 
 #[ test ]
 fn abs_path() {
-    let mut app = make_main_program();
+    let mut app = make_app!();
     let top = make_tempdir!();
 
     let json = serde_json::json!( {

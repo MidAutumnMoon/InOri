@@ -75,8 +75,9 @@ impl App {
             "Check collision".fg::<Blue>() );
 
         // TODO: use new type for checked steps?
+        // TODO: structural error for reporting
         for step in step_queue.clone() {
-            step.check_collision()?;
+            step.dry_execute()?;
         }
 
         eprintln!( "{}",
