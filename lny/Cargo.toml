@@ -17,6 +17,7 @@ ino_result.workspace = true
 ino_tap.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
+rand = "0.9.1"
 serde.workspace = true
 serde_json.workspace = true
 serdev = "0.2.0"

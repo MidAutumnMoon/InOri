@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
@@ -15,6 +16,7 @@ use ino_color::InoColor;
 use ino_path::PathExt;
 use ino_tap::TapExt;
 use itertools::Itertools;
+use rand::Rng;
 use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
@@ -160,8 +162,10 @@ impl Step {
     }
 
     #[ tracing::instrument( name="step_execute", skip( self ) ) ]
+    // TODO: take self
     fn __execute( &self, dry: bool ) -> AnyResult<()> {
         use std::fs::remove_file;
+        use std::fs::rename;
         use std::os::unix::fs::symlink;
         use tracing::trace_span;
 
@@ -198,7 +202,68 @@ impl Step {
             Self::Replace { new_symlink, old_symlink } => {
                 let _s = trace_span!( "replace_symlink",
                         ?new_symlink, ?old_symlink ).entered();
-                todo!()
+
+                let Symlink { src: new_src, dst: new_dst } = new_symlink;
+                let Symlink { src: old_src, dst: old_dst } = old_symlink;
+
+                ensure!( new_dst == old_dst,
+                    "[BUG] new_dst not equals to old_dst"
+                );
+
+                let dst = new_dst;
+                let dst_fact = FactOfDst::check( old_src, dst )?;
+
+                if dst_fact.is_collision() {
+                    debug!( "dst collides" );
+                    bail!( r#"Symlink target "{}" is not controlled by us, \
+                        refuse to replace"#,
+                        dst.display(),
+                    );
+                }
+
+                if matches!( dst_fact, FactOfDst::NotExist ) {
+                    debug!( "dst not exist, can't replace" );
+                    bail!( r#"Symlink "{}" does not exist, can't replace"#,
+                        dst.display()
+                    );
+                }
+
+                if dry {
+                    debug!( "dry run" );
+                } else {
+                    debug!( "not dry run, replace symlink" );
+                    if new_src == old_src {
+                        debug!( "srcs are the same, nothing to replace" );
+                        return Ok(())
+                    }
+                    // attempt to atomic replace
+                    let tmp_dst = {
+                        use rand::distr::Alphanumeric;
+                        trace!( "generate temporary dst" );
+                        let suffix = rand::rng()
+                            .sample_iter( &Alphanumeric )
+                            .take( 6 )
+                            .map( char::from )
+                            .collect::<String>();
+                        let ostr = dst.as_os_str()
+                            .to_owned()
+                            .tap_mut( |it| it.push( suffix ) );
+                        PathBuf::from( ostr )
+                            .tap_trace()
+                    };
+                    symlink( new_src, &tmp_dst )
+                        .with_context( || format!(
+                            r#"Failed to link to the temporary target "{}", \
+                            the existing symlink is intact"#,
+                            tmp_dst.display(),
+                        ) )?;
+                    // posix says it's atomic
+                    rename( &tmp_dst, dst )
+                        .with_context( || format!(
+                            r#"Failed to replace symlink "{}""#,
+                            dst.display()
+                        ) )?;
+                }
             },
 
             Self::Remove { old_symlink } => {
@@ -208,7 +273,8 @@ impl Step {
 
                 if dst_fact.is_collision() {
                     debug!( "dst collides" );
-                    bail!( r#"Symlink target "{}" is controlled by us"#,
+                    bail!( r#"Symlink target "{}" is not controlled by us, \
+                        refuse to remove"#,
                         dst.display(),
                     );
                 }
@@ -544,6 +610,64 @@ mod test {
         // 3. dst already deleted
         remove_file( &dst ).unwrap();
         assert!( step.execute().is_ok() );
+    }
+
+    #[ test ]
+    fn replace_symlink() {
+
+        // 0. erroneous data
+        {
+            let new_symlink = make_symlink!( "/yjay", "/ann" );
+            let old_symlink = make_symlink!( "/yjay", "/buffoon" );
+            let s = Step::Replace { new_symlink, old_symlink };
+            assert!( {
+                let ret = s.execute();
+                ret.is_err()
+                && ret.err().unwrap().to_string().contains( "BUG" )
+            } );
+        }
+        // 1. normal case
+        {
+            let top = make_tempdir!();
+            let old_src = top.child( "old_src" ).tap( |it| it.touch().unwrap() );
+            let new_src = top.child( "src" ).tap( |it| it.touch().unwrap() );
+            let dst = top.child( "dst" );
+
+            symlink( &old_src, &dst ).unwrap();
+
+            let new_symlink = make_symlink!(
+                &new_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let old_symlink = make_symlink!(
+                &old_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let s = Step::Replace { new_symlink, old_symlink };
+
+            assert!( s.execute().is_ok() );
+            assert!( dst.read_link().unwrap().as_path() == new_src.path() );
+        }
+        // 2. not ours
+        {
+            let top = make_tempdir!();
+            let old_src = top.child( "old_src" ).tap( |it| it.touch().unwrap() );
+            let new_src = top.child( "src" ).tap( |it| it.touch().unwrap() );
+            let dst = top.child( "dst" );
+
+            let new_symlink = make_symlink!(
+                &new_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let old_symlink = make_symlink!(
+                &old_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let s = Step::Replace { new_symlink, old_symlink };
+
+            let trdsrc = top.child( "trd" )
+                .tap( |it| it.touch().unwrap() );
+            symlink( &trdsrc, &dst ).unwrap();
+
+            assert!( s.execute().is_err() );
+            assert!( dst.read_link().unwrap() == trdsrc.path() );
+        }
     }
 
 }
