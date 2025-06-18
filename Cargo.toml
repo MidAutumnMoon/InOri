@@ -24,6 +24,7 @@ rust-version = "1.87.0"
 
 [workspace.dependencies]
 anyhow = "1"
+assert_fs = "1"
 clap = { version = "4", features = [ "derive", "cargo" ] }
 itertools = "0"
 rayon = "1"
