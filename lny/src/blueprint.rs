@@ -85,9 +85,9 @@ impl Default for Blueprint {
 #[ derive( PartialEq, Eq ) ]
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
-    src: RenderedPath,
+    pub src: RenderedPath,
     /// Only the `dst` matters as it's not our job to validate src.
-    dst: RenderedPath,
+    pub dst: RenderedPath,
 }
 
 impl Symlink {

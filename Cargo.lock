@@ -786,6 +786,7 @@ version = "3.0.0"
 name = "ino_path"
 version = "0.1.0"
 dependencies = [
+ "assert_fs",
  "rustix 1.0.7",
  "tap",
 ]
@@ -896,6 +897,7 @@ dependencies = [
  "clap",
  "etcetera",
  "ino_color",
+ "ino_path",
  "ino_result",
  "ino_tap",
  "ino_tracing",
