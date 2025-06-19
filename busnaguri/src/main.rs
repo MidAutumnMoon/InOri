@@ -211,10 +211,24 @@ impl UserEnv {
         String::from_utf8( output.stdout )?
             .lines()
             .filter_map( |line| line.split_once( '=' ) )
-            .map( |val| ( val.0.to_owned(), val.1.to_owned() ) )
+            .map( |(nm, val)| ( nm, Self::sanitize_dollar_quote( val ) ) )
+            .map( |(n, v)| ( n.to_owned(), v.to_owned() ) )
             .collect::<Vec<_>>()
             .pipe( |val| Self { envs: val } )
             .pipe( Ok )
+    }
+
+    // systemctl show-environment add quotes like VAR=$'space **'
+    // to avoid shell escaping problems
+    #[ allow( clippy::option_if_let_else ) ]
+    fn sanitize_dollar_quote( input: &str ) -> &str {
+        match input.strip_prefix( "$'" ) {
+            Some( val ) => match val.strip_suffix( "'" ) {
+                Some( val ) => val,
+                None => val,
+            },
+            None => input,
+        }
     }
 }
 
