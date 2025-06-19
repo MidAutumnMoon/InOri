@@ -284,11 +284,15 @@ impl Step {
                 tmp_dst.display(),
             ) )?;
         // posix says it's atomic
-        rename( &tmp_dst, &dst )
+        let rename_ret = rename( &tmp_dst, &dst )
             .with_context( || format!(
-                r#"Failed to replace symlink "{}""#,
-                dst.display()
-            ) )?;
+                r#"Failed to replace symlink "{}""#, dst.display() ) );
+        if rename_ret.is_err() {
+            debug!( "error when renaming symlink, remove tmp file" );
+            remove_file( &tmp_dst )
+                .context( "Failed to remove intermediate symlink, \
+                    your filesystem might be cooked" )?;
+        }
         Ok(())
     }
 
