@@ -145,18 +145,17 @@ pub enum Step {
 impl Step {
 
     #[ inline ]
-    pub fn dry_execute( &self ) -> AnyResult<()> {
+    pub fn dry_execute( self ) -> AnyResult<()> {
         self.real_execute( true )
     }
 
     #[ inline ]
-    pub fn execute( &self ) -> AnyResult<()> {
+    pub fn execute( self ) -> AnyResult<()> {
         self.real_execute( false )
     }
 
     #[ tracing::instrument( name="step_execute", skip( self ) ) ]
-    // TODO: take self
-    fn real_execute( &self, dry: bool ) -> AnyResult<()> {
+    fn real_execute( self, dry: bool ) -> AnyResult<()> {
         use std::fs::remove_file;
         use std::fs::rename;
         use std::os::unix::fs::symlink;
@@ -168,7 +167,7 @@ impl Step {
             Self::Create { new_symlink } => {
                 let _s = trace_span!( "create_symlink", ?new_symlink ).entered();
                 let Symlink { src, dst } = new_symlink;
-                let dst_fact = FactOfDst::check( src, dst )?;
+                let dst_fact = FactOfDst::check( &src, &dst )?;
 
                 if dst_fact.is_collision() {
                     debug!( "dst collides" );
@@ -185,7 +184,7 @@ impl Step {
                         debug!( "dst points to src already, nothing to do" );
                         return Ok(())
                     }
-                    symlink( src, dst )
+                    symlink( &src, &dst )
                         .with_context( || format!(
                             r#"Failed to create symlink "{}""#, dst.display()
                         ) )?;
@@ -204,7 +203,7 @@ impl Step {
                 );
 
                 let dst = new_dst;
-                let dst_fact = FactOfDst::check( old_src, dst )?;
+                let dst_fact = FactOfDst::check( &old_src, &dst )?;
 
                 if dst_fact.is_collision() {
                     debug!( "dst collides" );
@@ -251,7 +250,7 @@ impl Step {
                             tmp_dst.display(),
                         ) )?;
                     // posix says it's atomic
-                    rename( &tmp_dst, dst )
+                    rename( &tmp_dst, &dst )
                         .with_context( || format!(
                             r#"Failed to replace symlink "{}""#,
                             dst.display()
@@ -262,7 +261,7 @@ impl Step {
             Self::Remove { old_symlink } => {
                 let _s = trace_span!( "remove_symlink", ?old_symlink ).entered();
                 let Symlink { src, dst } = old_symlink;
-                let dst_fact = FactOfDst::check( src, dst )?;
+                let dst_fact = FactOfDst::check( &src, &dst )?;
 
                 if dst_fact.is_collision() {
                     debug!( "dst collides" );
@@ -280,7 +279,7 @@ impl Step {
                         debug!( "dst not exist, do nothing" );
                         return Ok(())
                     }
-                    remove_file( dst )
+                    remove_file( &dst )
                         .with_context( || format!(
                             r#"Failed to remove symlink "{}""#, dst.display()
                         ) )?;
@@ -591,14 +590,14 @@ mod test {
 
         // 1. normal case
         symlink( &src, &dst ).unwrap();
-        assert!( step.execute().is_ok() );
+        assert!( step.clone().execute().is_ok() );
         assert!( !dst.try_exists().unwrap() );
 
         // 2. not our symlinks
         // the dst is removed last step, this symlink call
         // shoudn't fail because of "file already exists"
         symlink( "/", &dst ).unwrap();
-        assert!( step.execute().is_err() );
+        assert!( step.clone().execute().is_err() );
         assert!( dst.try_exists_no_traverse().unwrap() );
 
         // 3. dst already deleted
