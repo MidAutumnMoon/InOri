@@ -191,19 +191,32 @@ impl Step {
             );
         }
 
+        // N.B. early return
         if dry {
             debug!( "dry run" );
-        } else {
-            debug!( "not dry run, do symlink" );
-            if matches!( dst_fact, DstFact::SymlinkToSrc ) {
-                debug!( "dst points to src already, nothing to do" );
-                return Ok(())
-            }
-            symlink( &src, &dst )
+            return Ok(())
+        }
+
+        debug!( "not dry run, do symlink" );
+
+        if matches!( dst_fact, DstFact::SymlinkToSrc ) {
+            debug!( "dst points to src already, nothing to do" );
+            return Ok(())
+        }
+
+        if let Some( parent ) = dst.parent() {
+            std::fs::create_dir_all( parent )
                 .with_context( || format!(
-                    r#"Failed to create symlink "{}""#, dst.display()
+                    r#"Failed to create parent directories "{}""#,
+                    parent.display()
                 ) )?;
         }
+
+        symlink( &src, &dst )
+            .with_context( || format!(
+                r#"Failed to create symlink "{}""#, dst.display()
+            ) )?;
+
         Ok(())
     }
 
@@ -394,6 +407,17 @@ mod test {
         } };
     }
 
+    macro_rules! make_random_str {
+        () => { {
+            use rand::distr::Alphanumeric;
+            use rand::Rng;
+            rand::rng().sample_iter( &Alphanumeric )
+                .take( 8 )
+                .map( char::from )
+                .collect::<String>()
+        } };
+    }
+
     #[ test ]
     fn generate_steps() {
         // no step
@@ -560,13 +584,11 @@ mod test {
     #[ test ]
     fn create_symlink() {
         let top = make_tempdir!();
-        let src = top.child( "src" ).tap( |it| it.touch().unwrap() );
-        let dst = top.child( "dst" );
+        let src = top.child( make_random_str!() )
+            .tap( |it| it.touch().unwrap() );
+        let dst = top.child( make_random_str!() );
 
-        let sym = make_symlink!(
-            src.path().to_str().unwrap(),
-            dst.path().to_str().unwrap()
-        );
+        let sym = make_symlink!( src.to_str().unwrap(), dst.to_str().unwrap() );
         let step = Step::Create { new_symlink: sym };
 
         // 1. create symlink normally
@@ -579,11 +601,28 @@ mod test {
         assert!( step.execute().is_ok() );
 
         // 3. dst is symlink but not ours
-        let sym = make_symlink!( "/akjdssrc", dst.path().to_str().unwrap() );
+        let sym = make_symlink!( "/bbbbbr", dst.path().to_str().unwrap() );
         let step = Step::Create { new_symlink: sym };
         remove_file( dst.path() ).unwrap();
         symlink( src.path(), dst.path() ).unwrap();
         assert!( step.execute().is_err() );
+
+        // 4. create missing parent dirs
+        {
+            // don't create the dir
+            let dir = top.child( make_random_str!() );
+            let src = top.child( make_random_str!() )
+                .tap( |it| it.touch().unwrap() );
+            let dst = dir.child( make_random_str!() );
+
+            let s = make_symlink!( src.to_str().unwrap(), dst.to_str().unwrap() );
+            let s = Step::Create { new_symlink: s };
+
+            assert!( s.execute().is_ok() );
+            assert!( dir.try_exists_no_traverse().unwrap() );
+            assert!( dir.symlink_metadata().unwrap().is_dir() );
+            assert!( dst.read_link().unwrap() == src.path() );
+        }
     }
 
     #[ test ]
