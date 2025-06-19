@@ -12,6 +12,7 @@ rust-version.workspace = true
 [dependencies]
 rustix.workspace = true
 tap.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 assert_fs.workspace = true

@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use ino_path::PathExt;
 use ino_tap::TapExt;
 use minijinja::Environment;
 use serde::Deserialize;
@@ -74,14 +75,17 @@ impl ContextOfTemplate {
         let xdg = choose_base_strategy()
             .context( "Failed to find XDG dirs" )?;
 
-        let home = xdg.home_dir().to_owned();
-        let config = xdg.config_dir();
-        let data = xdg.data_dir();
-        let cache = xdg.cache_dir();
+        let home = xdg.home_dir().must_absolute()?.into();
+        let config = xdg.config_dir().must_absolute()?.into();
+        let data = xdg.data_dir().must_absolute()?.into();
+        let cache = xdg.cache_dir().must_absolute()?.into();
 
-        let Some( state ) = xdg.state_dir() else {
-            debug!( "Failed to get XDG_STATE_HOME" );
-            anyhow::bail!( "XDG_STATE_HOME is not set" );
+        let state = {
+            let Some( state ) = xdg.state_dir() else {
+                debug!( "Failed to get XDG_STATE_HOME" );
+                anyhow::bail!( "XDG_STATE_HOME is not set" );
+            };
+            state.must_absolute()?.into()
         };
 
         Self { home, config, data, cache, state, }

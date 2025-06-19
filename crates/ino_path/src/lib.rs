@@ -1,8 +1,16 @@
 mod is_executable;
 pub use is_executable::IsExecutable;
+use tap::Pipe;
 
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
+
+#[ derive( thiserror::Error, Debug ) ]
+pub enum PathExtError {
+    #[ error( r#"Path "{0}" is not absolute"# ) ]
+    NotAbsolute( PathBuf )
+}
 
 /// Extra functions to work with [`Path`].
 #[ allow( clippy::missing_errors_doc ) ]
@@ -10,6 +18,10 @@ pub trait PathExt {
     /// Like [`Path::try_exists`], but **does not** traverse
     /// symlinks automatically.
     fn try_exists_no_traverse( &self ) -> io::Result<bool>;
+
+    /// Like [`Path::is_absolute`], but returns error if
+    /// this path is not absolute.
+    fn must_absolute( &self ) -> Result<&Self, PathExtError>;
 }
 
 impl PathExt for Path {
@@ -24,6 +36,16 @@ impl PathExt for Path {
                 }
             },
             Ok( _ ) => Ok( true )
+        }
+    }
+
+    #[ inline ]
+    fn must_absolute( &self ) -> Result<&Self, PathExtError> {
+        if self.is_absolute() {
+            Ok( self )
+        } else {
+            PathExtError::NotAbsolute( self.into() )
+                .pipe( Err )
         }
     }
 }

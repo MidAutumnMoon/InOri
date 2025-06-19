@@ -789,6 +789,7 @@ dependencies = [
  "assert_fs",
  "rustix 1.0.7",
  "tap",
+ "thiserror",
 ]
 
 [[package]]
