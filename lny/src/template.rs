@@ -61,7 +61,6 @@ pub struct ContextOfTemplate {
     data: PathBuf,
     cache: PathBuf,
     state: PathBuf,
-    runtime: PathBuf,
 }
 
 impl ContextOfTemplate {
@@ -85,12 +84,7 @@ impl ContextOfTemplate {
             anyhow::bail!( "XDG_STATE_HOME is not set" );
         };
 
-        let Some( runtime ) = xdg.runtime_dir() else {
-            debug!( "Failed to get XDG_RUNTIME_HOME" );
-            anyhow::bail!( "XDG_RUNTIME_HOME is not set" );
-        };
-
-        Self { home, config, data, cache, state, runtime, }
+        Self { home, config, data, cache, state, }
             .tap_trace()
             .pipe( Ok )
     }
@@ -174,7 +168,6 @@ mod test {
             "{{ data }}",
             "{{ cache }}",
             "{{ state }}",
-            "{{ runtime }}",
         ];
 
         let tmpls_to_err = [
