@@ -1,3 +1,4 @@
+use std::fs::remove_dir;
 use std::fs::remove_file;
 use std::fs::rename;
 use std::os::unix::fs::symlink;
@@ -205,6 +206,8 @@ impl Step {
         }
 
         if let Some( parent ) = dst.parent() {
+            debug!( "attempt to create missing parent dirs" );
+            trace!( ?parent );
             std::fs::create_dir_all( parent )
                 .with_context( || format!(
                     r#"Failed to create parent directories "{}""#,
@@ -212,6 +215,7 @@ impl Step {
                 ) )?;
         }
 
+        debug!( "ready to create the real symlink" );
         symlink( &src, &dst )
             .with_context( || format!(
                 r#"Failed to create symlink "{}""#, dst.display()
@@ -302,19 +306,48 @@ impl Step {
             );
         }
 
+        // N.B. early return
         if dry {
             debug!( "dry run" );
-        } else {
-            debug!( "not dry run, remove symlink" );
-            if matches!( dst_fact, DstFact::NotExist ) {
-                debug!( "dst not exist, do nothing" );
-                return Ok(())
-            }
-            remove_file( &dst )
-                .with_context( || format!(
-                    r#"Failed to remove symlink "{}""#, dst.display()
-                ) )?;
+            return Ok(())
         }
+
+        debug!( "not dry run, remove symlink" );
+
+        if matches!( dst_fact, DstFact::NotExist ) {
+            debug!( "dst not exist, do nothing" );
+            return Ok(())
+        }
+
+        debug!( "ready to remove the old symlink" );
+        remove_file( &dst )
+            .with_context( || format!(
+                r#"Failed to remove symlink "{}""#, dst.display()
+            ) )?;
+
+        if let Some( parent ) = dst.parent() {
+            debug!( "attempt to remove empty parent dirs" );
+            trace!( ?parent );
+            for ances in parent.ancestors() {
+                trace!( ?ances, "parent's ancestor" );
+                let metadata = ances.symlink_metadata()
+                    .context( "Failed to read ancestor metadata" )?;
+                if metadata.is_dir()
+                    && ances.read_dir()?.next().is_none()
+                {
+                    debug!( "ancestor dir is empty, remove it" );
+                    remove_dir( ances )
+                        .with_context( || format!(
+                            r#"Failed to remove empty ancestor directory "{}""#,
+                            ances.display()
+                        ) )?;
+                } else {
+                    debug!( "not empty, skip remaining ancestors" );
+                    break
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -652,6 +685,42 @@ mod test {
         // 3. dst already deleted
         remove_file( &dst ).unwrap();
         assert!( step.execute().is_ok() );
+
+        // 4. cleanup the remaining dirs
+        {
+            // don't create the dir
+            let dir = top.child( make_random_str!() )
+                .tap( |it| it.create_dir_all().unwrap() );
+            let dir_dir = dir.child( make_random_str!() )
+                .tap( |it| it.create_dir_all().unwrap() );
+            let dir_dir_dir = dir_dir.child( make_random_str!() )
+                .tap( |it| it.create_dir_all().unwrap() );
+
+            let no_touch_text = make_random_str!();
+            let no_touch = dir_dir.child( make_random_str!() )
+                .tap( |it| it.write_str( &no_touch_text ).unwrap() );
+
+            let src = top.child( make_random_str!() )
+                .tap( |it| it.touch().unwrap() );
+            let dst = dir_dir_dir.child( make_random_str!() )
+                .tap( |it| it.symlink_to_file( &src ).unwrap() );
+
+            let s = make_symlink!( src.to_str().unwrap(), dst.to_str().unwrap() );
+            let s = Step::Remove { old_symlink: s };
+
+            assert!( s.execute().is_ok() );
+
+            // dir and dir_dir shouldn't be touched because
+            // they are not empty
+            assert!( dir.try_exists_no_traverse().unwrap() );
+            assert!( dir_dir.try_exists_no_traverse().unwrap() );
+            // but dir_dir_dir should be remoed
+            assert!( !dir_dir_dir.try_exists_no_traverse().unwrap() );
+
+            assert!( !dst.try_exists_no_traverse().unwrap() );
+            assert!( std::fs::read_to_string( no_touch ).unwrap()
+                == no_touch_text );
+        }
     }
 
     #[ test ]
