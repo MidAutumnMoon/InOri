@@ -1,10 +1,14 @@
+use anyhow::ensure;
 use anyhow::Context;
+use anyhow::Result as AnyResult;
+use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
 use tracing::trace;
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 
 const DEFAULT_NIX_STORE: &str = "/nix/store";
 
@@ -110,12 +114,28 @@ impl Naguru {
                 accu
             };
 
-            let cmd_res = Command::new( cmd_path )
-                .args( args )
-                .output()
-                .await;
+            let mut cmd = Command::new( "systemd-run" );
+            cmd.env_clear();
 
-            match cmd_res {
+            cmd
+                .args( [ "--user", "--scope", "--collect" ] )
+                .arg( "--" )
+                .arg( cmd_path ).args( args );
+
+            let envs = match UserEnv::new() {
+                Ok( v ) => v,
+                Err( err ) => break 'out Err( format!(
+                    "Failed to get user environment, caused by: {err:?}" ) )
+            };
+
+            for ( name, val ) in envs {
+                eprintln!( "{name}={val}" );
+                cmd.env( name, val );
+            }
+
+            let cmd_ret = cmd.output().await;
+
+            match cmd_ret {
                 Ok( output ) => {
                     if !output.status.success() {
                         debug!( "Command failed" );
@@ -155,6 +175,52 @@ impl Naguru {
             "err_msg": "not implmented"
         } ).to_string()
     }
+}
+
+#[ derive( Debug ) ]
+struct UserEnv {
+    envs: Vec<( String, String )>
+}
+
+impl Iterator for UserEnv {
+    type Item = ( String, String );
+    fn next( &mut self ) -> Option<Self::Item> {
+        self.envs.pop()
+    }
+}
+
+impl UserEnv {
+    #[ allow( clippy::unwrap_in_result ) ]
+    #[ allow( clippy::unwrap_used ) ]
+    #[ allow( clippy::undocumented_unsafe_blocks ) ]
+    fn new() -> AnyResult<Self> {
+        let def = unsafe { geteuid() }
+            .pipe( |val| val.to_string() )
+            .pipe( |val| format!( "/run/user/{val}" ) );
+        let runtimedir = std::env::var_os( "XDG_RUNTIME_DIR" )
+            .unwrap_or_else( || def.into() )
+            .to_str().unwrap().to_owned();
+        let mut cmd = Command::new( "systemctl" );
+        cmd.env( "XDG_RUNTIME_DIR", runtimedir );
+        cmd.arg( "--user" ).arg( "show-environment" );
+        let output = cmd.output()?;
+        ensure!( output.status.success(),
+            r#"Failed to run systemctl "{}""#,
+            String::from_utf8_lossy( &output.stderr )
+        );
+        String::from_utf8( output.stdout )?
+            .lines()
+            .filter_map( |line| line.split_once( '=' ) )
+            .map( |val| ( val.0.to_owned(), val.1.to_owned() ) )
+            .collect::<Vec<_>>()
+            .pipe( |val| Self { envs: val } )
+            .pipe( Ok )
+    }
+}
+
+#[ link( name = "c" ) ]
+unsafe extern "C" {
+    fn geteuid() -> u32;
 }
 
 #[ tokio::main( flavor = "current_thread" ) ]
