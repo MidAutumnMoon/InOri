@@ -1,3 +1,6 @@
+use std::fs::remove_file;
+use std::fs::rename;
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -156,142 +159,149 @@ impl Step {
 
     #[ tracing::instrument( name="step_execute", skip( self ) ) ]
     fn real_execute( self, dry: bool ) -> AnyResult<()> {
-        use std::fs::remove_file;
-        use std::fs::rename;
-        use std::os::unix::fs::symlink;
-        use tracing::trace_span;
-
         trace!( ?self );
-
         match self {
-            Self::Create { new_symlink } => {
-                let _s = trace_span!( "create_symlink", ?new_symlink ).entered();
-                let Symlink { src, dst } = new_symlink;
-                let dst_fact = FactOfDst::check( &src, &dst )?;
+            Self::Create { new_symlink } =>
+                Self::create_symlink( new_symlink, dry )?,
 
-                if dst_fact.is_collision() {
-                    debug!( "dst collides" );
-                    bail!( r#"Symlink target "{}" is occupied by another file"#,
-                        dst.display()
-                    );
-                }
+            Self::Replace { new_symlink, old_symlink } =>
+                Self::replace_symlink( new_symlink, old_symlink, dry )?,
 
-                if dry {
-                    debug!( "dry run" );
-                } else {
-                    debug!( "not dry run, do symlink" );
-                    if matches!( dst_fact, FactOfDst::SymlinkToSrc ) {
-                        debug!( "dst points to src already, nothing to do" );
-                        return Ok(())
-                    }
-                    symlink( &src, &dst )
-                        .with_context( || format!(
-                            r#"Failed to create symlink "{}""#, dst.display()
-                        ) )?;
-                }
-            },
-
-            Self::Replace { new_symlink, old_symlink } => {
-                let _s = trace_span!( "replace_symlink",
-                        ?new_symlink, ?old_symlink ).entered();
-
-                let Symlink { src: new_src, dst: new_dst } = new_symlink;
-                let Symlink { src: old_src, dst: old_dst } = old_symlink;
-
-                ensure!( new_dst == old_dst,
-                    "[BUG] new_dst not equals to old_dst"
-                );
-
-                let dst = new_dst;
-                let dst_fact = FactOfDst::check( &old_src, &dst )?;
-
-                if dst_fact.is_collision() {
-                    debug!( "dst collides" );
-                    bail!( r#"Symlink target "{}" is not controlled by us, \
-                        refuse to replace"#,
-                        dst.display(),
-                    );
-                }
-
-                if matches!( dst_fact, FactOfDst::NotExist ) {
-                    debug!( "dst not exist, can't replace" );
-                    bail!( r#"Symlink "{}" does not exist, can't replace"#,
-                        dst.display()
-                    );
-                }
-
-                if dry {
-                    debug!( "dry run" );
-                } else {
-                    debug!( "not dry run, replace symlink" );
-                    if new_src == old_src {
-                        debug!( "srcs are the same, nothing to replace" );
-                        return Ok(())
-                    }
-                    // attempt to atomic replace
-                    let tmp_dst = {
-                        use rand::distr::Alphanumeric;
-                        trace!( "generate temporary dst" );
-                        let suffix = rand::rng()
-                            .sample_iter( &Alphanumeric )
-                            .take( 6 )
-                            .map( char::from )
-                            .collect::<String>();
-                        let ostr = dst.as_os_str()
-                            .to_owned()
-                            .tap_mut( |it| it.push( suffix ) );
-                        PathBuf::from( ostr )
-                            .tap_trace()
-                    };
-                    symlink( new_src, &tmp_dst )
-                        .with_context( || format!(
-                            r#"Failed to link to the temporary target "{}", \
-                            the existing symlink is intact"#,
-                            tmp_dst.display(),
-                        ) )?;
-                    // posix says it's atomic
-                    rename( &tmp_dst, &dst )
-                        .with_context( || format!(
-                            r#"Failed to replace symlink "{}""#,
-                            dst.display()
-                        ) )?;
-                }
-            },
-
-            Self::Remove { old_symlink } => {
-                let _s = trace_span!( "remove_symlink", ?old_symlink ).entered();
-                let Symlink { src, dst } = old_symlink;
-                let dst_fact = FactOfDst::check( &src, &dst )?;
-
-                if dst_fact.is_collision() {
-                    debug!( "dst collides" );
-                    bail!( r#"Symlink target "{}" is not controlled by us, \
-                        refuse to remove"#,
-                        dst.display(),
-                    );
-                }
-
-                if dry {
-                    debug!( "dry run" );
-                } else {
-                    debug!( "not dry run, remove symlink" );
-                    if matches!( dst_fact, FactOfDst::NotExist ) {
-                        debug!( "dst not exist, do nothing" );
-                        return Ok(())
-                    }
-                    remove_file( &dst )
-                        .with_context( || format!(
-                            r#"Failed to remove symlink "{}""#, dst.display()
-                        ) )?;
-                }
-            },
+            Self::Remove { old_symlink } => 
+                Self::remove_symlink( old_symlink, dry )?,
 
             Self::Nothing => {
-                let _s = trace_span!( "nothig_to_do" ).entered();
+                let _s = tracing::trace_span!( "nothig_to_do" ).entered();
                 debug!( "do nothing" );
             },
         }
+        Ok(())
+    }
 
+    #[ tracing::instrument ]
+    #[ inline ]
+    fn create_symlink( new_symlink: Symlink, dry: bool ) -> AnyResult<()> {
+        let Symlink { src, dst } = new_symlink;
+        let dst_fact = FactOfDst::check( &src, &dst )?;
+
+        if dst_fact.is_collision() {
+            debug!( "dst collides" );
+            bail!( r#"Symlink target "{}" is occupied by another file"#,
+                dst.display()
+            );
+        }
+
+        if dry {
+            debug!( "dry run" );
+        } else {
+            debug!( "not dry run, do symlink" );
+            if matches!( dst_fact, FactOfDst::SymlinkToSrc ) {
+                debug!( "dst points to src already, nothing to do" );
+                return Ok(())
+            }
+            symlink( &src, &dst )
+                .with_context( || format!(
+                    r#"Failed to create symlink "{}""#, dst.display()
+                ) )?;
+        }
+        Ok(())
+    }
+
+    #[ tracing::instrument ]
+    #[ inline ]
+    fn replace_symlink(
+        new_symlink: Symlink, old_symlink: Symlink,
+        dry: bool
+    ) -> AnyResult<()> {
+        let Symlink { src: new_src, dst: new_dst } = new_symlink;
+        let Symlink { src: old_src, dst: old_dst } = old_symlink;
+
+        ensure!( new_dst == old_dst,
+            "[BUG] new_dst not equals to old_dst"
+        );
+
+        let dst = new_dst;
+        let dst_fact = FactOfDst::check( &old_src, &dst )?;
+
+        if dst_fact.is_collision() {
+            debug!( "dst collides" );
+            bail!( r#"Symlink target "{}" is not controlled by us, \
+                refuse to replace"#,
+                dst.display(),
+            );
+        }
+
+        if matches!( dst_fact, FactOfDst::NotExist ) {
+            debug!( "dst not exist, can't replace" );
+            bail!( r#"Symlink "{}" does not exist, can't replace"#,
+                dst.display()
+            );
+        }
+
+        if dry {
+            debug!( "dry run" );
+        } else {
+            debug!( "not dry run, replace symlink" );
+            if new_src == old_src {
+                debug!( "srcs are the same, nothing to replace" );
+                return Ok(())
+            }
+            // attempt to atomic replace
+            let tmp_dst = {
+                use rand::distr::Alphanumeric;
+                trace!( "generate temporary dst" );
+                let suffix = rand::rng()
+                    .sample_iter( &Alphanumeric )
+                    .take( 6 )
+                    .map( char::from )
+                    .collect::<String>();
+                let ostr = dst.as_os_str()
+                    .to_owned()
+                    .tap_mut( |it| it.push( suffix ) );
+                PathBuf::from( ostr )
+                    .tap_trace()
+            };
+            symlink( new_src, &tmp_dst )
+                .with_context( || format!(
+                    r#"Failed to link to the temporary target "{}", \
+                    the existing symlink is intact"#,
+                    tmp_dst.display(),
+                ) )?;
+            // posix says it's atomic
+            rename( &tmp_dst, &dst )
+                .with_context( || format!(
+                    r#"Failed to replace symlink "{}""#,
+                    dst.display()
+                ) )?;
+        }
+        Ok(())
+    }
+
+    fn remove_symlink( old_symlink: Symlink, dry: bool ) -> AnyResult<()> {
+        let Symlink { src, dst } = old_symlink;
+        let dst_fact = FactOfDst::check( &src, &dst )?;
+
+        if dst_fact.is_collision() {
+            debug!( "dst collides" );
+            bail!( r#"Symlink target "{}" is not controlled by us, \
+                refuse to remove"#,
+                dst.display(),
+            );
+        }
+
+        if dry {
+            debug!( "dry run" );
+        } else {
+            debug!( "not dry run, remove symlink" );
+            if matches!( dst_fact, FactOfDst::NotExist ) {
+                debug!( "dst not exist, do nothing" );
+                return Ok(())
+            }
+            remove_file( &dst )
+                .with_context( || format!(
+                    r#"Failed to remove symlink "{}""#, dst.display()
+                ) )?;
+        }
         Ok(())
     }
 
