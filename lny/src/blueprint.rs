@@ -1,4 +1,3 @@
-use std::hash::Hasher;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -99,10 +98,6 @@ impl Symlink {
         -> Self
     {
         Self { src, dst }
-    }
-
-    pub fn into_inner( self ) -> ( RenderedPath, RenderedPath ) {
-        ( self.src, self.dst )
     }
 
     pub fn same_dst( &self, other: &Self ) -> bool {

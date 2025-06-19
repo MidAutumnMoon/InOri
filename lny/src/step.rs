@@ -1,17 +1,14 @@
-use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
 
 use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
-use crate::template::RenderedPath;
 
 use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use ino_color::fg::Blue;
-use ino_color::fg::Red;
 use ino_color::InoColor;
 use ino_path::PathExt;
 use ino_tap::TapExt;
@@ -288,9 +285,9 @@ impl Step {
                         return Ok(())
                     }
                     remove_file( dst )
-                        .with_context( || format! {
+                        .with_context( || format!(
                             r#"Failed to remove symlink "{}""#, dst.display()
-                        } )?;
+                        ) )?;
                 }
             },
 
@@ -359,6 +356,7 @@ impl FactOfDst {
 mod test {
 
     use super::*;
+    use crate::template::RenderedPath;
 
     use assert_fs::prelude::*;
     use assert_fs::TempDir;

@@ -104,7 +104,8 @@ pub struct RenderedPath {
 }
 
 impl RenderedPath {
-    #[tracing::instrument(skip_all)]
+    #[ tracing::instrument( skip_all ) ]
+    #[ allow( dead_code ) ]
     pub fn from_unrendered( input: &str ) -> AnyResult<Self> {
         use serde::de::IntoDeserializer;
         use serde::de::value::StrDeserializer;
