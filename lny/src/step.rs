@@ -167,7 +167,7 @@ impl Step {
             Self::Replace { new_symlink, old_symlink } =>
                 Self::replace_symlink( new_symlink, old_symlink, dry )?,
 
-            Self::Remove { old_symlink } => 
+            Self::Remove { old_symlink } =>
                 Self::remove_symlink( old_symlink, dry )?,
 
             Self::Nothing => {
@@ -182,7 +182,7 @@ impl Step {
     #[ inline ]
     fn create_symlink( new_symlink: Symlink, dry: bool ) -> AnyResult<()> {
         let Symlink { src, dst } = new_symlink;
-        let dst_fact = FactOfDst::check( &src, &dst )?;
+        let dst_fact = DstFact::check( &src, &dst )?;
 
         if dst_fact.is_collision() {
             debug!( "dst collides" );
@@ -195,7 +195,7 @@ impl Step {
             debug!( "dry run" );
         } else {
             debug!( "not dry run, do symlink" );
-            if matches!( dst_fact, FactOfDst::SymlinkToSrc ) {
+            if matches!( dst_fact, DstFact::SymlinkToSrc ) {
                 debug!( "dst points to src already, nothing to do" );
                 return Ok(())
             }
@@ -221,7 +221,7 @@ impl Step {
         );
 
         let dst = new_dst;
-        let dst_fact = FactOfDst::check( &old_src, &dst )?;
+        let dst_fact = DstFact::check( &old_src, &dst )?;
 
         if dst_fact.is_collision() {
             debug!( "dst collides" );
@@ -231,7 +231,7 @@ impl Step {
             );
         }
 
-        if matches!( dst_fact, FactOfDst::NotExist ) {
+        if matches!( dst_fact, DstFact::NotExist ) {
             debug!( "dst not exist, can't replace" );
             bail!( r#"Symlink "{}" does not exist, can't replace"#,
                 dst.display()
@@ -279,7 +279,7 @@ impl Step {
 
     fn remove_symlink( old_symlink: Symlink, dry: bool ) -> AnyResult<()> {
         let Symlink { src, dst } = old_symlink;
-        let dst_fact = FactOfDst::check( &src, &dst )?;
+        let dst_fact = DstFact::check( &src, &dst )?;
 
         if dst_fact.is_collision() {
             debug!( "dst collides" );
@@ -293,7 +293,7 @@ impl Step {
             debug!( "dry run" );
         } else {
             debug!( "not dry run, remove symlink" );
-            if matches!( dst_fact, FactOfDst::NotExist ) {
+            if matches!( dst_fact, DstFact::NotExist ) {
                 debug!( "dst not exist, do nothing" );
                 return Ok(())
             }
@@ -308,7 +308,7 @@ impl Step {
 }
 
 #[ derive( Debug ) ]
-pub enum FactOfDst {
+pub enum DstFact {
     /// It's solid collision between two totally unrealted files.
     Exist,
     /// Same a [`Self::Collide`] but in addition this signals
@@ -321,9 +321,9 @@ pub enum FactOfDst {
     NotExist,
 }
 
-impl FactOfDst {
+impl DstFact {
     #[ inline ]
-    #[ tracing::instrument( name="collision_check" ) ]
+    #[ tracing::instrument( name="dst_fact_check" ) ]
     pub fn check( src: &Path, dst: &Path ) -> AnyResult<Self> {
         debug!( "check potential collision" );
         // N.B. Don't use [`Path::exists`] because it follows symlink
@@ -522,8 +522,8 @@ mod test {
         dst.touch().unwrap();
         assert! {
             matches!(
-                FactOfDst::check( src.path(), dst.path() ).unwrap(),
-                FactOfDst::Exist
+                DstFact::check( src.path(), dst.path() ).unwrap(),
+                DstFact::Exist
             )
         };
         remove_file( dst.path() ).unwrap();
@@ -532,8 +532,8 @@ mod test {
         symlink( "/yeebie", dst.path() ).unwrap();
         assert! {
             matches!(
-                FactOfDst::check( src.path(), dst.path() ).unwrap(),
-                FactOfDst::SymlinkNotSrc
+                DstFact::check( src.path(), dst.path() ).unwrap(),
+                DstFact::SymlinkNotSrc
             )
         };
         remove_file( dst.path() ).unwrap();
@@ -542,8 +542,8 @@ mod test {
         symlink( src.path(), dst.path() ).unwrap();
         assert!{
             matches!(
-                FactOfDst::check( src.path(), dst.path() ).unwrap(),
-                FactOfDst::SymlinkToSrc
+                DstFact::check( src.path(), dst.path() ).unwrap(),
+                DstFact::SymlinkToSrc
             )
         };
         remove_file( dst.path() ).unwrap();
@@ -551,8 +551,8 @@ mod test {
         // 4. coast is clear
         assert!{
             matches!(
-                FactOfDst::check( src.path(), dst.path() ).unwrap(),
-                FactOfDst::NotExist
+                DstFact::check( src.path(), dst.path() ).unwrap(),
+                DstFact::NotExist
             )
         };
     }
