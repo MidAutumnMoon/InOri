@@ -3,6 +3,7 @@
 
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
+use ino_path::PathExt;
 use rand::rngs::ThreadRng;
 use tap::Tap;
 
@@ -85,39 +86,47 @@ fn typical_workload() {
         let top = make_tempdir!();
         let mut app = make_app!();
 
+        let dir = top.child( make_random_str!() )
+            .tap( |it| it.create_dir_all().unwrap() );
+
+        let new_subdir = dir.child( make_random_str!() )
+            .tap( |it| it.create_dir_all().unwrap() );
+        let old_subdir = top.child( make_random_str!() )
+            .tap( |it| it.create_dir_all().unwrap() );
+
         let norm_file_content = make_random_str!();
-        let norm_file = top.child( make_random_str!() )
+        let norm_file = dir.child( make_random_str!() )
             .tap( |it| it.write_str( &norm_file_content ).unwrap() );
 
-        let old_sym_src = top.child( make_random_str!() )
+        let to_remove_src = top.child( make_random_str!() )
             .tap( |it| it.touch().unwrap() );
-        let old_sym_dst = top.child( make_random_str!() );
-        symlink( &old_sym_src, &old_sym_dst ).unwrap();
+        let to_remove_dst = old_subdir.child( make_random_str!() );
+        symlink( &to_remove_src, &to_remove_dst ).unwrap();
 
-        let rpl_sym_dst = top.child( make_random_str!() );
-        let old_rpl_sym_src = top.child( make_random_str!() )
+        let to_replace_dst = top.child( make_random_str!() );
+        let to_replace_old_src = top.child( make_random_str!() )
             .tap( |it| it.touch().unwrap() );
-        symlink( &old_rpl_sym_src, &rpl_sym_dst ).unwrap();
-        let new_rpl_sym_src = top.child( make_random_str!() )
+        symlink( &to_replace_old_src, &to_replace_dst ).unwrap();
+        let to_replace_new_src = top.child( make_random_str!() )
             .tap( |it| it.touch().unwrap() );
 
-        let new_sym_src = top.child( make_random_str!() )
+        let to_create_src = top.child( make_random_str!() )
             .tap( |it| it.touch().unwrap() );
-        let new_sym_dst = top.child( make_random_str!() );
+        let to_create_dst = new_subdir.child( make_random_str!() );
 
-        let already_sym_src = top.child( make_random_str!() )
+        let nothing_src = top.child( make_random_str!() )
             .tap( |it| it.touch().unwrap() );
-        let already_sym_dst = top.child( make_random_str!() );
-        symlink( &already_sym_src, &already_sym_dst ).unwrap();
+        let nothing_dst = top.child( make_random_str!() )
+            .tap( |it| it.symlink_to_file( &nothing_src ).unwrap() );
 
         let old_bp = {
             let j = serde_json::json!{ {
                 "version": VERSION,
                 "symlinks": [
-                    { "src": old_sym_src.path(), "dst": old_sym_dst.path() },
+                    { "src": to_remove_src.path(), "dst": to_remove_dst.path() },
                     {
-                        "src": old_rpl_sym_src.path(),
-                        "dst": rpl_sym_dst.path()
+                        "src": to_replace_old_src.path(),
+                        "dst": to_replace_dst.path()
                     },
                 ]
             } };
@@ -130,13 +139,13 @@ fn typical_workload() {
                 "version": VERSION,
                 "symlinks": [
                     {
-                        "src": new_rpl_sym_src.path(),
-                        "dst": rpl_sym_dst.path()
+                        "src": to_replace_new_src.path(),
+                        "dst": to_replace_dst.path()
                     },
-                    { "src": new_sym_src.path(), "dst": new_sym_dst.path() },
+                    { "src": to_create_src.path(), "dst": to_create_dst.path() },
                     {
-                        "src": already_sym_src.path(),
-                        "dst": already_sym_dst.path()
+                        "src": nothing_src.path(),
+                        "dst": nothing_dst.path()
                     },
                 ]
             } };
@@ -156,18 +165,22 @@ fn typical_workload() {
         assert!( std::fs::read_to_string( norm_file ).unwrap()
             == norm_file_content );
 
-        assert!( !old_sym_dst.try_exists().unwrap() );
+        assert!( !to_remove_dst.try_exists_no_traverse().unwrap() );
+        assert!( !old_subdir.try_exists_no_traverse().unwrap() );
 
-        assert!( rpl_sym_dst.is_symlink()
-            && rpl_sym_dst.read_link().unwrap() == new_rpl_sym_src.path()
+        assert!( to_replace_dst.is_symlink()
+            && to_replace_dst.read_link().unwrap() == to_replace_new_src.path()
         );
 
-        assert!( new_sym_dst.is_symlink()
-            && new_sym_dst.read_link().unwrap() == new_sym_src.path()
+        assert!( new_subdir.try_exists_no_traverse().unwrap()
+            && new_subdir.symlink_metadata().unwrap().is_dir()
+        );
+        assert!( to_create_dst.is_symlink()
+            && to_create_dst.read_link().unwrap() == to_create_src.path()
         );
 
-        assert!( already_sym_dst.is_symlink()
-            && already_sym_dst.read_link().unwrap() == already_sym_src.path()
+        assert!( nothing_dst.is_symlink()
+            && nothing_dst.read_link().unwrap() == nothing_src.path()
         );
     }
 
