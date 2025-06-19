@@ -1,4 +1,3 @@
-use std::fs::remove_dir;
 use std::fs::remove_file;
 use std::fs::rename;
 use std::os::unix::fs::symlink;
@@ -206,13 +205,7 @@ impl Step {
         }
 
         if let Some( parent ) = dst.parent() {
-            debug!( "attempt to create missing parent dirs" );
-            trace!( ?parent );
-            std::fs::create_dir_all( parent )
-                .with_context( || format!(
-                    r#"Failed to create parent directories "{}""#,
-                    parent.display()
-                ) )?;
+            Self::create_parent_dirs( parent )?;
         }
 
         debug!( "ready to create the real symlink" );
@@ -326,28 +319,47 @@ impl Step {
             ) )?;
 
         if let Some( parent ) = dst.parent() {
-            debug!( "attempt to remove empty parent dirs" );
-            trace!( ?parent );
-            for ances in parent.ancestors() {
-                trace!( ?ances, "parent's ancestor" );
-                let metadata = ances.symlink_metadata()
-                    .context( "Failed to read ancestor metadata" )?;
-                if metadata.is_dir()
-                    && ances.read_dir()?.next().is_none()
-                {
-                    debug!( "ancestor dir is empty, remove it" );
-                    remove_dir( ances )
-                        .with_context( || format!(
-                            r#"Failed to remove empty ancestor directory "{}""#,
-                            ances.display()
-                        ) )?;
-                } else {
-                    debug!( "not empty, skip remaining ancestors" );
-                    break
-                }
-            }
+            Self::remove_empty_parent_dirs( parent )?;
         }
 
+        Ok(())
+    }
+
+    #[ inline ]
+    #[ tracing::instrument ]
+    fn create_parent_dirs( path: &Path ) -> AnyResult<()> {
+        debug!( "attempt to create parent dirs" );
+        std::fs::create_dir_all( path )
+            .with_context( || format!(
+                r#"Failed to create parent directories of "{}""#,
+                path.display()
+            ) )?;
+        Ok(())
+    }
+
+    #[ inline ]
+    #[ tracing::instrument ]
+    fn remove_empty_parent_dirs( path: &Path ) -> AnyResult<()> {
+        debug!( "attempt to remove empty parent dirs" );
+        trace!( ?path );
+        for ances in path.ancestors() {
+            trace!( ?ances, "parent's ancestor" );
+            let metadata = ances.symlink_metadata()
+                .context( "Failed to read ancestor metadata" )?;
+            if metadata.is_dir()
+                && ances.read_dir()?.next().is_none()
+            {
+                debug!( "ancestor dir is empty, remove it" );
+                std::fs::remove_dir( ances )
+                    .with_context( || format!(
+                        r#"Failed to remove empty ancestor directory "{}""#,
+                        ances.display()
+                    ) )?;
+            } else {
+                debug!( "not empty, skip remaining ancestors" );
+                return Ok(())
+            }
+        }
         Ok(())
     }
 
