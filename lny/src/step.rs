@@ -231,6 +231,7 @@ impl Step {
         );
 
         let dst = new_dst;
+        drop( old_dst );
         let dst_fact = DstFact::check( &old_src, &dst )?;
 
         if dst_fact.is_collision() {
@@ -248,42 +249,46 @@ impl Step {
             );
         }
 
+        // N.B. early retrun
         if dry {
             debug!( "dry run" );
-        } else {
-            debug!( "not dry run, replace symlink" );
-            if new_src == old_src {
-                debug!( "srcs are the same, nothing to replace" );
-                return Ok(())
-            }
-            // attempt to atomic replace
-            let tmp_dst = {
-                use rand::distr::Alphanumeric;
-                trace!( "generate temporary dst" );
-                let suffix = rand::rng()
-                    .sample_iter( &Alphanumeric )
-                    .take( 6 )
-                    .map( char::from )
-                    .collect::<String>();
-                let ostr = dst.as_os_str()
-                    .to_owned()
-                    .tap_mut( |it| it.push( suffix ) );
-                PathBuf::from( ostr )
-                    .tap_trace()
-            };
-            symlink( new_src, &tmp_dst )
-                .with_context( || format!(
-                    r#"Failed to link to the temporary target "{}", \
-                    the existing symlink is intact"#,
-                    tmp_dst.display(),
-                ) )?;
-            // posix says it's atomic
-            rename( &tmp_dst, &dst )
-                .with_context( || format!(
-                    r#"Failed to replace symlink "{}""#,
-                    dst.display()
-                ) )?;
+            return Ok(())
         }
+
+        debug!( "not dry run, replace symlink" );
+
+        if new_src == old_src {
+            debug!( "srcs are the same, nothing to replace" );
+            return Ok(())
+        }
+
+        // attempt to atomic replace
+        let tmp_dst = {
+            use rand::distr::Alphanumeric;
+            trace!( "generate temporary dst" );
+            let suffix = rand::rng()
+                .sample_iter( &Alphanumeric )
+                .take( 6 )
+                .map( char::from )
+                .collect::<String>();
+            let ostr = dst.as_os_str()
+                .to_owned()
+                .tap_mut( |it| it.push( suffix ) );
+            PathBuf::from( ostr )
+                .tap_trace()
+        };
+        symlink( new_src, &tmp_dst )
+            .with_context( || format!(
+                r#"Failed to link to the temporary target "{}", \
+                    the existing symlink is intact"#,
+                tmp_dst.display(),
+            ) )?;
+        // posix says it's atomic
+        rename( &tmp_dst, &dst )
+            .with_context( || format!(
+                r#"Failed to replace symlink "{}""#,
+                dst.display()
+            ) )?;
         Ok(())
     }
 
@@ -790,6 +795,31 @@ mod test {
 
             assert!( s.execute().is_err() );
             assert!( dst.read_link().unwrap() == trdsrc.path() );
+        }
+        // 3. subdirs
+        {
+            let top = make_tempdir!();
+            let dir = top.child( make_random_str!() )
+                .tap( |it| it.create_dir_all().unwrap() );
+
+            let old_src = top.child( make_random_str!() )
+                .tap( |it| it.touch().unwrap() );
+            let new_src = top.child( make_random_str!() )
+                .tap( |it| it.touch().unwrap() );
+
+            let dst = dir.child( make_random_str!() )
+                .tap( |it| it.symlink_to_file( &old_src ).unwrap() );
+
+            let new_symlink = make_symlink!(
+                &new_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let old_symlink = make_symlink!(
+                &old_src.to_str().unwrap(), &dst.to_str().unwrap()
+            );
+            let s = Step::Replace { new_symlink, old_symlink };
+
+            assert!( s.execute().is_ok() );
+            assert!( dir.symlink_metadata().unwrap().is_dir() );
         }
     }
 
