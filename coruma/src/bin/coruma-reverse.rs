@@ -75,7 +75,7 @@ impl Application {
             .collect::< Result< Vec<_>, _ > >()
             .context( "Unable to walk through symlink" )?;
 
-        Explainer::explain_paths( ancestors )?;
+        Explainer::explain_paths( &ancestors )?;
 
         Ok(())
     }
@@ -265,7 +265,7 @@ struct Explainer;
 
 impl Explainer {
     #[ tracing::instrument ]
-    fn explain_paths( paths: Vec<PathBuf> ) -> anyhow::Result<()> {
+    fn explain_paths( paths: &[PathBuf] ) -> anyhow::Result<()> {
         for ( index, it ) in paths
             .iter()
             .enumerate()

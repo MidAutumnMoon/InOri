@@ -7,12 +7,12 @@ use std::path::PathBuf;
 /// the executable of `name` in each one. Returns a list
 /// of paths that have it.
 #[ tracing::instrument ]
+#[ allow( clippy::missing_panics_doc ) ]
 pub fn lookup_executable_in_path( program: &str ) -> Vec<PathBuf> {
     debug!( "Try find executable in $PATH" );
 
     let env_path = std::env::var_os( "PATH" )
-        .expect( "Can't read $PATH!?" )
-    ;
+        .expect( "Can't read $PATH!?" );
 
     debug!( ?env_path );
 
