@@ -23,8 +23,6 @@ pub struct Blueprint {
     pub symlinks: Vec<Symlink>,
 }
 
-// TODO: implement Deserialize manually for better checking,
-// but that's so miserable... fuck serde
 impl Blueprint {
     #[ tracing::instrument ]
     pub fn from_file( path: &Path ) -> AnyResult<Self> {
@@ -85,15 +83,11 @@ impl Default for Blueprint {
 #[ serde( deny_unknown_fields ) ]
 pub struct Symlink {
     pub src: RenderedPath,
-    /// Only the `dst` matters as it's not our job to validate src.
     pub dst: RenderedPath,
 }
 
 impl Symlink {
-    pub fn dst( &self ) -> &RenderedPath { &self.dst }
-    pub fn src( &self ) -> &RenderedPath { &self.src }
-
-    #[ allow( unused ) ]
+    #[ allow( dead_code ) ]
     pub(crate) fn new_test( src: RenderedPath, dst: RenderedPath )
         -> Self
     {
@@ -101,11 +95,11 @@ impl Symlink {
     }
 
     pub fn same_dst( &self, other: &Self ) -> bool {
-        self.dst() == other.dst()
+        self.dst == other.dst
     }
 
     pub fn same_src( &self, other: &Self ) -> bool {
-        self.src() == other.src()
+        self.src == other.src
     }
 }
 

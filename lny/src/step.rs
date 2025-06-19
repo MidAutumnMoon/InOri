@@ -28,17 +28,13 @@ pub struct StepQueue {
 
 impl StepQueue {
 
-    #[ tracing::instrument( name="executor_new", skip_all ) ]
+    #[ tracing::instrument( name="step_queue_new", skip_all ) ]
     pub fn new( new_blueprint: Blueprint, old_blueprint: Blueprint )
         -> AnyResult<Self>
     {
-
-        debug!( "actualize blueprint into steps" );
-
         eprintln!( "{}", "Actualize blueprint".fg::<Blue>() );
-
-        trace!( ?new_blueprint );
-        trace!( ?old_blueprint );
+        debug!( "actualize blueprint into steps" );
+        trace!( ?new_blueprint, ?old_blueprint );
 
         let ( mut new_blueprint_symlinks, mut old_blueprint_symlinks ) =
             [ new_blueprint.symlinks, old_blueprint.symlinks ]
@@ -78,7 +74,7 @@ impl StepQueue {
                     .is_some_and( |cond| cond )
                 {
                     found_old_symlink = old_symlink.take();
-                    trace!( ?found_old_symlink, "found matching symlink from old" );
+                    trace!( ?found_old_symlink, "matched symlink from old" );
                 }
             }
 
@@ -150,17 +146,17 @@ impl Step {
 
     #[ inline ]
     pub fn dry_execute( &self ) -> AnyResult<()> {
-        self.__execute( true )
+        self.real_execute( true )
     }
 
     #[ inline ]
     pub fn execute( &self ) -> AnyResult<()> {
-        self.__execute( false )
+        self.real_execute( false )
     }
 
     #[ tracing::instrument( name="step_execute", skip( self ) ) ]
     // TODO: take self
-    fn __execute( &self, dry: bool ) -> AnyResult<()> {
+    fn real_execute( &self, dry: bool ) -> AnyResult<()> {
         use std::fs::remove_file;
         use std::fs::rename;
         use std::os::unix::fs::symlink;

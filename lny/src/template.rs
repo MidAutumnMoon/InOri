@@ -64,7 +64,7 @@ pub struct ContextOfTemplate {
 }
 
 impl ContextOfTemplate {
-    #[ tracing::instrument( name="context_new" ) ]
+    #[ tracing::instrument( name="template_context_new" ) ]
     pub fn new() -> AnyResult<Self> {
         use etcetera::choose_base_strategy;
         use etcetera::BaseStrategy;
