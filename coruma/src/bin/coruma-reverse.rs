@@ -18,7 +18,7 @@ const MAX_SYMLINK_FOLLOWS: u64 = 64;
 fn main() {
     use ino_result::ResultExt;
     ino_tracing::init_tracing_subscriber();
-    <Application as clap::Parser>::parse()
+    <App as clap::Parser>::parse()
         .run()
         .print_error_exit_process()
     ;
@@ -27,7 +27,7 @@ fn main() {
 ///  Find executable in $PATH, and print each ancestor in its symlink chain.
 #[ derive( clap::Parser ) ]
 #[ derive( Debug ) ]
-struct Application {
+struct App {
     /// The name of executable to find in $PATH.
     /// If it starts with "/", "../" or "./", the symlink walk
     /// will start with it directly instead of lookup an executable in $PATH.
@@ -52,7 +52,7 @@ impl ProgramKind {
     }
 }
 
-impl Application {
+impl App {
     #[ tracing::instrument ]
     fn run( &self ) -> anyhow::Result<()> {
         trace!( "Start application" );
