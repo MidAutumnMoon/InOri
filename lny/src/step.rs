@@ -72,9 +72,8 @@ impl StepQueue {
 
             for old_symlink in &mut old_blueprint_symlinks {
                 let _s = trace_span!( "iter_old", ?old_symlink ).entered();
-                if old_symlink.as_ref()
-                    .map( |old| old.same_dst( &new_symlink ) )
-                    .is_some_and( |cond| cond )
+                if let Some( old ) = old_symlink.as_ref()
+                    && old.same_dst( &new_symlink )
                 {
                     found_old_symlink = old_symlink.take();
                     trace!( ?found_old_symlink, "matched symlink from old" );
