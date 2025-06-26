@@ -35,19 +35,16 @@ struct App {
 }
 
 enum ProgramKind {
-    Name( String ),
-    Path( String ),
+    ExeName( String ),
+    SomePath( String ),
 }
 
 impl ProgramKind {
     fn new( input: &str ) -> Self {
-        if [ "/", "./", "../" ]
-            .into_iter()
-            .any( |prefix| input.starts_with( prefix ) )
-        {
-            Self::Path( input.to_owned() )
+        if input.contains( '/' ) {
+            Self::SomePath( input.into() )
         } else {
-            Self::Name( input.to_owned() )
+            Self::ExeName( input.into() )
         }
     }
 }
@@ -58,7 +55,7 @@ impl App {
         trace!( "Start application" );
 
         let starter = match ProgramKind::new( &self.program ) {
-            ProgramKind::Name( name ) => {
+            ProgramKind::ExeName( name ) => {
                 let errmsg =
                     || anyhow::anyhow!( r#"Program "{}" not found"#, &name );
                 coruma::lookup_executable_in_path( &name )
@@ -66,7 +63,7 @@ impl App {
                     .ok_or_else( errmsg )?
                     .to_owned()
             },
-            ProgramKind::Path( it ) => PathBuf::from( it ),
+            ProgramKind::SomePath( it ) => PathBuf::from( it ),
         };
 
         debug!( ?starter );
@@ -92,7 +89,7 @@ struct SymlinkAncestor {
 impl SymlinkAncestor {
     fn new( starter: &Path ) -> Self {
         Self {
-            current: Some( starter.to_owned() ),
+            current: Some( starter.into() ),
             visited_paths: HashSet::default(),
             symlink_followed: 0,
         }
@@ -103,7 +100,7 @@ impl Iterator for SymlinkAncestor {
     type Item = anyhow::Result<PathBuf>;
 
     fn next( &mut self ) -> Option< Self::Item > {
-        let _s = tracing::debug_span!( "iter_next" ).entered();
+        let _s = tracing::debug_span!( "symlink_iter_next" ).entered();
 
         // N.B. self.current became None after take()
         // it stays None as long as not set again
@@ -114,18 +111,22 @@ impl Iterator for SymlinkAncestor {
 
         if self.visited_paths.contains( &current ) {
             debug!( "Already visited this path" );
-            let errmsg = anyhow::anyhow!(
+            return anyhow::anyhow!(
                 r#"Symlink loop detected, path: "{}""#,
                 current.display()
-            );
-            return Some( Err( errmsg ) )
+            )
+                .pipe( Err )
+                .pipe( Some )
         }
 
         // Step 2. Guard against limitation
 
         if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
-            return anyhow::anyhow!( "Exceeded the maximum symlink follows allowed" )
-                .pipe( |it| Some( Err( it ) ) )
+            return anyhow::anyhow!(
+                "Exceeded the maximum symlink follows allowed"
+            )
+                .pipe( Err )
+                .pipe( Some )
         }
 
         self.symlink_followed += 1;
