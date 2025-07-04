@@ -1,11 +1,10 @@
 use std::path::{ Path, PathBuf };
+
+use anyhow::Result as AnyResult;
 use tracing::debug;
 
-
 #[ tracing::instrument ]
-pub fn find_files( parent: &Path )
-    -> anyhow::Result< Vec<PathBuf> >
-{
+pub fn find_files( parent: &Path ) -> AnyResult<Vec<PathBuf>> {
     debug!( "collect files" );
 
     let mut collected: Vec<PathBuf> = vec![];
@@ -42,7 +41,7 @@ pub fn filter_by_supported_exts(
 
         let ext = ext.to_lowercase();
 
-        if encoder.is_ext_supported( &ext ) {
+        if encoder.supported_extension( &ext ) {
             debug!( "ext .{ext} ok" );
             collected.push( p );
         } else {

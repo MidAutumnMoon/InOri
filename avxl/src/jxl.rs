@@ -10,7 +10,7 @@ pub struct Jxl;
 impl crate::Encoder for Jxl {
 
     #[ inline ]
-    fn is_ext_supported( &self, src: &str ) -> bool {
+    fn supported_extension( &self, src: &str ) -> bool {
         matches!( src, "png" | "jpg" | "jpeg" | "apng" | "gif" )
     }
 

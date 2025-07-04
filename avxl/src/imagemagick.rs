@@ -4,6 +4,7 @@ use itertools::Itertools;
 use tap::Pipe;
 use tap::Tap;
 use anyhow::Context;
+use anyhow::Result as AnyResult;
 
 /// Path to the "avifenc" executable.
 const MAGICK_PATH: Option<&str> = std::option_env!( "CFG_MAGICK_PATH" );
@@ -22,7 +23,7 @@ impl Default for Despeckle {
 impl crate::Encoder for Despeckle {
 
     #[ inline ]
-    fn is_ext_supported( &self, src: &str ) -> bool {
+    fn supported_extension( &self, src: &str ) -> bool {
         matches!( src, "png" | "jpg" | "jpeg" )
     }
 
@@ -31,17 +32,8 @@ impl crate::Encoder for Despeckle {
         "png"
     }
 
-    /// Encode the input to AVIF using avifenc.
-    ///
-    /// Try to document parameters as much as possible,
-    /// but the whole singal processing domain is just dumpster mess.
-    ///
-    /// Like, for some reason, this configuration is
-    /// the right magic spell to command AV1+aom+libavif to give
-    /// the best results.
     #[ tracing::instrument ]
-    fn perform_encode( &self, input: &Path ) -> anyhow::Result<ExitStatus>
-    {
+    fn perform_encode( &self, input: &Path ) -> AnyResult<ExitStatus> {
 
         let number_of_depseckles =
             std::iter::repeat_n( "-despeckle", self.iteration )

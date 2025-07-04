@@ -4,6 +4,7 @@ use tap::Pipe;
 use tracing::debug;
 use tap::Tap;
 use anyhow::Context;
+use anyhow::Result as AnyResult;
 
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!( "CFG_AVIFENC_PATH" );
@@ -35,7 +36,7 @@ pub enum QualityPreset {
 impl crate::Encoder for Avif {
 
     #[ inline ]
-    fn is_ext_supported( &self, src: &str ) -> bool {
+    fn supported_extension( &self, src: &str ) -> bool {
         matches!( src, "png" | "jpg" | "jpeg" | "y4m" )
     }
 
@@ -44,19 +45,8 @@ impl crate::Encoder for Avif {
         "avif"
     }
 
-    /// Encode the input to AVIF using avifenc.
-    ///
-    /// Try to document parameters as much as possible,
-    /// but the whole singal processing domain is just dumpster mess.
-    ///
-    /// Like, for some reason, this configuration is
-    /// the right magic spell to command AV1+aom+libavif to give
-    /// the best results.
     #[ tracing::instrument ]
-    fn perform_encode( &self, input: &Path )
-        -> anyhow::Result<ExitStatus>
-    {
-
+    fn perform_encode( &self, input: &Path ) -> AnyResult<ExitStatus> {
         debug!( "encoding using avifenc" );
 
         let mut avifenc = AVIFENC_PATH.unwrap_or( "avifenc" )

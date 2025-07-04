@@ -6,6 +6,8 @@ use std::path::{
 
 use std::process::ExitStatus;
 
+use anyhow::Result as AnyResult;
+
 use tracing::{
     debug,
     debug_span,
@@ -19,7 +21,7 @@ mod tool;
 mod imagemagick;
 
 /// Name of the directory for storing original pictures.
-pub const ARCHIVE_DIR_NAME: &str = "original";
+pub const ARCHIVE_DIR_NAME: &str = ".backup";
 
 #[ derive( clap::Args, Debug ) ]
 struct CliInput {
@@ -73,13 +75,12 @@ pub enum DirOrFiles {
 
 trait Encoder {
     /// Files of such extensions the encoder supported to use as input.
-    fn is_ext_supported( &self, src_ext: &str ) -> bool;
+    fn supported_extension( &self, src_ext: &str ) -> bool;
 
     fn output_extension( &self ) -> &'static str;
 
     /// Run the encoder on `picture`.
-    fn perform_encode( &self, source: &Path )
-        -> anyhow::Result< ExitStatus >;
+    fn perform_encode( &self, source: &Path ) -> AnyResult<ExitStatus>;
 }
 
 pub struct Task {
@@ -87,29 +88,13 @@ pub struct Task {
     output: PathBuf,
 }
 
-fn main() -> anyhow::Result<()> {
-
-    /*
-     * Setup tracing
-     */
+fn main() -> AnyResult<()> {
 
     ino_tracing::init_tracing_subscriber();
-
-
-    /*
-     * Parse CLI options
-     */
-
-    debug!( "parse cliopts" );
 
     let cliopts = < CliOpts as clap::Parser >::parse();
 
     debug!( ?cliopts );
-
-
-    /*
-     * Get the encoder
-     */
 
     let ( encoder, dir_and_files ): ( &dyn Encoder, _ ) = match cliopts {
         CliOpts::Avif { no_cq, cq_level, input, quality_preset } => {
@@ -277,11 +262,9 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-
         /*
          * Do collected tasks
          */
-
 
         let total_tasks = files_to_encode.len();
 
