@@ -46,7 +46,7 @@ impl crate::Encoder for Avif {
     }
 
     #[ tracing::instrument ]
-    fn perform_encode( &self, input: &Path ) -> AnyResult<ExitStatus> {
+    fn perform( &self, input: &Path ) -> AnyResult<ExitStatus> {
         debug!( "encoding using avifenc" );
 
         let mut avifenc = AVIFENC_PATH.unwrap_or( "avifenc" )

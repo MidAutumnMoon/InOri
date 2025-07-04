@@ -33,7 +33,7 @@ impl crate::Encoder for Despeckle {
     }
 
     #[ tracing::instrument ]
-    fn perform_encode( &self, input: &Path ) -> AnyResult<ExitStatus> {
+    fn perform( &self, input: &Path ) -> AnyResult<ExitStatus> {
 
         let number_of_depseckles =
             std::iter::repeat_n( "-despeckle", self.iteration )

@@ -80,7 +80,7 @@ trait Encoder {
     fn output_extension( &self ) -> &'static str;
 
     /// Run the encoder on `picture`.
-    fn perform_encode( &self, source: &Path ) -> AnyResult<ExitStatus>;
+    fn perform( &self, source: &Path ) -> AnyResult<ExitStatus>;
 }
 
 pub struct Task {
@@ -285,7 +285,7 @@ fn main() -> AnyResult<()> {
                 "{progress_percent} Encode in progress..."
             );
 
-            let encode_status = encoder.perform_encode( file )?;
+            let encode_status = encoder.perform( file )?;
 
             if !encode_status.success() {
                 eprintln!(
