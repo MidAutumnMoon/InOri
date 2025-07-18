@@ -11,6 +11,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ino_result.workspace = true
+ino_tap.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
 tap.workspace = true
