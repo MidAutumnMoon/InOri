@@ -1,16 +1,10 @@
-use std::path::{
-    PathBuf,
-    Path
-};
-
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitStatus;
 
-use anyhow::Result as AnyResult;
+use anyhow::{Context, Result as AnyResult};
+use ino_result::ResultExt;
 use ino_tap::TapExt;
-use tracing::{
-    debug,
-    debug_span,
-};
 use tap::Pipe;
 use tap::Tap;
 
@@ -20,12 +14,7 @@ mod tool;
 mod magick;
 
 /// Name of the directory for storing original pictures.
-pub const ARCHIVE_DIR_NAME: &str = ".backup";
-
-#[ derive( clap::Args, Debug ) ]
-struct CliInput {
-    dir_and_files: Vec<PathBuf>
-}
+pub const BACKUP_DIR_NAME: &str = ".backup";
 
 #[ derive( clap::Args, Debug ) ]
 struct CommonCliOpts {
@@ -42,13 +31,13 @@ enum CliOpts {
         avif: avif::Avif,
 
         #[ command( flatten ) ]
-        input: CliInput,
+        common_opts: CommonCliOpts,
     },
 
     /// Transcode to JXL using "cjxl" (lossless)
     Jxl {
         #[ command( flatten ) ]
-        input: CliInput
+        common_opts: CommonCliOpts,
     },
 
     /// Using imagemagick to remove speckles in picture
@@ -57,7 +46,7 @@ enum CliOpts {
         despeckle: magick::Despeckle,
 
         #[ command( flatten ) ]
-        input: CliInput
+        common_opts: CommonCliOpts,
     },
 }
 
@@ -73,6 +62,12 @@ struct App {
     working_dir: PathBuf,
 }
 
+impl App {
+    fn run( &self ) -> AnyResult<()> {
+        todo!()
+    }
+}
+
 impl TryFrom<CliOpts> for App {
     type Error = anyhow::Error;
 
@@ -86,12 +81,6 @@ impl TryFrom<CliOpts> for App {
     }
 }
 
-#[ derive( Debug ) ]
-pub enum DirOrFiles {
-    Dir( PathBuf ),
-    Files( Vec<PathBuf> ),
-}
-
 trait Transcoder {
     /// Files of such extensions the encoder supported to use as input.
     fn supported_extension( &self, src_ext: &str ) -> bool;
@@ -102,13 +91,21 @@ trait Transcoder {
     fn transcode( &self, source: &Path ) -> AnyResult<ExitStatus>;
 }
 
-fn main() -> AnyResult<()> {
+fn main_but_result() -> AnyResult<()> {
+    CliOpts::parse()
+        .pipe( App::try_from )
+        .context( "Failed to initialize app" )?
+        .pipe( |app| app.run() )
+        .context( "Error when running app" )?
+    ;
+    Ok(())
+}
 
-    fn main_but_result() {}
+fn main() {
 
     ino_tracing::init_tracing_subscriber();
 
-    let cliopts = CliOpts::parse();
+    main_but_result().print_error_exit_process();
 
     // let ( encoder, dir_and_files ): ( Box<dyn Transcoder>, _ ) = match cliopts {
     //     CliOpts::Avif { avif, input } => {
@@ -306,7 +303,5 @@ fn main() -> AnyResult<()> {
     //     }
     //
     // }
-
-    Ok(())
 
 }
