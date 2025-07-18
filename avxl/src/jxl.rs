@@ -22,7 +22,7 @@ impl crate::Transcoder for Jxl {
     /// Jpeg XL has a suprior lossless encoding algorithm which also
     /// doesn't need too much tweaking. These options are used for squashing
     /// out more savings on spaces.
-    fn perform( &self, input: &std::path::Path )
+    fn transcode( &self, input: &std::path::Path )
         -> anyhow::Result< std::process::ExitStatus >
     {
         debug!( "encode using cjxl" );
