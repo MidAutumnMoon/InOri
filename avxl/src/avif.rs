@@ -9,18 +9,32 @@ use anyhow::Result as AnyResult;
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!( "CFG_AVIFENC_PATH" );
 
-#[ derive( Debug ) ]
+#[ derive( Debug, Clone, clap::Args ) ]
+#[ group( id="AvifTranscoder" ) ]
 pub struct Avif {
-    pub no_cq: bool,
-    pub cq_level: u8,
+    /// Apply a preset when transcoding. Has no effect on "--no-cq"
+    /// is supplied.
+    #[ arg( long, short='p' ) ]
+    #[ arg( default_value_t=Avif::default().quality_preset ) ]
     pub quality_preset: QualityPreset,
+
+    /// Opt-out of constant quality mode. May result in worse visual quality.
+    #[ arg( long, short ) ]
+    #[ arg( default_value_t=Avif::default().no_cq ) ]
+    pub no_cq: bool,
+
+    /// Custom constant quality value. Has no effect if "--no-cq"
+    /// is supplied.
+    #[ arg( long, short, ) ]
+    #[ arg( default_value_t=Avif::default().cq_level ) ]
+    pub cq_level: u8,
 }
 
 impl Default for Avif {
     fn default() -> Self {
         Self {
             no_cq: false,
-            cq_level: 20,
+            cq_level: 22,
             quality_preset: QualityPreset::Medium,
         }
     }
@@ -31,6 +45,17 @@ pub enum QualityPreset {
     Low,
     Medium,
     High,
+}
+
+impl std::fmt::Display for QualityPreset {
+    fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+        let r = match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        };
+        f.write_str( r )
+    }
 }
 
 impl crate::Transcoder for Avif {
