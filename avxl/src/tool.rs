@@ -20,7 +20,7 @@ pub fn find_files( parent: &Path ) -> AnyResult<Vec<PathBuf>> {
 
 #[ tracing::instrument( skip_all ) ]
 pub fn filter_by_supported_exts(
-    encoder: &dyn crate::Encoder,
+    encoder: &dyn crate::Transcoder,
     paths: Vec<PathBuf>
 ) -> Vec<PathBuf> {
     let mut collected: Vec<PathBuf> =

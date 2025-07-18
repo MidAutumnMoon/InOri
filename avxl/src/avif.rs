@@ -33,7 +33,7 @@ pub enum QualityPreset {
     High,
 }
 
-impl crate::Encoder for Avif {
+impl crate::Transcoder for Avif {
 
     #[ inline ]
     fn supported_extension( &self, src: &str ) -> bool {

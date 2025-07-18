@@ -73,7 +73,7 @@ pub enum DirOrFiles {
     Files( Vec<PathBuf> ),
 }
 
-trait Encoder {
+trait Transcoder {
     /// Files of such extensions the encoder supported to use as input.
     fn supported_extension( &self, src_ext: &str ) -> bool;
 
@@ -96,7 +96,7 @@ fn main() -> AnyResult<()> {
 
     debug!( ?cliopts );
 
-    let ( encoder, dir_and_files ): ( &dyn Encoder, _ ) = match cliopts {
+    let ( encoder, dir_and_files ): ( &dyn Transcoder, _ ) = match cliopts {
         CliOpts::Avif { no_cq, cq_level, input, quality_preset } => {
             debug!( "AVIF mode" );
             let default = &avif::Avif::default();

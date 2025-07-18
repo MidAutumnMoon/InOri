@@ -7,7 +7,7 @@ const CJXL_PATH: Option<&str> = std::option_env!( "CFG_CJXL_PATH" );
 #[ derive( Debug ) ]
 pub struct Jxl;
 
-impl crate::Encoder for Jxl {
+impl crate::Transcoder for Jxl {
 
     #[ inline ]
     fn supported_extension( &self, src: &str ) -> bool {
