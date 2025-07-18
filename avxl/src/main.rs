@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::path::{
     PathBuf,
     Path
@@ -17,7 +16,7 @@ use tap::Tap;
 mod avif;
 mod jxl;
 mod tool;
-mod imagemagick;
+mod magick;
 
 /// Name of the directory for storing original pictures.
 pub const ARCHIVE_DIR_NAME: &str = ".backup";
@@ -48,7 +47,7 @@ enum CliOpts {
     /// Using imagemagick to remove speckles in picture
     Despeckle {
         #[ command( flatten ) ]
-        despeckle: imagemagick::Despeckle,
+        despeckle: magick::Despeckle,
 
         #[ command( flatten ) ]
         input: CliInput
