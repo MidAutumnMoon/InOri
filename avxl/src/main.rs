@@ -7,12 +7,11 @@ use std::path::{
 use std::process::ExitStatus;
 
 use anyhow::Result as AnyResult;
-
 use tracing::{
     debug,
     debug_span,
 };
-
+use tap::Pipe;
 use tap::Tap;
 
 mod avif;
@@ -28,34 +27,25 @@ struct CliInput {
     dir_and_files: Vec<PathBuf>
 }
 
-/// A CLI tool for converting pictures to AVIF or JXL.
+/// Batch converting pictures between formats.
 #[ derive( clap::Parser, Debug ) ]
 enum CliOpts {
-    /// Encode to **lossy** AVIF using `avifenc`.
+    /// Transcode inputs to AVIF using "avifenc" (lossy)
     Avif {
-        /// Disable constant quality mode.
-        #[ arg( long, short, action, default_value_t=false ) ]
-        no_cq: bool,
-
-        /// Custom CQ level value.
-        #[ arg( long, short ) ]
-        cq_level: Option<u8>,
-
-        /// Predefined quality parameter to use. Effects "qcolor".
-        #[ arg( long, short, default_value="medium" ) ]
-        quality_preset: avif::QualityPreset,
+        #[ command( flatten ) ]
+        avif_args: avif::Avif,
 
         #[ command( flatten ) ]
         input: CliInput,
     },
 
-    /// Encode to **lossless** JXL using `cjxl`.
+    /// Transcode to JXL using "cjxl" (lossless)
     Jxl {
         #[ command( flatten ) ]
         input: CliInput
     },
 
-    /// Remove speckles in picture, using imagemagick.
+    /// Using imagemagick to remove speckles in picture
     Despeckle {
         /// How many despeckles to run on the picture.
         #[ arg( short, long, default_value="1" ) ]
@@ -66,6 +56,12 @@ enum CliOpts {
     },
 }
 
+struct App {
+    cliopts: CliOpts,
+    working_dir: PathBuf,
+}
+
+impl App {}
 
 #[ derive( Debug ) ]
 pub enum DirOrFiles {
@@ -90,35 +86,29 @@ pub struct Task {
 
 fn main() -> AnyResult<()> {
 
+    fn main_but_result() {}
+
     ino_tracing::init_tracing_subscriber();
 
     let cliopts = < CliOpts as clap::Parser >::parse();
 
     debug!( ?cliopts );
 
-    let ( encoder, dir_and_files ): ( &dyn Transcoder, _ ) = match cliopts {
-        CliOpts::Avif { no_cq, cq_level, input, quality_preset } => {
+    let ( encoder, dir_and_files ): ( Box<dyn Transcoder>, _ ) = match cliopts {
+        CliOpts::Avif { avif_args, input } => {
             debug!( "AVIF mode" );
-            let default = &avif::Avif::default();
-            (
-                &avif::Avif {
-                    no_cq,
-                    quality_preset,
-                    cq_level: cq_level.unwrap_or( default.cq_level )
-                },
-                input.dir_and_files
-            )
+            ( Box::new( avif_args ), input.dir_and_files )
         },
         CliOpts::Jxl { input } => {
             debug!( "JXL mode" );
-            ( &jxl::Jxl, input.dir_and_files )
+            ( Box::new( jxl::Jxl ), input.dir_and_files )
         },
         CliOpts::Despeckle { iteration, input } => {
             debug!( "Despeckle" );
             (
-                &imagemagick::Despeckle {
+                imagemagick::Despeckle {
                     iteration: iteration.get()
-                },
+                }.pipe( Box::new ),
                 input.dir_and_files
             )
         }
@@ -198,7 +188,6 @@ fn main() -> AnyResult<()> {
 
         let files_to_encode: Vec<PathBuf>;
 
-
         /*
          * Unwrap dir_and_files to construct tasks
          */
@@ -213,13 +202,13 @@ fn main() -> AnyResult<()> {
                 archive_after_encode = true;
                 archive_dir = Some( dir.join( ARCHIVE_DIR_NAME ) );
                 files_to_encode = tool::filter_by_supported_exts(
-                    encoder, tool::find_files( &dir )?
+                    &encoder, tool::find_files( &dir )?
                 );
 
             },
             // If it is file otherwise, the files are already the tasks.
             DirOrFiles::Files( files ) => {
-                let files = tool::filter_by_supported_exts( encoder, files );
+                let files = tool::filter_by_supported_exts( &encoder, files );
                 // ...so that app won't print "Checking 0 files"
                 if files.is_empty() { continue }
                 eprintln!(
