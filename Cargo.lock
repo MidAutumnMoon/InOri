@@ -171,6 +171,7 @@ dependencies = [
  "itertools 0.14.0",
  "tap",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]
