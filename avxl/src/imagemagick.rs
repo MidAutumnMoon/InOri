@@ -20,7 +20,7 @@ impl Default for Despeckle {
     }
 }
 
-impl crate::Encoder for Despeckle {
+impl crate::Transcoder for Despeckle {
 
     #[ inline ]
     fn supported_extension( &self, src: &str ) -> bool {
