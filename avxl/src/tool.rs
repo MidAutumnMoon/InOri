@@ -1,6 +1,9 @@
-use std::path::{ Path, PathBuf };
+use std::path::Path;
+use std::path::PathBuf;
 
+use anyhow::Context;
 use anyhow::Result as AnyResult;
+use tap::Pipe;
 use tracing::debug;
 
 #[ tracing::instrument ]
@@ -50,4 +53,27 @@ pub fn filter_by_supported_exts(
     }
 
     collected
+}
+
+#[ tracing::instrument( skip( filter ) ) ]
+pub fn list_pictures_recursively<F>( topleve: &Path, filter: F )
+    -> AnyResult<Vec<PathBuf>>
+where
+    F: Fn( &str ) -> bool,
+{
+    todo!()
+}
+
+pub trait UnwrapOrCwd {
+    fn unwrap_or_cwd( self ) -> AnyResult<PathBuf>;
+}
+
+impl UnwrapOrCwd for Option<PathBuf> {
+    fn unwrap_or_cwd( self ) -> AnyResult<PathBuf> {
+        match self {
+            Some( w ) => w,
+            None => std::env::current_dir()
+                .context( "Failed to get current directory" )?,
+        }.pipe( Ok )
+    }
 }

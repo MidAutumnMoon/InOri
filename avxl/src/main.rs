@@ -5,8 +5,13 @@ use std::process::ExitStatus;
 use anyhow::{Context, Result as AnyResult};
 use ino_result::ResultExt;
 use ino_tap::TapExt;
+use itertools::Itertools;
 use tap::Pipe;
 use tap::Tap;
+use tracing::debug;
+
+use crate::tool::list_pictures_recursively;
+use crate::tool::UnwrapOrCwd;
 
 mod avif;
 mod jxl;
@@ -59,7 +64,7 @@ impl CliOpts {
 
 struct App {
     transcoder: Box<dyn Transcoder>,
-    working_dir: PathBuf,
+    pictures: Vec<Picture>,
 }
 
 impl App {
@@ -73,11 +78,38 @@ impl TryFrom<CliOpts> for App {
 
     #[ tracing::instrument( name="app_from_cliopts" ) ]
     fn try_from( cliopts: CliOpts ) -> AnyResult<Self> {
-        use CliOpts::*;
-        // match cliopts {
-        //     Avif
-        // }
-        todo!()
+        let transcoder: Box<dyn Transcoder>;
+        let working_dir: Option<PathBuf>;
+
+        match cliopts {
+            CliOpts::Avif { avif, common_opts } => {
+                debug!( "avif transcoder" );
+                working_dir = common_opts.working_dir;
+                transcoder = Box::new( avif );
+            },
+            CliOpts::Jxl { common_opts } => {
+                debug!( "jxl transcoder" );
+                transcoder = Box::new( jxl::Jxl );
+                working_dir = common_opts.working_dir;
+            },
+            CliOpts::Despeckle { despeckle, common_opts } => {
+                debug!( "despeckle transcoder" );
+                transcoder = Box::new( despeckle );
+                working_dir = common_opts.working_dir;
+            }
+        }
+
+        let working_dir = working_dir.unwrap_or_cwd()?;
+
+        let pictures =
+            list_pictures_recursively( &working_dir,
+                |ext| transcoder.supported_extension( ext ) )
+            .context( "Error while listing pictures" )?
+            .into_iter()
+            .map( |it| Picture::new( it, transcoder.output_extension() ) )
+            .collect_vec();
+
+        Ok( Self { transcoder, pictures } )
     }
 }
 
@@ -91,41 +123,33 @@ trait Transcoder {
     fn transcode( &self, source: &Path ) -> AnyResult<ExitStatus>;
 }
 
-fn main_but_result() -> AnyResult<()> {
-    CliOpts::parse()
-        .pipe( App::try_from )
-        .context( "Failed to initialize app" )?
-        .pipe( |app| app.run() )
-        .context( "Error when running app" )?
-    ;
-    Ok(())
+struct Picture {
+    src: PathBuf,
+    dst: PathBuf,
+    backup: PathBuf,
+}
+
+impl Picture {
+    fn new( src: PathBuf, output_ext: &'static str ) -> Self {
+        todo!()
+    }
 }
 
 fn main() {
 
+    fn main_but_result() -> AnyResult<()> {
+        CliOpts::parse()
+            .pipe( App::try_from )
+            .context( "Failed to initialize app" )?
+            .pipe( |app| app.run() )
+            .context( "Error while running app" )?
+        ;
+        Ok(())
+    }
+
     ino_tracing::init_tracing_subscriber();
 
     main_but_result().print_error_exit_process();
-
-    // let ( encoder, dir_and_files ): ( Box<dyn Transcoder>, _ ) = match cliopts {
-    //     CliOpts::Avif { avif, input } => {
-    //         debug!( "AVIF mode" );
-    //         ( Box::new( avif ), input.dir_and_files )
-    //     },
-    //     CliOpts::Jxl { input } => {
-    //         debug!( "JXL mode" );
-    //         ( Box::new( jxl::Jxl ), input.dir_and_files )
-    //     },
-    //     CliOpts::Despeckle { despeckle, input } => {
-    //         debug!( "Despeckle" );
-    //         ( Box::new( despeckle ), input.dir_and_files )
-    //     }
-    // };
-
-
-    /*
-     * Sanitize input
-     */
 
     // let dir_and_files = if dir_and_files.is_empty() {
     //     debug!( "CLI provided input is empty, use PWD" );
