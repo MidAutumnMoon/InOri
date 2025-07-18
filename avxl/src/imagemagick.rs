@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::process::ExitStatus;
 use std::path::Path;
 use itertools::Itertools;
@@ -9,14 +10,19 @@ use anyhow::Result as AnyResult;
 /// Path to the "avifenc" executable.
 const MAGICK_PATH: Option<&str> = std::option_env!( "CFG_MAGICK_PATH" );
 
-#[ derive( Debug ) ]
+#[ derive( Debug, clap::Args ) ]
+#[ group( id="DespeckleTranscoder" ) ]
 pub struct Despeckle {
-    pub iteration: usize,
+    /// How many despeckle passes to run on the picture
+    #[ arg( long, short ) ]
+    #[ arg( default_value_t=Self::default().iteration ) ]
+    pub iteration: NonZeroUsize,
 }
 
 impl Default for Despeckle {
     fn default() -> Self {
-        Self { iteration: 1 }
+        #[ allow( clippy::unwrap_used ) ]
+        Self { iteration: NonZeroUsize::new( 1 ).unwrap() }
     }
 }
 
@@ -36,7 +42,7 @@ impl crate::Transcoder for Despeckle {
     fn transcode( &self, input: &Path ) -> AnyResult<ExitStatus> {
 
         let number_of_depseckles =
-            std::iter::repeat_n( "-despeckle", self.iteration )
+            std::iter::repeat_n( "-despeckle", self.iteration.into() )
             .collect_vec()
         ;
 
