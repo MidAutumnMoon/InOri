@@ -33,7 +33,7 @@ enum CliOpts {
     /// Transcode inputs to AVIF using "avifenc" (lossy)
     Avif {
         #[ command( flatten ) ]
-        avif_args: avif::Avif,
+        avif: avif::Avif,
 
         #[ command( flatten ) ]
         input: CliInput,
@@ -47,9 +47,8 @@ enum CliOpts {
 
     /// Using imagemagick to remove speckles in picture
     Despeckle {
-        /// How many despeckles to run on the picture.
-        #[ arg( short, long, default_value="1" ) ]
-        iteration: NonZeroUsize,
+        #[ command( flatten ) ]
+        despeckle: imagemagick::Despeckle,
 
         #[ command( flatten ) ]
         input: CliInput
@@ -95,22 +94,17 @@ fn main() -> AnyResult<()> {
     debug!( ?cliopts );
 
     let ( encoder, dir_and_files ): ( Box<dyn Transcoder>, _ ) = match cliopts {
-        CliOpts::Avif { avif_args, input } => {
+        CliOpts::Avif { avif, input } => {
             debug!( "AVIF mode" );
-            ( Box::new( avif_args ), input.dir_and_files )
+            ( Box::new( avif ), input.dir_and_files )
         },
         CliOpts::Jxl { input } => {
             debug!( "JXL mode" );
             ( Box::new( jxl::Jxl ), input.dir_and_files )
         },
-        CliOpts::Despeckle { iteration, input } => {
+        CliOpts::Despeckle { despeckle, input } => {
             debug!( "Despeckle" );
-            (
-                imagemagick::Despeckle {
-                    iteration: iteration.get()
-                }.pipe( Box::new ),
-                input.dir_and_files
-            )
+            ( Box::new( despeckle ), input.dir_and_files )
         }
     };
 
