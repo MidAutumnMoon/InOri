@@ -33,7 +33,7 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[ tracing::instrument ]
-    fn perform( &self, input: &Path ) -> AnyResult<ExitStatus> {
+    fn transcode( &self, input: &Path ) -> AnyResult<ExitStatus> {
 
         let number_of_depseckles =
             std::iter::repeat_n( "-despeckle", self.iteration )
