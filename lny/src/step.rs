@@ -241,11 +241,10 @@ impl Step {
             );
         }
 
+        // if dst does not exist, replace essentially becomes create
+        // with extra steps
         if matches!( dst_fact, DstFact::NotExist ) {
-            debug!( "dst not exist, can't replace" );
-            bail!( r#"Symlink "{}" does not exist, can't replace"#,
-                dst.display()
-            );
+            debug!( "dst not exist, ignore" );
         }
 
         // N.B. early retrun
