@@ -113,8 +113,10 @@ impl TryFrom<CliOpts> for App {
     }
 }
 
+type StaticStrs = &'static [ &'static str ];
+
 trait Transcoder {
-    fn input_extensions( &self ) -> &'static [&'static str];
+    fn input_extensions( &self ) -> StaticStrs;
     fn output_extension( &self ) -> &'static str;
     fn transcode( &self, src: &Path ) -> AnyResult<ExitStatus>;
 }

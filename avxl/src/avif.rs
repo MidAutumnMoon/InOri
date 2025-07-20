@@ -6,6 +6,8 @@ use tap::Tap;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 
+use crate::StaticStrs;
+
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!( "CFG_AVIFENC_PATH" );
 
@@ -61,7 +63,7 @@ impl std::fmt::Display for QualityPreset {
 impl crate::Transcoder for Avif {
 
     #[ inline ]
-    fn input_extensions( &self ) -> &'static [&'static str] {
+    fn input_extensions( &self ) -> StaticStrs {
         &[ "png", "jpg", "jpeg", "y4m" ]
     }
 

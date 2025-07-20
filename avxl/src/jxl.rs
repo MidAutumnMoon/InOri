@@ -1,6 +1,8 @@
 use tracing::debug;
 use tap::Tap;
 
+use crate::StaticStrs;
+
 /// Path to the "cjxl" executable.
 const CJXL_PATH: Option<&str> = std::option_env!( "CFG_CJXL_PATH" );
 
@@ -10,7 +12,7 @@ pub struct Jxl;
 impl crate::Transcoder for Jxl {
 
     #[ inline ]
-    fn input_extensions( &self ) -> &'static [&'static str] {
+    fn input_extensions( &self ) -> StaticStrs {
         &[ "png", "jpg", "jpeg", "apng", "gif" ]
     }
 
