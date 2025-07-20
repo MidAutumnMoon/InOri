@@ -70,7 +70,7 @@ struct App {
 impl TryFrom<CliOpts> for App {
     type Error = anyhow::Error;
 
-    #[ tracing::instrument( name="app_from_cliopts" ) ]
+    #[ tracing::instrument( name="app_from_cliopts", skip_all ) ]
     fn try_from( cliopts: CliOpts ) -> AnyResult<Self> {
         let transcoder: Box<dyn Transcoder>;
         let working_dir: Option<PathBuf>;
@@ -105,6 +105,7 @@ impl TryFrom<CliOpts> for App {
 }
 
 impl App {
+    #[ tracing::instrument( name="app_run", skip_all ) ]
     fn run( &self ) -> AnyResult<()> {
         todo!()
     }
@@ -119,15 +120,12 @@ trait Transcoder {
 }
 
 struct Picture {
-    src: PathBuf,
-    dst: PathBuf,
+    input: PathBuf,
+    output: PathBuf,
     backup: PathBuf,
 }
 
 impl Picture {
-    fn new( src: PathBuf, output_ext: &'static str ) -> Self {
-        todo!()
-    }
 }
 
 fn main() {
