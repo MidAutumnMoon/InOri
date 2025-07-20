@@ -55,7 +55,10 @@ use tracing::debug;
 // }
 
 #[ tracing::instrument( skip( filter ) ) ]
-pub fn list_pictures_recursively<F>( topleve: &Path, filter: F )
+pub fn list_pictures_recursively<F>(
+    topleve: &Path,
+    filter: F,
+)
     -> AnyResult<Vec<PathBuf>>
 where
     F: Fn( &str ) -> bool,

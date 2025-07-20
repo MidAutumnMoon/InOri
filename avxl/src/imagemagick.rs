@@ -7,6 +7,8 @@ use tap::Tap;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 
+use crate::StaticStrs;
+
 /// Path to the "avifenc" executable.
 const MAGICK_PATH: Option<&str> = std::option_env!( "CFG_MAGICK_PATH" );
 
@@ -29,7 +31,7 @@ impl Default for Despeckle {
 impl crate::Transcoder for Despeckle {
 
     #[ inline ]
-    fn input_extensions( &self ) -> &'static [&'static str] {
+    fn input_extensions( &self ) -> StaticStrs {
         &[ "png", "jpg", "jpeg" ]
     }
 
