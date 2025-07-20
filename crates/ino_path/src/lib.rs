@@ -3,6 +3,8 @@ pub use is_executable::IsExecutable;
 use tap::Pipe;
 
 use std::io;
+use std::io::ErrorKind;
+use std::io::Result as IoResult;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -19,6 +21,9 @@ pub trait PathExt {
     /// symlinks automatically.
     fn try_exists_no_traverse( &self ) -> io::Result<bool>;
 
+    /// Like [`Path::is_dir`], but **does not** traverse symlink.
+    fn is_dir_no_traverse( &self ) -> IoResult<bool>;
+
     /// Like [`Path::is_absolute`], but returns error if
     /// this path is not absolute.
     fn must_absolute( &self ) -> Result<&Self, PathExtError>;
@@ -27,7 +32,6 @@ pub trait PathExt {
 impl PathExt for Path {
     #[ inline ]
     fn try_exists_no_traverse( &self ) -> io::Result<bool> {
-        use std::io::ErrorKind;
         match self.symlink_metadata() {
             Err( err ) => {
                 match err.kind() {
@@ -37,6 +41,11 @@ impl PathExt for Path {
             },
             Ok( _ ) => Ok( true )
         }
+    }
+
+    #[ inline ]
+    fn is_dir_no_traverse( &self ) -> IoResult<bool> {
+        self.symlink_metadata().map( |m| m.is_dir() )
     }
 
     #[ inline ]
@@ -82,4 +91,18 @@ mod test {
         assert!( p.try_exists_no_traverse().unwrap() );
     }
 
+    #[ test ]
+    fn is_dir_no_traverse() {
+        let top = make_tempdir!();
+        let p1 = top.child( "p1" );
+
+        p1.create_dir_all().unwrap();
+        assert!( p1.is_dir_no_traverse().unwrap() );
+
+        let p2 = top.child( "p2" );
+        let p3 = top.child( "p3" );
+        p2.create_dir_all().unwrap();
+        p3.symlink_to_dir( p2 ).unwrap();
+        assert!( !p3.is_dir_no_traverse().unwrap() );
+    }
 }
