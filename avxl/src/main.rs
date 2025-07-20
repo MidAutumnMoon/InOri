@@ -16,7 +16,7 @@ use crate::tool::UnwrapOrCwd;
 mod avif;
 mod jxl;
 mod tool;
-mod magick;
+mod imagemagick;
 
 /// Name of the directory for storing original pictures.
 pub const BACKUP_DIR_NAME: &str = ".backup";
@@ -48,7 +48,7 @@ enum CliOpts {
     /// Using imagemagick to remove speckles in picture
     Despeckle {
         #[ command( flatten ) ]
-        despeckle: magick::Despeckle,
+        despeckle: imagemagick::Despeckle,
 
         #[ command( flatten ) ]
         common_opts: CommonCliOpts,
@@ -120,7 +120,7 @@ trait Transcoder {
     fn output_extension( &self ) -> &'static str;
 
     /// Run the encoder on `picture`.
-    fn transcode( &self, source: &Path ) -> AnyResult<ExitStatus>;
+    fn transcode( &self, src: &Path ) -> AnyResult<ExitStatus>;
 }
 
 struct Picture {
