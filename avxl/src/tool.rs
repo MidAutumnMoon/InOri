@@ -1,13 +1,19 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use ino_path::PathExt;
 use tap::Pipe;
 use tracing::debug;
+use tracing::debug_span;
+use tracing::trace;
+use walkdir::WalkDir;
 
 use crate::Picture;
 use crate::StaticStrs;
+use crate::BACKUP_DIR_NAME;
 
 // #[ tracing::instrument ]
 // pub fn find_files( parent: &Path ) -> AnyResult<Vec<PathBuf>> {
@@ -65,7 +71,52 @@ pub fn list_pictures_recursively(
 )
     -> AnyResult<Vec<Picture>>
 {
-    todo!()
+    debug!( "list all files" );
+
+    let mut input_files = vec![];
+    for entry in WalkDir::new( topleve ).follow_links( false ) {
+        let entry = entry.context( "Failed to read entry" )?;
+        let path = entry.path();
+        let _span = debug_span!( "inspect_path", ?path ).entered();
+
+        if path.is_dir_no_traverse()? {
+            trace!( "dir, ignore" );
+            continue;
+        }
+
+        if let Some( ext ) = path.extension()
+            && let Some( ext ) = ext.to_str()
+            && input_extensions.contains( &ext )
+        {
+            trace!( ?path, "found picture" );
+            input_files.push( path.to_owned() );
+        } else {
+            trace!( ?path, "ignore path, ext not supported" );
+        }
+    }
+
+    let mut pictures = vec![];
+    for input in input_files {
+        let _span = debug_span!( "path_to_picture", ?input ).entered();
+        let output = {
+            let mut p = input.clone();
+            if !p.set_extension( output_extension ) {
+                bail!( "[BUG] Failed to set extension for {}", input.display() );
+            }
+            p
+        };
+        let backup = {
+            let Ok( base ) = input.strip_prefix( topleve ) else {
+                bail!( "[BUG] Failed to remove toplevel prefix" );
+            };
+            topleve
+                .join( BACKUP_DIR_NAME )
+                .join( base )
+        };
+        pictures.push( Picture { input, output, backup, } );
+    }
+
+    Ok( pictures )
 }
 
 pub trait UnwrapOrCwd {
