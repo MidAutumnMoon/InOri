@@ -100,14 +100,11 @@ impl TryFrom<CliOpts> for App {
         }
 
         let working_dir = working_dir.unwrap_or_cwd()?;
-
         let pictures =
             list_pictures_recursively( &working_dir,
-                |ext| transcoder.input_extensions().contains( &ext ) )
-            .context( "Error while listing pictures" )?
-            .into_iter()
-            .map( |it| Picture::new( it, transcoder.output_extension() ) )
-            .collect_vec();
+                transcoder.input_extensions(),
+                transcoder.output_extension()
+            ).context( "Failed to list pictures" )?;
 
         Ok( Self { transcoder, pictures } )
     }
