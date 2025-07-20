@@ -61,8 +61,8 @@ impl std::fmt::Display for QualityPreset {
 impl crate::Transcoder for Avif {
 
     #[ inline ]
-    fn supported_extension( &self, src: &str ) -> bool {
-        matches!( src, "png" | "jpg" | "jpeg" | "y4m" )
+    fn input_extensions( &self ) -> &'static [&'static str] {
+        &[ "png", "jpg", "jpeg", "y4m" ]
     }
 
     #[ inline ]
