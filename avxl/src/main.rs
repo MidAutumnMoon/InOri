@@ -67,12 +67,6 @@ struct App {
     pictures: Vec<Picture>,
 }
 
-impl App {
-    fn run( &self ) -> AnyResult<()> {
-        todo!()
-    }
-}
-
 impl TryFrom<CliOpts> for App {
     type Error = anyhow::Error;
 
@@ -107,6 +101,12 @@ impl TryFrom<CliOpts> for App {
             ).context( "Failed to list pictures" )?;
 
         Ok( Self { transcoder, pictures } )
+    }
+}
+
+impl App {
+    fn run( &self ) -> AnyResult<()> {
+        todo!()
     }
 }
 
