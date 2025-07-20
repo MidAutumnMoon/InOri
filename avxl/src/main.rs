@@ -103,7 +103,7 @@ impl TryFrom<CliOpts> for App {
 
         let pictures =
             list_pictures_recursively( &working_dir,
-                |ext| transcoder.supported_extension( ext ) )
+                |ext| transcoder.input_extensions().contains( &ext ) )
             .context( "Error while listing pictures" )?
             .into_iter()
             .map( |it| Picture::new( it, transcoder.output_extension() ) )
@@ -114,12 +114,8 @@ impl TryFrom<CliOpts> for App {
 }
 
 trait Transcoder {
-    /// Files of such extensions the encoder supported to use as input.
-    fn supported_extension( &self, src_ext: &str ) -> bool;
-
+    fn input_extensions( &self ) -> &'static [&'static str];
     fn output_extension( &self ) -> &'static str;
-
-    /// Run the encoder on `picture`.
     fn transcode( &self, src: &Path ) -> AnyResult<ExitStatus>;
 }
 

@@ -29,8 +29,8 @@ impl Default for Despeckle {
 impl crate::Transcoder for Despeckle {
 
     #[ inline ]
-    fn supported_extension( &self, src: &str ) -> bool {
-        matches!( src, "png" | "jpg" | "jpeg" )
+    fn input_extensions( &self ) -> &'static [&'static str] {
+        &[ "png", "jpg", "jpeg" ]
     }
 
     #[ inline ]

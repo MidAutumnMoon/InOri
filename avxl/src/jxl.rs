@@ -10,8 +10,8 @@ pub struct Jxl;
 impl crate::Transcoder for Jxl {
 
     #[ inline ]
-    fn supported_extension( &self, src: &str ) -> bool {
-        matches!( src, "png" | "jpg" | "jpeg" | "apng" | "gif" )
+    fn input_extensions( &self ) -> &'static [&'static str] {
+        &[ "png", "jpg", "jpeg", "apng", "gif" ]
     }
 
     #[ inline ]
