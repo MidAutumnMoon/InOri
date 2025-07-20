@@ -6,6 +6,9 @@ use anyhow::Result as AnyResult;
 use tap::Pipe;
 use tracing::debug;
 
+use crate::Picture;
+use crate::StaticStrs;
+
 // #[ tracing::instrument ]
 // pub fn find_files( parent: &Path ) -> AnyResult<Vec<PathBuf>> {
 //     debug!( "collect files" );
@@ -54,14 +57,13 @@ use tracing::debug;
 //     collected
 // }
 
-#[ tracing::instrument( skip( filter ) ) ]
-pub fn list_pictures_recursively<F>(
+#[ tracing::instrument( skip_all ) ]
+pub fn list_pictures_recursively(
     topleve: &Path,
-    filter: F,
+    input_extensions: StaticStrs,
+    output_extension: &'static str,
 )
-    -> AnyResult<Vec<PathBuf>>
-where
-    F: Fn( &str ) -> bool,
+    -> AnyResult<Vec<Picture>>
 {
     todo!()
 }
