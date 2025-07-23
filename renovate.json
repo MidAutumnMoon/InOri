@@ -3,31 +3,15 @@
     "$schema": "https://docs.renovatebot.com/renovate-schema.json",
 
     "extends": [
-        "config:recommended"
+        "config:recommended",
+        ":maintainLockFilesWeekly",
+        ":automergeBranch",
+        ":automergeDigest",
+        ":automergeMinor",
+        ":automergePatch"
     ],
 
     "automergeStrategy": "rebase",
     "fetchChangeLogs": "branch",
-    "automergeType": "branch",
-
-    "lockFileMaintenance": {
-        "enabled": true,
-        "automerge": true
-    },
-
-    "packageRules": [
-        {
-            "matchUpdateTypes": [ "minor", "patch", "pin", "digest" ],
-            "automerge": true
-        },
-        {
-            "matchDepTypes": [ "devDependencies" ],
-            "automerge": true
-        },
-        {
-            "matchCategories": [ "ci" ],
-            "automerge": false
-        }
-    ]
 
 }
