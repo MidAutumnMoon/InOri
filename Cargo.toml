@@ -16,7 +16,7 @@ authors = [ "MidAutumnMoon" ]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/MidAutumnMoon/InOri"
 edition = "2024"
-rust-version = "1.88.0"
+rust-version = "1.89.0"
 
 #
 # Dependencies
