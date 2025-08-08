@@ -241,23 +241,23 @@ where
 {
     #[ doc = METHOD_NOTE!( fg ) ]
     #[ inline ]
-    fn fg<F: FG>( &self ) -> Painter<Self, F> {
+    fn fg<F: FG>( &self ) -> Painter<'_, Self, F> {
         should_colorize_snippet!( self )
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
     #[ inline ]
-    fn style<S: Style>( &self ) -> Painter<Self, S> {
+    fn style<S: Style>( &self ) -> Painter<'_, Self, S> {
         should_colorize_snippet!( self )
     }
 
     #[ inline ]
-    fn fg_always<F: FG>( &self ) -> Painter<Self, F> {
+    fn fg_always<F: FG>( &self ) -> Painter<'_, Self, F> {
         Painter::new::<true>( self )
     }
 
     #[ inline ]
-    fn style_always<S: Style>( &self ) -> Painter<Self, S> {
+    fn style_always<S: Style>( &self ) -> Painter<'_, Self, S> {
         Painter::new::<true>( self )
     }
 }
