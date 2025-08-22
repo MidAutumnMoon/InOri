@@ -12,6 +12,6 @@
     ],
 
     "automergeStrategy": "rebase",
-    "fetchChangeLogs": "branch",
+    "fetchChangeLogs": "branch"
 
 }
