@@ -1,71 +1,69 @@
-use std::num::NonZeroUsize;
-use std::process::ExitStatus;
-use std::path::Path;
-use itertools::Itertools;
-use tap::Pipe;
-use tap::Tap;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use itertools::Itertools;
+use std::num::NonZeroUsize;
+use std::process::ExitStatus;
+use tap::Pipe;
 
-use crate::StaticStrs;
+use crate::PictureFormat;
+use crate::Task;
 
 /// Path to the "avifenc" executable.
-const MAGICK_PATH: Option<&str> = std::option_env!( "CFG_MAGICK_PATH" );
+const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 
-#[ derive( Debug, clap::Args ) ]
-#[ group( id="DespeckleTranscoder" ) ]
+#[derive(Debug, clap::Args)]
+#[group(id = "DespeckleTranscoder")]
 pub struct Despeckle {
     /// How many despeckle passes to run on the picture
-    #[ arg( long, short ) ]
+    #[arg(long, short)]
     #[ arg( default_value_t=Self::default().iteration ) ]
     pub iteration: NonZeroUsize,
 }
 
 impl Default for Despeckle {
     fn default() -> Self {
-        #[ allow( clippy::unwrap_used ) ]
-        Self { iteration: NonZeroUsize::new( 1 ).unwrap() }
+        #[allow(clippy::unwrap_used)]
+        Self {
+            iteration: NonZeroUsize::new(1).unwrap(),
+        }
     }
 }
 
 impl crate::Transcoder for Despeckle {
-
-    #[ inline ]
-    fn input_extensions( &self ) -> StaticStrs {
-        &[ "png", "jpg", "jpeg" ]
+    fn id(&self) -> &'static str {
+        "despeckel"
     }
 
-    #[ inline ]
-    fn output_extension( &self ) -> &'static str {
-        "png"
+    #[inline]
+    fn input(&self) -> &'static [PictureFormat] {
+        &[PictureFormat::PNG, PictureFormat::JPG]
     }
 
-    #[ tracing::instrument ]
-    fn transcode( &self, input: &Path ) -> AnyResult<ExitStatus> {
+    #[inline]
+    fn output(&self) -> PictureFormat {
+        PictureFormat::PNG
+    }
 
+    #[tracing::instrument]
+    fn transcode(&self, task: Task) -> AnyResult<ExitStatus> {
         let number_of_depseckles =
-            std::iter::repeat_n( "-despeckle", self.iteration.into() )
-            .collect_vec()
-        ;
+            std::iter::repeat_n("-despeckle", self.iteration.into())
+                .collect_vec();
 
-        let mut magick = MAGICK_PATH.unwrap_or( "magick" )
-            .pipe( std::process::Command::new );
-
-        // TODO: we also accepts .png, this will cause conflict
-        let output = input.to_owned()
-            .tap_mut( |it| { it.set_extension( "png" ); } );
+        let mut magick = MAGICK_PATH
+            .unwrap_or("magick")
+            .pipe(std::process::Command::new);
 
         let status = magick
-            .arg( "-verbose" )
-            .arg( "--" )
-            .arg( input )
-            .args( number_of_depseckles )
-            .arg( output )
+            .arg("-verbose")
+            .arg("--")
+            .arg(&task.src)
+            .args(number_of_depseckles)
+            .arg(&task.dst)
             .spawn()
-            .context( "Failed to run magick" )?
+            .context("Failed to run magick")?
             .wait()?;
 
-        Ok( status )
+        Ok(status)
     }
-
 }

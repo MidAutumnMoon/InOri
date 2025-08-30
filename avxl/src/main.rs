@@ -1,148 +1,225 @@
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
-use anyhow::{Context, Result as AnyResult};
+use anyhow::Context;
+use anyhow::Result as AnyResult;
+use anyhow::bail;
+use anyhow::ensure;
 use ino_result::ResultExt;
-use ino_tap::TapExt;
-use itertools::Itertools;
-use tap::Pipe;
-use tap::Tap;
 use tracing::debug;
 
-use crate::tool::list_pictures_recursively;
-use crate::tool::UnwrapOrCwd;
-
 mod avif;
+mod fs;
+mod imagemagick;
 mod jxl;
 mod tool;
-mod imagemagick;
 
 /// Name of the directory for storing original pictures.
 pub const BACKUP_DIR_NAME: &str = ".backup";
 
-#[ derive( clap::Args, Debug ) ]
-struct CommonCliOpts {
-    #[ arg( long, short ) ]
-    working_dir: Option<PathBuf>,
+/// Name of the directory for stashing temporary files.
+/// The work directory should be on the same filesystem
+/// as the root directory to avoid cross fs moving.
+pub const WORK_DIR_NAME: &str = ".work";
+
+/// Tag the transcoded pictures with this name in xattr.
+pub const XATTR_TRANSCODE_OUTPUT: &str = "user.avxl-output";
+
+// ...unused
+pub const XATTR_BACKUP_DIR: &str = "user.avxl-backup-dir";
+pub const XATTR_WORK_DIR: &str = "user.avxl-work-dir";
+
+#[derive(clap::Args, Debug)]
+struct SharedCliOpts {
+    /// (unimplemented) Abort transcoding when first error occurred.
+    #[arg(long)]
+    abort_on_error: bool,
+
+    /// (to write...)
+    /// Defaults to PWD.
+    #[arg(long, short = 'r')]
+    root_dir: Option<PathBuf>,
+
+    /// Don't put original pictures into backup directory
+    /// after transcoding.
+    #[arg(long, short = 'b')]
+    #[arg(default_value_t = false)]
+    skip_backup: bool,
+
+    /// Allow processing pictures marked as already transcoded
+    /// by ignoring the xattr check.
+    #[arg(long, short = 'i')]
+    #[arg(default_value_t = false)]
+    ignore_tag: bool,
+
+    /// Manually choose pictures to transcode. Paths should be
+    /// relative to or be a subdirectory of `root_dir`.
+    /// When specified, it disables recursive picture discovering
+    /// and implies `skip_backup` and `ignore_tag`.
+    #[arg(last = true)]
+    selection: Option<Vec<PathBuf>>,
 }
 
+#[derive(Debug)]
 /// Batch converting pictures between formats.
-#[ derive( clap::Parser, Debug ) ]
+#[derive(clap::Parser)]
 enum CliOpts {
-    /// Transcode inputs to AVIF using "avifenc" (lossy)
+    /// (Lossy) Encode pictures into AVIF.
     Avif {
-        #[ command( flatten ) ]
-        avif: avif::Avif,
-
-        #[ command( flatten ) ]
-        common_opts: CommonCliOpts,
+        #[command(flatten)]
+        transcoder: avif::Avif,
+        #[command(flatten)]
+        shared: SharedCliOpts,
     },
 
-    /// Transcode to JXL using "cjxl" (lossless)
+    /// (Lossless) Encode pictures into JXL.
     Jxl {
-        #[ command( flatten ) ]
-        common_opts: CommonCliOpts,
+        #[command(flatten)]
+        transcoder: jxl::Jxl,
+        #[command(flatten)]
+        shared: SharedCliOpts,
     },
 
-    /// Using imagemagick to remove speckles in picture
+    /// Despeckle pictures using imagemagick.
     Despeckle {
-        #[ command( flatten ) ]
-        despeckle: imagemagick::Despeckle,
-
-        #[ command( flatten ) ]
-        common_opts: CommonCliOpts,
+        #[command(flatten)]
+        transcoder: imagemagick::Despeckle,
+        #[command(flatten)]
+        shared: SharedCliOpts,
     },
+
+    /// (unimplemented) Generate shell completion
+    Completion,
+    // Dwebp?
+    // Clean-up scans?
+    // Pipeline?
 }
 
 impl CliOpts {
-    #[ tracing::instrument( name="cliopts_parse" ) ]
+    fn unwrap(self) -> AnyResult<(Box<dyn Transcoder>, SharedCliOpts)> {
+        // TODO: reduce the boilerplate?
+        let (t, s) = match self {
+            Self::Avif { transcoder, shared } => {
+                (Box::new(transcoder) as Box<dyn Transcoder>, shared)
+            }
+            Self::Jxl { transcoder, shared } => {
+                (Box::new(transcoder) as Box<dyn Transcoder>, shared)
+            }
+            Self::Despeckle { transcoder, shared } => {
+                (Box::new(transcoder) as Box<dyn Transcoder>, shared)
+            }
+            Self::Completion => bail!("[BUG] Shouldn't unwrap this cliopt"),
+        };
+        debug!("transcoder is {}", t.id());
+        Ok((t, s))
+    }
+
     fn parse() -> Self {
-        <Self as clap::Parser>::parse().tap_trace()
+        <Self as clap::Parser>::parse()
     }
 }
 
 struct App {
     transcoder: Box<dyn Transcoder>,
-    pictures: Vec<Picture>,
+    root_dir: PathBuf,
+    backup_dir: PathBuf,
+    work_dir: PathBuf,
+    skip_backup: bool,
 }
 
 impl TryFrom<CliOpts> for App {
     type Error = anyhow::Error;
 
-    #[ tracing::instrument( name="app_from_cliopts", skip_all ) ]
-    fn try_from( cliopts: CliOpts ) -> AnyResult<Self> {
-        let transcoder: Box<dyn Transcoder>;
-        let working_dir: Option<PathBuf>;
+    #[tracing::instrument(name = "app_from_cliopts", skip_all)]
+    fn try_from(cliopts: CliOpts) -> AnyResult<Self> {
+        let (transcoder, shared) = cliopts.unwrap()?;
 
-        match cliopts {
-            CliOpts::Avif { avif, common_opts } => {
-                debug!( "avif transcoder" );
-                working_dir = common_opts.working_dir;
-                transcoder = Box::new( avif );
-            },
-            CliOpts::Jxl { common_opts } => {
-                debug!( "jxl transcoder" );
-                transcoder = Box::new( jxl::Jxl );
-                working_dir = common_opts.working_dir;
-            },
-            CliOpts::Despeckle { despeckle, common_opts } => {
-                debug!( "despeckle transcoder" );
-                transcoder = Box::new( despeckle );
-                working_dir = common_opts.working_dir;
-            }
-        }
+        let pwd = std::env::current_dir().context("Failed to get pwd")?;
+        let root_dir = shared.root_dir.unwrap_or(pwd);
+        ensure! { root_dir.is_absolute(),
+            r#"`root_dir` must be abosulte, but got "{}""#,
+            root_dir.display()
+        };
+        let backup_dir = root_dir.join(BACKUP_DIR_NAME);
+        let work_dir = root_dir.join(WORK_DIR_NAME);
 
-        let working_dir = working_dir.unwrap_or_cwd()?;
-        let pictures =
-            list_pictures_recursively( &working_dir,
-                transcoder.input_extensions(),
-                transcoder.output_extension()
-            ).context( "Failed to list pictures" )?;
-
-        Ok( Self { transcoder, pictures } )
-    }
-}
-
-impl App {
-    #[ tracing::instrument( name="app_run", skip_all ) ]
-    fn run( &self ) -> AnyResult<()> {
         todo!()
+
+        // let pictures = list_pictures_recursively(
+        //     &working_dir,
+        //     transcoder.input_extensions(),
+        //     transcoder.output_extension(),
+        // )
+        // .context("Failed to list pictures")?;
+
+        // Ok(Self {
+        //     transcoder,
+        //     pictures,
+        // })
     }
 }
 
-type StaticStrs = &'static [ &'static str ];
+impl App {}
 
+#[derive(Debug)]
+pub struct Task {
+    src: PathBuf,
+    dst: PathBuf,
+}
+
+/// A transcoder with its various information.
 trait Transcoder {
-    fn input_extensions( &self ) -> StaticStrs;
-    fn output_extension( &self ) -> &'static str;
-    fn transcode( &self, src: &Path ) -> AnyResult<ExitStatus>;
+    /// A short and descriptive name for this transcoder.
+    fn id(&self) -> &'static str;
+
+    /// The picture formats that this transcoder accepts as input.
+    fn input(&self) -> &'static [PictureFormat];
+
+    /// The picture format that this transcoder outputs.
+    fn output(&self) -> PictureFormat;
+
+    /// Do the transcoding.
+    // TODO: Get rid of ExitStatus
+    #[allow(clippy::missing_errors_doc)]
+    fn transcode(&self, task: Task) -> AnyResult<ExitStatus>;
 }
 
-struct Picture {
-    input: PathBuf,
-    output: PathBuf,
-    backup: PathBuf,
+/// Commonly encountered image formats.
+#[derive(Debug)]
+pub enum PictureFormat {
+    PNG,
+    JPG,
+    WEBP,
+    AVIF,
+    JXL,
+    GIF,
 }
 
-impl Picture {
+impl PictureFormat {
+    /// Extensions of each image format.
+    #[must_use]
+    #[inline]
+    pub fn exts(&self) -> &'static [&'static str] {
+        match self {
+            Self::PNG => &["png"],
+            Self::JPG => &["jpg", "jpeg"],
+            Self::WEBP => &["webp"],
+            Self::AVIF => &["avif"],
+            Self::JXL => &["jxl"],
+            Self::GIF => &["gif"],
+        }
+    }
+}
+
+fn main_with_result() -> AnyResult<()> {
+    let opt = CliOpts::parse();
+    dbg!(opt);
+    Ok(())
 }
 
 fn main() {
-
-    fn main_but_result() -> AnyResult<()> {
-        CliOpts::parse()
-            .pipe( App::try_from )
-            .context( "Failed to initialize app" )?
-            .pipe( |app| app.run() )
-            .context( "Error while running app" )?
-        ;
-        Ok(())
-    }
-
     ino_tracing::init_tracing_subscriber();
-
-    main_but_result().print_error_exit_process();
+    main_with_result().print_error_exit_process();
 
     // let dir_and_files = if dir_and_files.is_empty() {
     //     debug!( "CLI provided input is empty, use PWD" );
@@ -195,7 +272,6 @@ fn main() {
     // };
     //
     // debug!( ?dir_and_files );
-
 
     /*
      * Tasks and encoding
@@ -320,5 +396,4 @@ fn main() {
     //     }
     //
     // }
-
 }

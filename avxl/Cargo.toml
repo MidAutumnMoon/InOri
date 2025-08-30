@@ -16,10 +16,10 @@ ino_result.workspace = true
 ino_tap.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
-rustix.workspace = true
 tap.workspace = true
 tracing.workspace = true
 walkdir = "2.5.0"
+xattr = "1"
 
 [lints]
 workspace = true
