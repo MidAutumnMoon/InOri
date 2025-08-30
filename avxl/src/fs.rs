@@ -47,3 +47,13 @@ pub fn collect_pictures(
 
     collected
 }
+
+/// Partition a list of paths into untagged and tagged ones.
+/// The first element of the returned tuple contains the untagged pictures
+/// while the second one contains the tagged pictures.
+/// Symlinks are not followed.
+pub fn partition_tagged_picture(
+    pictures: Vec<PathBuf>,
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    todo!()
+}

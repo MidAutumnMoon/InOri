@@ -9,8 +9,8 @@ use ino_result::ResultExt;
 use tracing::debug;
 
 mod avif;
-mod fs;
 mod despeckle;
+mod fs;
 mod jxl;
 
 /// Name of the directory for storing original pictures.
@@ -134,13 +134,15 @@ impl TryFrom<CliOpts> for App {
         let (transcoder, shared) = cliopts.unwrap()?;
 
         let pwd = std::env::current_dir().context("Failed to get pwd")?;
-        let root_dir = shared.root_dir.unwrap_or(pwd);
+        let root_dir = shared.root_dir.clone().unwrap_or(pwd);
         ensure! { root_dir.is_absolute(),
             r#"`root_dir` must be abosulte, but got "{}""#,
             root_dir.display()
         };
         let backup_dir = root_dir.join(BACKUP_DIR_NAME);
         let work_dir = root_dir.join(WORK_DIR_NAME);
+
+        let pictures = Self::discover_pictures(&shared)?;
 
         todo!()
 
@@ -158,7 +160,11 @@ impl TryFrom<CliOpts> for App {
     }
 }
 
-impl App {}
+impl App {
+    fn discover_pictures(shared: &SharedCliOpts) -> AnyResult<Vec<PathBuf>> {
+        todo!()
+    }
+}
 
 #[derive(Debug)]
 pub struct Task {
