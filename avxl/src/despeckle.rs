@@ -31,7 +31,7 @@ impl Default for Despeckle {
 
 impl crate::Transcoder for Despeckle {
     fn id(&self) -> &'static str {
-        "despeckel"
+        "despeckle"
     }
 
     #[inline]

@@ -10,7 +10,7 @@ use tracing::debug;
 
 mod avif;
 mod fs;
-mod imagemagick;
+mod despeckle;
 mod jxl;
 mod tool;
 
@@ -83,7 +83,7 @@ enum CliOpts {
     /// Despeckle pictures using imagemagick.
     Despeckle {
         #[command(flatten)]
-        transcoder: imagemagick::Despeckle,
+        transcoder: despeckle::Despeckle,
         #[command(flatten)]
         shared: SharedCliOpts,
     },
