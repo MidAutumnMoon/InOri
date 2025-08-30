@@ -12,7 +12,6 @@ mod avif;
 mod fs;
 mod despeckle;
 mod jxl;
-mod tool;
 
 /// Name of the directory for storing original pictures.
 pub const BACKUP_DIR_NAME: &str = ".backup";
