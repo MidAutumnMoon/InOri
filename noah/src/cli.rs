@@ -8,20 +8,7 @@ use crate::Result;
 use crate::installable::Installable;
 
 #[derive(Parser, Debug)]
-#[command(
-    version,
-    about,
-    long_about = None,
-    propagate_version = false,
-    help_template = "
-{name} {version}
-{about-with-newline}
-{usage-heading} {usage}
-
-{all-args}{after-help}
-"
-)]
-/// Yet another nix helper
+/// A tailored nix helper.
 pub struct CliOpts {
     #[command(flatten)]
     /// Increase logging verbosity, can be passed multiple times for
