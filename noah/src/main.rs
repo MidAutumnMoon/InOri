@@ -6,6 +6,8 @@ mod installable;
 mod logging;
 mod nixos;
 
+use std::path::PathBuf;
+
 use color_eyre::eyre::Context;
 use color_eyre::eyre::bail;
 use color_eyre::eyre::ensure;
@@ -49,6 +51,10 @@ pub enum CliCmd {
 
     /// Generate completions for shells.
     Complete { shell: clap_complete::Shell },
+}
+
+pub struct Runtime {
+    flake_repo: PathBuf,
 }
 
 fn main() -> Result<()> {

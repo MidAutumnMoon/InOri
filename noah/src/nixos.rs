@@ -32,28 +32,30 @@ pub enum DiffType {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum OsSubcmd {
-    /// Build and activate the new configuration, and make it the boot default
+    /// Build && activate && add to boot entry.
     Switch(BuildOpts),
 
-    /// Build the new configuration and make it the boot default
+    /// Build && add to boot entry
     Boot(BuildOpts),
 
-    /// Build and activate the new configuration
+    /// Build && activate
     Test(BuildOpts),
 
-    /// Build the new configuration
+    /// Build only
     Build(BuildOpts),
 
-    /// Load system in a repl
+    /// Open an REPL with the configuration.
     Repl(OsReplArgs),
 
-    /// List available generations from profile path
+    /// List system generations.
+    // TODO: show info about /run/current-system
     Info(OsGenerationsArgs),
 
     /// Rollback to a previous generation
     Rollback(OsRollbackArgs),
 
     /// Build a `NixOS` VM image
+    // TODO: remove?
     BuildVm(OsBuildVmArgs),
 
     /// Update flake.lock and commit. Currently the commit message is
@@ -199,6 +201,7 @@ pub struct OsGenerationsArgs {
 }
 
 #[derive(Debug, clap::Args)]
+// TODO: this does not need to be a catalog of options
 pub struct NixBuildPassthroughArgs {
     /// Number of concurrent jobs Nix should run
     #[arg(long, short = 'j')]
