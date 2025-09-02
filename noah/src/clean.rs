@@ -18,14 +18,6 @@ use tracing::{Level, debug, info, instrument, span, warn};
 
 use crate::{Result, commands::Command};
 
-// Needed a struct to have multiple sub-subcommands
-#[derive(Debug, Clone)]
-#[derive(clap::Args)]
-pub struct CleanProxy {
-    #[clap(subcommand)]
-    pub command: CleanMode,
-}
-
 /// Enhanced nix cleanup
 #[derive(Debug, Clone)]
 #[derive(clap::Subcommand)]

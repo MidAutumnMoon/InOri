@@ -39,16 +39,16 @@ pub struct CliOpts {
 #[derive(clap::Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum CliCmd {
+    // Flatten the subcommands so that they are not prefixed.
     #[command(flatten)]
     NixOS(crate::nixos::OsSubcmd),
 
     // Deploy,
-    Clean(crate::clean::CleanProxy),
+    #[command(subcommand)]
+    Clean(crate::clean::CleanMode),
 
     /// Generate completions for shells.
-    Complete {
-        shell: clap_complete::Shell,
-    },
+    Complete { shell: clap_complete::Shell },
 }
 
 fn main() -> Result<()> {
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
             }
             args.run()
         }
-        CliCmd::Clean(proxy) => proxy.command.run(),
+        CliCmd::Clean(clean) => clean.run(),
         CliCmd::Complete { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;
