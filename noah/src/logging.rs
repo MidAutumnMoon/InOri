@@ -39,10 +39,11 @@ where
 
         ctx.field_format().format_fields(writer.by_ref(), event)?;
 
-        if *level != Level::INFO {
-            if let (Some(file), Some(line)) = (metadata.file(), metadata.line()) {
-                write!(writer, " (nh/{file}:{line})")?;
-            }
+        if *level != Level::INFO
+            && let (Some(file), Some(line)) =
+                (metadata.file(), metadata.line())
+        {
+            write!(writer, " (nh/{file}:{line})")?;
         }
 
         writeln!(writer)?;
@@ -50,22 +51,24 @@ where
     }
 }
 
-pub fn setup_logging(verbosity: clap_verbosity_flag::Verbosity<InfoLevel>) -> Result<()> {
+pub fn setup_logging(
+    verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
+) -> Result<()> {
     color_eyre::config::HookBuilder::default()
         .display_location_section(true)
-        .panic_section("Please report the bug at https://github.com/nix-community/nh/issues")
         .display_env_section(false)
         .install()?;
 
-    let fallback_level = verbosity
-        .log_level()
-        .map_or(LevelFilter::WARN, |level| match level {
+    let fallback_level = verbosity.log_level().map_or(
+        LevelFilter::WARN,
+        |level| match level {
             clap_verbosity_flag::log::Level::Error => LevelFilter::ERROR,
             clap_verbosity_flag::log::Level::Warn => LevelFilter::WARN,
             clap_verbosity_flag::log::Level::Info => LevelFilter::INFO,
             clap_verbosity_flag::log::Level::Debug => LevelFilter::DEBUG,
             clap_verbosity_flag::log::Level::Trace => LevelFilter::TRACE,
-        });
+        },
+    );
 
     let layer = fmt::layer()
         .with_writer(std::io::stderr)
@@ -73,7 +76,10 @@ pub fn setup_logging(verbosity: clap_verbosity_flag::Verbosity<InfoLevel>) -> Re
         .compact()
         .with_line_number(true)
         .event_format(InfoFormatter)
-        .with_filter(EnvFilter::from_env("NH_LOG").add_directive(fallback_level.into()));
+        .with_filter(
+            EnvFilter::from_env("NH_LOG")
+                .add_directive(fallback_level.into()),
+        );
 
     tracing_subscriber::registry().with(layer).init();
 
