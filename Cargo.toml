@@ -9,6 +9,7 @@ members = [
     "fujinoka",
     "lny",
     "rpgdemake",
+    "noah",
 ]
 
 [workspace.package]
@@ -25,7 +26,7 @@ rust-version = "1.89.0"
 [workspace.dependencies]
 anyhow = "1"
 assert_fs = "1"
-clap = { version = "4", features = [ "derive", "cargo" ] }
+clap = { version = "4", features = [ "derive", "cargo", "env" ] }
 itertools = "0"
 rayon = "1"
 rustix = { version = "1", features = [ "all-apis" ] }
