@@ -67,8 +67,9 @@ pub fn get_nix_variant() -> &'static NixVariant {
 
 // Matches and captures major, minor, and optional patch numbers from semantic
 // version strings, optionally followed by a "pre" pre-release suffix.
-static VERSION_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?").unwrap());
+static VERSION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?").unwrap()
+});
 
 /// Normalizes a version string to be compatible with semver parsing.
 ///
@@ -91,19 +92,30 @@ static VERSION_REGEX: LazyLock<Regex> =
 /// * `String` - The normalized version string suitable for semver parsing
 pub fn normalize_version_string(version: &str) -> String {
     if let Some(captures) = VERSION_REGEX.captures(version) {
-        let major = captures.get(1).map(|m| m.as_str()).unwrap_or_else(|| {
-            debug!("Failed to extract major version from '{}'", version);
-            version
-        });
-        let minor = captures.get(2).map(|m| m.as_str()).unwrap_or_else(|| {
-            debug!("Failed to extract minor version from '{}'", version);
-            version
-        });
+        let major =
+            captures.get(1).map(|m| m.as_str()).unwrap_or_else(|| {
+                debug!(
+                    "Failed to extract major version from '{}'",
+                    version
+                );
+                version
+            });
+        let minor =
+            captures.get(2).map(|m| m.as_str()).unwrap_or_else(|| {
+                debug!(
+                    "Failed to extract minor version from '{}'",
+                    version
+                );
+                version
+            });
         let patch = captures.get(3).map_or("0", |m| m.as_str());
 
         let normalized = format!("{major}.{minor}.{patch}");
         if version != normalized {
-            debug!("Version normalized: '{}' -> '{}'", version, normalized);
+            debug!(
+                "Version normalized: '{}' -> '{}'",
+                version, normalized
+            );
         }
 
         return normalized;
@@ -116,11 +128,12 @@ pub fn normalize_version_string(version: &str) -> String {
         .unwrap_or(version);
 
     // Version should have all three components (major.minor.patch)
-    let normalized = match base_version.split('.').collect::<Vec<_>>().as_slice() {
-        [major] => format!("{major}.0.0"),
-        [major, minor] => format!("{major}.{minor}.0"),
-        _ => base_version.to_string(),
-    };
+    let normalized =
+        match base_version.split('.').collect::<Vec<_>>().as_slice() {
+            [major] => format!("{major}.0.0"),
+            [major, minor] => format!("{major}.{minor}.0"),
+            _ => base_version.to_string(),
+        };
 
     if version != normalized {
         debug!("Version normalized: '{}' -> '{}'", version, normalized);
@@ -181,33 +194,14 @@ pub fn ensure_ssh_key_login() -> Result<()> {
 ///
 /// * `Result<String>` - The hostname as a string or an error
 pub fn get_hostname() -> Result<String> {
-    #[cfg(not(target_os = "macos"))]
-    {
-        use color_eyre::eyre::Context;
-        Ok(hostname::get()
-            .context("Failed to get hostname")?
-            .to_str()
-            .map_or_else(
-                || String::from("unknown-hostname"),
-                std::string::ToString::to_string,
-            ))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use color_eyre::eyre::bail;
-        use system_configuration::{
-            core_foundation::{base::TCFType, string::CFString},
-            sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
-        };
-
-        let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
-        if ptr.is_null() {
-            bail!("Failed to get hostname");
-        }
-        let name = unsafe { CFString::wrap_under_get_rule(ptr) };
-
-        Ok(name.to_string())
-    }
+    use color_eyre::eyre::Context;
+    Ok(hostname::get()
+        .context("Failed to get hostname")?
+        .to_str()
+        .map_or_else(
+            || String::from("unknown-hostname"),
+            std::string::ToString::to_string,
+        ))
 }
 
 /// Retrieves all enabled experimental features in Nix.
@@ -247,7 +241,9 @@ pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
 ///
 /// * `Result<Vec<String>>` - A vector of missing experimental features or an
 ///   error.
-pub fn get_missing_experimental_features(required_features: &[&str]) -> Result<Vec<String>> {
+pub fn get_missing_experimental_features(
+    required_features: &[&str],
+) -> Result<Vec<String>> {
     let enabled_features = get_nix_experimental_features()?;
 
     let missing_features: Vec<String> = required_features
@@ -295,19 +291,26 @@ pub fn self_elevate() -> ! {
 /// # Errors
 ///
 /// Returns an error if the closure size thread panics or if writing size differences fails.
-pub fn print_dix_diff(old_generation: &Path, new_generation: &Path) -> Result<()> {
+pub fn print_dix_diff(
+    old_generation: &Path,
+    new_generation: &Path,
+) -> Result<()> {
     let mut out = WriteFmt(io::stdout());
 
     // Handle to the thread collecting closure size information.
-    let closure_size_handle =
-        dix::spawn_size_diff(old_generation.to_path_buf(), new_generation.to_path_buf());
+    let closure_size_handle = dix::spawn_size_diff(
+        old_generation.to_path_buf(),
+        new_generation.to_path_buf(),
+    );
 
     let wrote =
-        dix::write_paths_diffln(&mut out, old_generation, new_generation).unwrap_or_default();
+        dix::write_paths_diffln(&mut out, old_generation, new_generation)
+            .unwrap_or_default();
 
-    if let Ok((size_old, size_new)) = closure_size_handle
-        .join()
-        .map_err(|_| eyre::eyre!("Failed to join closure size computation thread"))?
+    if let Ok((size_old, size_new)) =
+        closure_size_handle.join().map_err(|_| {
+            eyre::eyre!("Failed to join closure size computation thread")
+        })?
     {
         if size_old == size_new {
             info!("No version or size changes.");

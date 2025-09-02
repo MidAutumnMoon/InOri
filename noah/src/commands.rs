@@ -263,8 +263,6 @@ impl Command {
                     ]);
                 }
             }
-        } else if cfg!(target_os = "macos") {
-            cmd = cmd.arg("--set-home");
         }
 
         // Use NH_SUDO_ASKPASS program for sudo if present
