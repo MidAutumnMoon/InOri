@@ -35,16 +35,16 @@ pub enum DiffType {
 #[derive(Debug, clap::Subcommand)]
 pub enum OsSubcmd {
     /// Build and activate the new configuration, and make it the boot default
-    Switch(OsRebuildArgs),
+    Switch(BuildOpts),
 
     /// Build the new configuration and make it the boot default
-    Boot(OsRebuildArgs),
+    Boot(BuildOpts),
 
     /// Build and activate the new configuration
-    Test(OsRebuildArgs),
+    Test(BuildOpts),
 
     /// Build the new configuration
-    Build(OsRebuildArgs),
+    Build(BuildOpts),
 
     /// Load system in a repl
     Repl(OsReplArgs),
@@ -94,7 +94,7 @@ impl OsSubcmd {
 #[derive(Debug, clap::Args)]
 pub struct OsBuildVmArgs {
     #[command(flatten)]
-    pub common: OsRebuildArgs,
+    pub common: BuildOpts,
 
     /// Build with bootloader. Bootloader is bypassed by default.
     #[arg(long, short = 'B')]
@@ -102,7 +102,7 @@ pub struct OsBuildVmArgs {
 }
 
 #[derive(Debug, clap::Args)]
-pub struct OsRebuildArgs {
+pub struct BuildOpts {
     #[command(flatten)]
     pub common: CommonRebuildArgs,
 
@@ -421,7 +421,7 @@ impl OsBuildVmArgs {
     }
 }
 
-impl OsRebuildArgs {
+impl BuildOpts {
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
     fn rebuild(
