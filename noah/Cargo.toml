@@ -30,5 +30,4 @@ tracing.workspace = true
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.18" }
 
 [dev-dependencies]
-proptest    = "1.6.0"
 serial_test = "3.2.0"
