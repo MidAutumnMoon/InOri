@@ -16,7 +16,7 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 
-use crate::{Result, commands::Command, cli};
+use crate::{Result, cli, commands::Command};
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -74,7 +74,7 @@ impl cli::CleanMode {
     /// # Panics
     ///
     /// Panics if the current user's UID cannot be resolved to a user. For
-    /// example, if  `User::from_uid(uid)` returns `None`.
+    /// example, if `User::from_uid(uid)` returns `None`.
     pub fn run(&self) -> Result<()> {
         use owo_colors::OwoColorize;
 
@@ -94,7 +94,7 @@ impl cli::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    crate::util::self_elevate();
+                    crate::handy::self_elevate();
                 }
 
                 let paths_to_check = [

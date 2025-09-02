@@ -14,10 +14,10 @@ use crate::cli::{
 use crate::commands;
 use crate::commands::Command;
 use crate::generations;
+use crate::handy::ensure_ssh_key_login;
+use crate::handy::{get_hostname, print_dix_diff};
 use crate::installable::Installable;
 use crate::update::update;
-use crate::util::ensure_ssh_key_login;
-use crate::util::{get_hostname, print_dix_diff};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
