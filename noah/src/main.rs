@@ -41,11 +41,11 @@ pub struct CliOpts {
 pub enum CliCmd {
     // Flatten the subcommands so that they are not prefixed.
     #[command(flatten)]
-    NixOS(crate::nixos::OsSubcmd),
+    NixOS(Box<crate::nixos::OsSubcmd>),
 
     // Deploy,
     #[command(subcommand)]
-    Clean(crate::clean::CleanMode),
+    Clean(Box<crate::clean::CleanMode>),
 
     /// Generate completions for shells.
     Complete { shell: clap_complete::Shell },
