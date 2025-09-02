@@ -1,6 +1,5 @@
 mod clean;
 mod commands;
-mod completion;
 mod generations;
 mod handy;
 mod installable;
@@ -15,6 +14,7 @@ use color_eyre::eyre::ensure;
 use color_eyre::Result;
 use color_eyre::Result as EyreResult;
 use semver::Version;
+use tracing::debug;
 
 use crate::handy::NixVariant;
 use crate::handy::nix_info;
@@ -24,7 +24,8 @@ const MINIMUM_LIX_VERSION: Version = Version::new(2, 93, 3);
 
 use clap_verbosity_flag::InfoLevel;
 
-#[derive(clap::Parser, Debug)]
+#[derive(Debug)]
+#[derive(clap::Parser)]
 /// A tailored nix helper.
 pub struct CliOpts {
     #[command(flatten)]
@@ -42,42 +43,37 @@ pub enum CliCmd {
     NixOS(crate::nixos::OsArgs),
     // Deploy,
     Clean(crate::clean::CleanProxy),
-    Completion(CompletionArgs),
-}
-
-impl CliCmd {
-    pub fn run(self) -> Result<()> {
-        match self {
-            Self::NixOS(args) => {
-                // TODO: get rid of envvar
-                unsafe {
-                    std::env::set_var("NH_CURRENT_COMMAND", "os");
-                }
-                args.run()
-            }
-            Self::Clean(proxy) => proxy.command.run(),
-            Self::Completion(args) => args.run(),
-        }
-    }
-}
-
-#[derive(Debug, clap::Parser)]
-/// Generate shell completions.
-pub struct CompletionArgs {
-    /// Name of the shell
-    pub shell: clap_complete::Shell,
+    Complete { shell: clap_complete::Shell },
 }
 
 fn main() -> Result<()> {
-    startup_check().context("Failed to run startup checks")?;
+    let args = <CliOpts as clap::Parser>::parse();
 
-    let args = <crate::CliOpts as clap::Parser>::parse();
+    startup_check().context("Failed to run startup checks")?;
 
     // Set up logging
     crate::logging::setup_logging(args.verbosity)?;
     tracing::debug!("{args:#?}");
 
-    args.command.run()
+    match args.command {
+        CliCmd::NixOS(args) => {
+            // TODO: get rid of envvar
+            unsafe {
+                std::env::set_var("NH_CURRENT_COMMAND", "os");
+            }
+            args.run()
+        }
+        CliCmd::Clean(proxy) => proxy.command.run(),
+        CliCmd::Complete { shell } => {
+            use clap::CommandFactory;
+            use clap_complete::generate;
+            debug!("generate shell completion");
+            let mut cmd = CliOpts::command();
+            let mut out = std::io::stdout();
+            generate(shell, &mut cmd, "nh", &mut out);
+            Ok(())
+        }
+    }
 }
 
 fn startup_check() -> EyreResult<()> {
