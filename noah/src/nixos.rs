@@ -6,14 +6,15 @@ use color_eyre::eyre::{Context, bail};
 use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 
+use crate::cli::OsSubcommand::{self};
+use crate::cli::{
+    self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs,
+    OsReplArgs, OsRollbackArgs,
+};
 use crate::commands;
 use crate::commands::Command;
 use crate::generations;
 use crate::installable::Installable;
-use crate::interface::OsSubcommand::{self};
-use crate::interface::{
-    self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
-};
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
 use crate::util::{get_hostname, print_dix_diff};
@@ -23,7 +24,7 @@ const CURRENT_PROFILE: &str = "/run/current-system";
 
 const SPEC_LOCATION: &str = "/etc/specialisation";
 
-impl interface::OsArgs {
+impl cli::OsArgs {
     pub fn run(self) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
         match self.subcommand {
@@ -32,7 +33,9 @@ impl interface::OsArgs {
             OsSubcommand::Switch(args) => args.rebuild(&Switch, None),
             OsSubcommand::Build(args) => {
                 if args.common.ask || args.common.dry {
-                    warn!("`--ask` and `--dry` have no effect for `nh os build`");
+                    warn!(
+                        "`--ask` and `--dry` have no effect for `nh os build`"
+                    );
                 }
                 args.rebuild(&Build, None)
             }
@@ -65,7 +68,11 @@ impl OsBuildVmArgs {
 impl OsRebuildArgs {
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-    fn rebuild(self, variant: &OsRebuildVariant, final_attr: Option<String>) -> Result<()> {
+    fn rebuild(
+        self,
+        variant: &OsRebuildVariant,
+        final_attr: Option<String>,
+    ) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
         if self.build_host.is_some() || self.target_host.is_some() {
@@ -78,13 +85,20 @@ impl OsRebuildArgs {
             false
         } else {
             if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
+                bail!(
+                    "Don't run nh os as root. I will call sudo internally as needed"
+                );
             }
             true
         };
 
-        if self.update_args.update_all || self.update_args.update_input.is_some() {
-            update(&self.common.installable, self.update_args.update_input)?;
+        if self.update_args.update_all
+            || self.update_args.update_input.is_some()
+        {
+            update(
+                &self.common.installable,
+                self.update_args.update_input,
+            )?;
         }
 
         let system_hostname = match get_hostname() {
@@ -103,9 +117,9 @@ impl OsRebuildArgs {
                     // by directly calling build_vm(), not when the BuildVm variant
                     // is used internally via other code paths
                     if matches!(variant, OsRebuildVariant::BuildVm)
-                        && final_attr
-                            .as_deref()
-                            .is_some_and(|attr| attr == "vm" || attr == "vmWithBootLoader")
+                        && final_attr.as_deref().is_some_and(|attr| {
+                            attr == "vm" || attr == "vmWithBootLoader"
+                        })
                     {
                         tracing::warn!(
                             "Guessing system is {hostname} for a VM image. If this isn't intended, use --hostname to change."
@@ -113,21 +127,29 @@ impl OsRebuildArgs {
                     }
                     hostname.clone()
                 }
-                None => return Err(eyre!("Unable to fetch hostname, and no hostname supplied.")),
+                None => {
+                    return Err(eyre!(
+                        "Unable to fetch hostname, and no hostname supplied."
+                    ));
+                }
             },
         };
 
-        let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
-            match self.common.out_link {
-                Some(ref p) => (p.clone(), None),
-                None => match variant {
-                    BuildVm | Build => (PathBuf::from("result"), None),
-                    _ => {
-                        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-                        (dir.as_ref().join("result"), Some(dir))
-                    }
-                },
-            };
+        let (out_path, _tempdir_guard): (
+            PathBuf,
+            Option<tempfile::TempDir>,
+        ) = match self.common.out_link {
+            Some(ref p) => (p.clone(), None),
+            None => match variant {
+                BuildVm | Build => (PathBuf::from("result"), None),
+                _ => {
+                    let dir = tempfile::Builder::new()
+                        .prefix("nh-os")
+                        .tempdir()?;
+                    (dir.as_ref().join("result"), Some(dir))
+                }
+            },
+        };
 
         debug!("Output path: {out_path:?}");
 
@@ -138,7 +160,9 @@ impl OsRebuildArgs {
             let mut elems = os_flake.splitn(2, '#');
             let reference = elems
                 .next()
-                .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
+                .ok_or_else(|| {
+                    eyre!("NH_OS_FLAKE missing reference part")
+                })?
                 .to_owned();
             let attribute = elems
                 .next()
@@ -175,7 +199,8 @@ impl OsRebuildArgs {
             .run()
             .wrap_err("Failed to build configuration")?;
 
-        let current_specialisation = std::fs::read_to_string(SPEC_LOCATION).ok();
+        let current_specialisation =
+            std::fs::read_to_string(SPEC_LOCATION).ok();
 
         let target_specialisation = if self.no_specialisation {
             None
@@ -206,10 +231,15 @@ impl OsRebuildArgs {
 
         match self.common.diff {
             DiffType::Always => {
-                let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+                let _ = print_dix_diff(
+                    &PathBuf::from(CURRENT_PROFILE),
+                    &target_profile,
+                );
             }
             DiffType::Never => {
-                debug!("Not running dix as the --diff flag is set to never.");
+                debug!(
+                    "Not running dix as the --diff flag is set to never."
+                );
             }
             DiffType::Auto => {
                 if system_hostname.is_none_or(|h| h == target_hostname)
@@ -220,7 +250,10 @@ impl OsRebuildArgs {
                         "Comparing with target profile: {}",
                         target_profile.display()
                     );
-                    let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+                    let _ = print_dix_diff(
+                        &PathBuf::from(CURRENT_PROFILE),
+                        &target_profile,
+                    );
                 } else {
                     debug!(
                         "Not running dix as the target hostname is different from the system hostname."
@@ -254,7 +287,11 @@ impl OsRebuildArgs {
                     format!("ssh://{target_host}").as_str(),
                     match target_profile.to_str() {
                         Some(s) => s,
-                        None => return Err(eyre!("target_profile path is not valid UTF-8")),
+                        None => {
+                            return Err(eyre!(
+                                "target_profile path is not valid UTF-8"
+                            ));
+                        }
                     },
                 ])
                 .message("Copying configuration to target")
@@ -279,9 +316,10 @@ impl OsRebuildArgs {
                 ));
             }
 
-            let switch_to_configuration = switch_to_configuration
-                .canonicalize()
-                .context("Failed to resolve switch-to-configuration path")?;
+            let switch_to_configuration =
+                switch_to_configuration.canonicalize().context(
+                    "Failed to resolve switch-to-configuration path",
+                )?;
             let switch_to_configuration = switch_to_configuration
                 .to_str()
                 .ok_or_else(|| eyre!("switch-to-configuration path contains invalid UTF-8"))?;
@@ -311,7 +349,8 @@ impl OsRebuildArgs {
                 .run()
                 .wrap_err("Failed to set system profile")?;
 
-            let switch_to_configuration = out_path.join("bin").join("switch-to-configuration");
+            let switch_to_configuration =
+                out_path.join("bin").join("switch-to-configuration");
 
             if !switch_to_configuration.exists() {
                 return Err(eyre!(
@@ -326,9 +365,10 @@ impl OsRebuildArgs {
                 ));
             }
 
-            let switch_to_configuration = switch_to_configuration
-                .canonicalize()
-                .context("Failed to resolve switch-to-configuration path")?;
+            let switch_to_configuration =
+                switch_to_configuration.canonicalize().context(
+                    "Failed to resolve switch-to-configuration path",
+                )?;
             let switch_to_configuration = switch_to_configuration
                 .to_str()
                 .ok_or_else(|| eyre!("switch-to-configuration path contains invalid UTF-8"))?;
@@ -357,7 +397,9 @@ impl OsRollbackArgs {
             false
         } else {
             if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
+                bail!(
+                    "Don't run nh os as root. I will call sudo internally as needed"
+                );
             }
             true
         };
@@ -376,10 +418,12 @@ impl OsRollbackArgs {
             tracing::warn!("SYSTEM_PROFILE has no parent, defaulting to /nix/var/nix/profiles");
             Path::new("/nix/var/nix/profiles")
         });
-        let generation_link = profile_dir.join(format!("system-{}-link", target_generation.number));
+        let generation_link = profile_dir
+            .join(format!("system-{}-link", target_generation.number));
 
         // Handle specialisations
-        let current_specialisation = fs::read_to_string(SPEC_LOCATION).ok();
+        let current_specialisation =
+            fs::read_to_string(SPEC_LOCATION).ok();
 
         let target_specialisation = if self.no_specialisation {
             None
@@ -391,13 +435,18 @@ impl OsRollbackArgs {
 
         // Compare changes between current and target generation
         if matches!(self.diff, DiffType::Never) {
-            debug!("Not running dix as the target hostname is different from the system hostname.");
+            debug!(
+                "Not running dix as the target hostname is different from the system hostname."
+            );
         } else {
             debug!(
                 "Comparing with target profile: {}",
                 generation_link.display()
             );
-            let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &generation_link);
+            let _ = print_dix_diff(
+                &PathBuf::from(CURRENT_PROFILE),
+                &generation_link,
+            );
         }
 
         if self.dry {
@@ -448,7 +497,8 @@ impl OsRollbackArgs {
         let final_profile = match &target_specialisation {
             None => generation_link,
             Some(spec) => {
-                let spec_path = generation_link.join("specialisation").join(spec);
+                let spec_path =
+                    generation_link.join("specialisation").join(spec);
                 if spec_path.exists() {
                     spec_path
                 } else {
@@ -456,7 +506,9 @@ impl OsRollbackArgs {
                         "Specialisation '{}' does not exist in generation {}",
                         spec, target_generation.number
                     );
-                    warn!("Using base configuration without specialisations");
+                    warn!(
+                        "Using base configuration without specialisations"
+                    );
                     generation_link
                 }
             }
@@ -465,7 +517,8 @@ impl OsRollbackArgs {
         // Activate the configuration
         info!("Activating...");
 
-        let switch_to_configuration = final_profile.join("bin").join("switch-to-configuration");
+        let switch_to_configuration =
+            final_profile.join("bin").join("switch-to-configuration");
 
         if !switch_to_configuration.exists() {
             return Err(eyre!(
@@ -496,8 +549,8 @@ impl OsRollbackArgs {
             Err(e) => {
                 // If activation fails, rollback the profile
                 if current_gen_number > 0 {
-                    let current_gen_link =
-                        profile_dir.join(format!("system-{current_gen_number}-link"));
+                    let current_gen_link = profile_dir
+                        .join(format!("system-{current_gen_number}-link"));
 
                     Command::new("ln")
                         .arg("-sfn") // Force, symbolic link
@@ -532,7 +585,9 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
             let path = e.path();
             if let Some(filename) = path.file_name() {
                 if let Some(name) = filename.to_str() {
-                    if name.starts_with("system-") && name.ends_with("-link") {
+                    if name.starts_with("system-")
+                        && name.ends_with("-link")
+                    {
                         return generations::describe(&path);
                     }
                 }
@@ -565,7 +620,9 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
     Ok(generations[current_idx - 1].clone())
 }
 
-fn find_generation_by_number(number: u64) -> Result<generations::GenerationInfo> {
+fn find_generation_by_number(
+    number: u64,
+) -> Result<generations::GenerationInfo> {
     let profile_path = PathBuf::from(SYSTEM_PROFILE);
 
     let generations: Vec<generations::GenerationInfo> = fs::read_dir(
@@ -578,7 +635,9 @@ fn find_generation_by_number(number: u64) -> Result<generations::GenerationInfo>
             let path = e.path();
             if let Some(filename) = path.file_name() {
                 if let Some(name) = filename.to_str() {
-                    if name.starts_with("system-") && name.ends_with("-link") {
+                    if name.starts_with("system-")
+                        && name.ends_with("-link")
+                    {
                         return generations::describe(&path);
                     }
                 }
@@ -604,7 +663,9 @@ fn get_current_generation_number() -> Result<u64> {
             .parent()
             .unwrap_or(Path::new("/nix/var/nix/profiles")),
     )?
-    .filter_map(|entry| entry.ok().and_then(|e| generations::describe(&e.path())))
+    .filter_map(|entry| {
+        entry.ok().and_then(|e| generations::describe(&e.path()))
+    })
     .collect();
 
     let current_gen = generations
@@ -672,32 +733,38 @@ pub fn toplevel_for<S: AsRef<str>>(
 impl OsReplArgs {
     fn run(self) -> Result<()> {
         // Use NH_OS_FLAKE if available, otherwise use the provided installable
-        let mut target_installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-            debug!("Using NH_OS_FLAKE: {}", os_flake);
+        let mut target_installable =
+            if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+                debug!("Using NH_OS_FLAKE: {}", os_flake);
 
-            let mut elems = os_flake.splitn(2, '#');
-            let reference = match elems.next() {
-                Some(r) => r.to_owned(),
-                None => return Err(eyre!("NH_OS_FLAKE missing reference part")),
+                let mut elems = os_flake.splitn(2, '#');
+                let reference = match elems.next() {
+                    Some(r) => r.to_owned(),
+                    None => {
+                        return Err(eyre!(
+                            "NH_OS_FLAKE missing reference part"
+                        ));
+                    }
+                };
+                let attribute = elems
+                    .next()
+                    .map(crate::installable::parse_attribute)
+                    .unwrap_or_default();
+
+                Installable::Flake {
+                    reference,
+                    attribute,
+                }
+            } else {
+                self.installable
             };
-            let attribute = elems
-                .next()
-                .map(crate::installable::parse_attribute)
-                .unwrap_or_default();
-
-            Installable::Flake {
-                reference,
-                attribute,
-            }
-        } else {
-            self.installable
-        };
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
         }
 
-        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+        let hostname =
+            self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         if let Installable::Flake {
             ref mut attribute, ..
@@ -734,7 +801,8 @@ impl OsGenerationsArgs {
             ));
         }
 
-        let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+        let profile_dir =
+            profile.parent().unwrap_or_else(|| Path::new("."));
 
         let generations: Vec<_> = fs::read_dir(profile_dir)?
             .filter_map(|entry| {

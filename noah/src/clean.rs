@@ -16,7 +16,7 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 
-use crate::{Result, commands::Command, interface};
+use crate::{Result, commands::Command, cli};
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -64,7 +64,7 @@ where
     })
 }
 
-impl interface::CleanMode {
+impl cli::CleanMode {
     /// Run the clean operation for the selected mode.
     ///
     /// # Errors

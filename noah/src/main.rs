@@ -4,7 +4,7 @@ mod commands;
 mod completion;
 mod generations;
 mod installable;
-mod interface;
+mod cli;
 mod json;
 mod logging;
 mod nixos;
@@ -15,7 +15,7 @@ mod util;
 use color_eyre::Result;
 
 fn main() -> Result<()> {
-    let args = <crate::interface::CliOpts as clap::Parser>::parse();
+    let args = <crate::cli::CliOpts as clap::Parser>::parse();
 
     // Set up logging
     crate::logging::setup_logging(args.verbosity)?;

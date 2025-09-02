@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::installable::Installable;
-use crate::interface::NixBuildPassthroughArgs;
+use crate::cli::NixBuildPassthroughArgs;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     if let Some(ssh) = ssh {
