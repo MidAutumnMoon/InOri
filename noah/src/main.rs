@@ -1,4 +1,3 @@
-mod checks;
 mod clean;
 mod cli;
 mod commands;
@@ -33,11 +32,6 @@ fn main() -> Result<()> {
     crate::logging::setup_logging(args.verbosity)?;
     tracing::debug!("{args:#?}");
 
-    // Once we assert required Nix features, validate NH environment checks
-    // For now, this is just NH_* variables being set. More checks may be
-    // added to setup_environment in the future.
-    checks::verify_variables()?;
-
     args.command.run()
 }
 
@@ -47,7 +41,7 @@ fn startup_check() -> EyreResult<()> {
 
     if matches!(variant, NixVariant::DetSys | NixVariant::Nix) {
         bail!(
-            "Noah don't like stock nix or DetSys nix. This is currently lix only."
+            "Noah don't like stock nix or DetSys nix. It is currently lix only."
         );
     }
 
