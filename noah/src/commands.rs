@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::installable::Installable;
-use crate::cli::NixBuildPassthroughArgs;
+use crate::nixos::NixBuildPassthroughArgs;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     if let Some(ssh) = ssh {
@@ -245,7 +245,8 @@ impl Command {
         // Platform-agnostic handling for preserve-env
         if !preserve_vars.is_empty() {
             // NH_SUDO_PRESERVE_ENV: set to "0" to disable --preserve-env, "1" to force, unset defaults to force
-            let preserve_env_override = std::env::var("NH_SUDO_PRESERVE_ENV").ok();
+            let preserve_env_override =
+                std::env::var("NH_SUDO_PRESERVE_ENV").ok();
             match preserve_env_override.as_deref() {
                 Some("0") => {
                     cmd = cmd.arg("--set-home");
@@ -253,13 +254,19 @@ impl Command {
                 Some("1") | None => {
                     cmd = cmd.args(&[
                         "--set-home",
-                        &format!("--preserve-env={}", preserve_vars.join(",")),
+                        &format!(
+                            "--preserve-env={}",
+                            preserve_vars.join(",")
+                        ),
                     ]);
                 }
                 _ => {
                     cmd = cmd.args(&[
                         "--set-home",
-                        &format!("--preserve-env={}", preserve_vars.join(",")),
+                        &format!(
+                            "--preserve-env={}",
+                            preserve_vars.join(",")
+                        ),
                     ]);
                 }
             }
@@ -288,11 +295,12 @@ impl Command {
     /// Returns an error if the current executable path cannot be determined or sudo command cannot be built.
     pub fn self_elevate_cmd() -> Result<std::process::Command> {
         // Get the current executable path
-        let current_exe =
-            std::env::current_exe().context("Failed to get current executable path")?;
+        let current_exe = std::env::current_exe()
+            .context("Failed to get current executable path")?;
 
         // Self-elevation with proper environment handling
-        let cmd_builder = Self::new(&current_exe).elevate(true).with_required_env();
+        let cmd_builder =
+            Self::new(&current_exe).elevate(true).with_required_env();
 
         let sudo_exec = cmd_builder.build_sudo_cmd();
 
@@ -330,7 +338,9 @@ impl Command {
         let cmd = if self.elevate {
             self.build_sudo_cmd().arg(&self.command).args(&self.args)
         } else {
-            self.apply_env_to_exec(Exec::cmd(&self.command).args(&self.args))
+            self.apply_env_to_exec(
+                Exec::cmd(&self.command).args(&self.args),
+            )
         };
 
         // Configure output redirection based on show_output setting
@@ -364,7 +374,10 @@ impl Command {
                 if !status.success() {
                     let stderr = capture.stderr_str();
                     if stderr.trim().is_empty() {
-                        return Err(eyre::eyre!(format!("{} (exit status {:?})", msg, status)));
+                        return Err(eyre::eyre!(format!(
+                            "{} (exit status {:?})",
+                            msg, status
+                        )));
                     }
                     return Err(eyre::eyre!(format!(
                         "{} (exit status {:?})\nstderr:\n{}",
@@ -436,7 +449,10 @@ impl Build {
     }
 
     #[must_use]
-    pub fn passthrough(self, passthrough: &NixBuildPassthroughArgs) -> Self {
+    pub fn passthrough(
+        self,
+        passthrough: &NixBuildPassthroughArgs,
+    ) -> Self {
         self.extra_args(passthrough.generate_passthrough_args())
     }
 
@@ -457,7 +473,10 @@ impl Build {
             .args(&installable_args)
             .args(&match &self.builder {
                 Some(host) => {
-                    vec!["--builders".to_string(), format!("ssh://{host} - - - 100")]
+                    vec![
+                        "--builders".to_string(),
+                        format!("ssh://{host} - - - 100"),
+                    ]
                 }
                 None => vec![],
             })
@@ -593,7 +612,8 @@ mod tests {
 
     #[test]
     fn test_preserve_envs() {
-        let cmd = Command::new("test").preserve_envs(["VAR1", "VAR2", "VAR3"]);
+        let cmd =
+            Command::new("test").preserve_envs(["VAR1", "VAR2", "VAR3"]);
 
         assert_eq!(cmd.env_vars.len(), 3);
         assert!(matches!(
@@ -622,7 +642,9 @@ mod tests {
         assert!(
             matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
         );
-        assert!(matches!(cmd.env_vars.get("USER"), Some(EnvAction::Set(val)) if val == "testuser"));
+        assert!(
+            matches!(cmd.env_vars.get("USER"), Some(EnvAction::Set(val)) if val == "testuser")
+        );
 
         // Should preserve all Nix-related variables if present
         for key in [
@@ -637,7 +659,10 @@ mod tests {
             "HOME_MANAGER_BACKUP_EXT",
         ] {
             if cmd.env_vars.contains_key(key) {
-                assert!(matches!(cmd.env_vars.get(key), Some(EnvAction::Preserve)));
+                assert!(matches!(
+                    cmd.env_vars.get(key),
+                    Some(EnvAction::Preserve)
+                ));
             }
         }
     }
@@ -680,7 +705,8 @@ mod tests {
     fn test_with_required_env_nh_vars() {
         let _guard1 = EnvGuard::new("NH_TEST_VAR", "test_value");
         let _guard2 = EnvGuard::new("NH_ANOTHER_VAR", "another_value");
-        let _guard3 = EnvGuard::new("NOT_NH_VAR", "should_not_be_included");
+        let _guard3 =
+            EnvGuard::new("NOT_NH_VAR", "should_not_be_included");
 
         let cmd = Command::new("test").with_required_env();
 
@@ -771,7 +797,8 @@ mod tests {
         let cmdline = sudo_exec.to_cmdline_lossy();
 
         // NH_SUDO_PRESERVE_ENV: set to "0" to disable --preserve-env, "1" to force, unset defaults to force
-        let preserve_env_override = std::env::var("NH_SUDO_PRESERVE_ENV").ok();
+        let preserve_env_override =
+            std::env::var("NH_SUDO_PRESERVE_ENV").ok();
         if let Some("0") = preserve_env_override.as_deref() {
             assert!(!cmdline.contains("--preserve-env="));
         } else {
