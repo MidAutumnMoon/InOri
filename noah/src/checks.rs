@@ -67,7 +67,7 @@ pub fn check_nix_version() -> Result<()> {
         Ordering::Less => {
             let binary_name = match nix_variant {
                 util::NixVariant::Lix => "Lix",
-                util::NixVariant::Determinate => "Determinate Nix",
+                util::NixVariant::DetSys => "Determinate Nix",
                 util::NixVariant::Nix => "Nix",
             };
             warn!(
@@ -180,7 +180,7 @@ impl FeatureRequirements for FlakeFeatures {
         // as they simply decided to mark those as no-longer-experimental-lol. Remove
         // redundant experimental features if the Nix variant is determinate.
         let variant = util::get_nix_variant();
-        if !matches!(variant, NixVariant::Determinate) {
+        if !matches!(variant, NixVariant::DetSys) {
             features.push("nix-command");
             features.push("flakes");
         }
@@ -219,7 +219,7 @@ impl FeatureRequirements for OsReplFeatures {
 
         // For flake repls, check if we need experimental features
         match util::get_nix_variant() {
-            NixVariant::Determinate => {
+            NixVariant::DetSys => {
                 // Determinate Nix doesn't need experimental features
             }
             NixVariant::Lix => {

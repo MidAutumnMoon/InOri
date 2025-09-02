@@ -19,7 +19,7 @@ use crate::commands::Command;
 pub enum NixVariant {
     Nix,
     Lix,
-    Determinate,
+    DetSys,
 }
 
 static NIX_VARIANT: OnceLock<NixVariant> = OnceLock::new();
@@ -52,7 +52,7 @@ pub fn get_nix_variant() -> &'static NixVariant {
         // FIXME: This fails to account for Nix variants we don't check for and
         // assumes the environment is mainstream Nix.
         if output_lower.contains("determinate") {
-            NixVariant::Determinate
+            NixVariant::DetSys
         } else if output_lower.contains("lix") {
             NixVariant::Lix
         } else {
