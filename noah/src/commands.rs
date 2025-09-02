@@ -396,7 +396,6 @@ pub struct Build {
     message: Option<String>,
     installable: Installable,
     extra_args: Vec<OsString>,
-    nom: bool,
     builder: Option<String>,
 }
 
@@ -407,7 +406,6 @@ impl Build {
             message: None,
             installable,
             extra_args: vec![],
-            nom: false,
             builder: None,
         }
     }
@@ -421,12 +419,6 @@ impl Build {
     #[must_use]
     pub fn extra_arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
         self.extra_args.push(arg.as_ref().to_os_string());
-        self
-    }
-
-    #[must_use]
-    pub const fn nom(mut self, yes: bool) -> Self {
-        self.nom = yes;
         self
     }
 
@@ -482,22 +474,10 @@ impl Build {
             })
             .args(&self.extra_args);
 
-        let exit = if self.nom {
-            let cmd = {
-                base_command
-                    .args(&["--log-format", "internal-json", "--verbose"])
-                    .stderr(Redirection::Merge)
-                    .stdout(Redirection::Pipe)
-                    | Exec::cmd("nom").args(&["--json"])
-            }
-            .stdout(Redirection::None);
-            debug!(?cmd);
-            cmd.join()
-        } else {
+        let exit = {
             let cmd = base_command
                 .stderr(Redirection::Merge)
                 .stdout(Redirection::None);
-
             debug!(?cmd);
             cmd.join()
         };
@@ -903,7 +883,6 @@ mod tests {
         assert!(build.message.is_none());
         assert_eq!(build.installable.to_args(), installable.to_args());
         assert!(build.extra_args.is_empty());
-        assert!(!build.nom);
         assert!(build.builder.is_none());
     }
 
@@ -918,7 +897,6 @@ mod tests {
             .message("Building package")
             .extra_arg("--verbose")
             .extra_args(["--option", "setting", "value"])
-            .nom(true)
             .builder(Some("build-host".to_string()));
 
         assert_eq!(build.message, Some("Building package".to_string()));
@@ -931,7 +909,6 @@ mod tests {
                 OsString::from("value")
             ]
         );
-        assert!(build.nom);
         assert_eq!(build.builder, Some("build-host".to_string()));
     }
 

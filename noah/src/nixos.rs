@@ -164,10 +164,6 @@ pub struct CommonRebuildArgs {
     #[command(flatten)]
     pub installable: Installable,
 
-    /// Don't use nix-output-monitor for the build process
-    #[arg(long)]
-    pub no_nom: bool,
-
     /// Path to save the result link, defaults to using a temporary directory
     #[arg(long, short)]
     pub out_link: Option<PathBuf>,
@@ -519,7 +515,6 @@ impl BuildOpts {
             .passthrough(&self.common.passthrough)
             .builder(self.build_host.clone())
             .message(message)
-            .nom(!self.common.no_nom)
             .run()
             .wrap_err("Failed to build configuration")?;
 

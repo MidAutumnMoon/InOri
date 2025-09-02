@@ -3,13 +3,9 @@
     rustPlatform,
     installShellFiles,
     makeBinaryWrapper,
-    use-nom ? true,
-    nix-output-monitor ? null,
     rev ? "dirty",
 }:
-assert use-nom -> nix-output-monitor != null;
 let
-    runtimeDeps = lib.optionals use-nom [ nix-output-monitor ];
     cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 in
 rustPlatform.buildRustPackage {
@@ -47,11 +43,6 @@ rustPlatform.buildRustPackage {
 
         cargo xtask man --out-dir gen
         installManPage gen/nh.1
-    '';
-
-    postFixup = ''
-        wrapProgram $out/bin/nh \
-        --prefix PATH : ${lib.makeBinPath runtimeDeps}
     '';
 
     cargoLock.lockFile = ./Cargo.lock;
