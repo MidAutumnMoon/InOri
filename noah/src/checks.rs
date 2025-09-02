@@ -1,84 +1,8 @@
-use std::{cmp::Ordering, env};
-
 use color_eyre::Result;
 use semver::Version;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::util::{self, NixVariant, normalize_version_string};
-
-/// Verifies if the installed Nix version meets requirements
-///
-/// # Returns
-///
-/// * `Result<()>` - Ok if version requirements are met, error otherwise
-///
-/// # Errors
-///
-/// Returns an error if the Nix version cannot be determined or parsed.
-pub fn check_nix_version() -> Result<()> {
-    // XXX: Both Nix and Lix follow semantic versioning (semver). Update the
-    // versions below once latest stable for either of those packages change.
-    // We *also* cannot (or rather, will not) make this check for non-nixpkgs
-    // Nix variants, since there is no good baseline for what to support
-    // without the understanding of stable/unstable branches. What do we check
-    // for, whether upstream made an announcement? No thanks.
-    // TODO: Set up a CI to automatically update those in the future.
-    const MIN_LIX_VERSION: &str = "2.91.3";
-    const MIN_NIX_VERSION: &str = "2.28.4";
-
-    if env::var("NH_NO_CHECKS").is_ok() {
-        return Ok(());
-    }
-
-    let nix_variant = util::get_nix_variant();
-    let version = util::get_nix_version()?;
-    let version_normal = normalize_version_string(&version);
-
-    // Minimum supported versions. Those should generally correspond to
-    // latest package versions in the stable branch.
-    //
-    // Q: Why are you doing this?
-    // A: First of all to make sure we do not make baseless assumptions
-    // about the user's system; we should only work around APIs that we
-    // are fully aware of, and not try to work around every edge case.
-    // Also, nh should be responsible for nudging the user to use the
-    // relevant versions of the software it wraps, so that we do not have
-    // to try and support too many versions. NixOS stable and unstable
-    // will ALWAYS be supported, but outdated versions will not. If your
-    // Nix fork uses a different versioning scheme, please open an issue.
-    let min_version = match nix_variant {
-        util::NixVariant::Lix => MIN_LIX_VERSION,
-        _ => MIN_NIX_VERSION,
-    };
-
-    let current = match Version::parse(&version_normal) {
-        Ok(ver) => ver,
-        Err(e) => {
-            warn!(
-                "Failed to parse Nix version '{version_normal}': {e}. Skipping version check.",
-            );
-            return Ok(());
-        }
-    };
-
-    let required = Version::parse(min_version)?;
-
-    match current.cmp(&required) {
-        Ordering::Less => {
-            let binary_name = match nix_variant {
-                util::NixVariant::Lix => "Lix",
-                util::NixVariant::DetSys => "Determinate Nix",
-                util::NixVariant::Nix => "Nix",
-            };
-            warn!(
-                "Warning: {} version {} is older than the recommended minimum version {}. You may encounter issues.",
-                binary_name, version, min_version
-            );
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
 
 /// Checks if core NH environment variables are set correctly. This was previously
 /// `setup_environment()`, but the setup logic has been moved away.
@@ -123,13 +47,9 @@ pub fn verify_variables() -> Result<()> {
 ///
 /// Returns an error if any required Nix environment checks fail.
 pub fn verify_nix_environment() -> Result<()> {
-    if env::var("NH_NO_CHECKS").is_ok() {
+    if std::env::var("NH_NO_CHECKS").is_ok() {
         return Ok(());
     }
-
-    // Only check version globally. Features are checked per-command now.
-    // This function is kept as is for backwards compatibility.
-    check_nix_version()?;
     Ok(())
 }
 
@@ -144,7 +64,7 @@ pub trait FeatureRequirements {
     ///
     /// Returns an error if any required Nix features are not enabled.
     fn check_features(&self) -> Result<()> {
-        if env::var("NH_NO_CHECKS").is_ok() {
+        if std::env::var("NH_NO_CHECKS").is_ok() {
             return Ok(());
         }
 
@@ -568,19 +488,6 @@ mod tests {
         assert!(
             result.is_ok(),
             "verify_nix_environment should succeed when NH_NO_CHECKS is set"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn test_check_nix_version_bypassed_with_nh_no_checks() {
-        let _guard = EnvGuard::new("NH_NO_CHECKS", "1");
-
-        let result = check_nix_version();
-
-        assert!(
-            result.is_ok(),
-            "check_nix_version should succeed when NH_NO_CHECKS is set"
         );
     }
 

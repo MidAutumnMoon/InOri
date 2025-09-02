@@ -9,9 +9,14 @@ use std::{
 };
 
 use color_eyre::Result;
+use color_eyre::Result as EyreResult;
 use color_eyre::eyre;
+use color_eyre::eyre::Context;
+use color_eyre::eyre::bail;
 use regex::Regex;
-use tracing::{debug, info};
+use semver::Version;
+use tracing::debug;
+use tracing::info;
 
 use crate::commands::Command;
 
@@ -31,6 +36,7 @@ impl<W: io::Write> fmt::Write for WriteFmt<W> {
         self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
     }
 }
+
 /// Get the Nix variant (cached)
 pub fn get_nix_variant() -> &'static NixVariant {
     NIX_VARIANT.get_or_init(|| {
@@ -63,6 +69,60 @@ pub fn get_nix_variant() -> &'static NixVariant {
     NIX_VARIANT
         .get()
         .expect("NIX_VARIANT should be initialized by get_nix_variant")
+}
+
+#[tracing::instrument]
+pub fn nix_info() -> EyreResult<(NixVariant, Version)> {
+    use std::process::Command;
+
+    debug!("get nix information from cli");
+
+    let output = Command::new("nix")
+        .arg("--version")
+        .output()
+        .context("Failed to run nix command")?;
+
+    // The first line of "nix --version" output contains both the
+    // variant and the version string.
+    let (variant, version) = if let Some(ver_line) =
+        String::from_utf8(output.stdout)
+            .context("Failed to process nix --version output")?
+            .lines()
+            .next()
+    {
+        let ver_line = ver_line.to_lowercase();
+
+        let re: Regex = Regex::new(r"(?<ver>\d+\.\d+\.\d+)").expect(
+            "[BUG] Someone doesn't know how to write correct regex",
+        );
+
+        let variant = if ver_line.contains("determinate") {
+            NixVariant::DetSys
+        } else if ver_line.contains("lix") {
+            NixVariant::Lix
+        } else {
+            NixVariant::Nix
+        };
+
+        let version = if let Some(cap) = re.captures(&ver_line)
+            && let Some(mat) = cap.name("ver")
+        {
+            Version::parse(mat.as_str())
+                .context("Failed to parse version")?
+        } else {
+            bail!(
+                "Failed to get version from nix --versin output. Note that Noah only accounts for stable releases, meaning that versions with -git or -prerelease in it may not match."
+            )
+        };
+
+        (variant, version)
+    } else {
+        bail!("nix command didn't produce a meaningful output")
+    };
+
+    debug!(?variant);
+    debug!(?version);
+    Ok((variant, version))
 }
 
 // Matches and captures major, minor, and optional patch numbers from semantic
