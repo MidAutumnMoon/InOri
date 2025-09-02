@@ -35,12 +35,12 @@ pub struct CliOpts {
     pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
     #[command(subcommand)]
-    pub command: NHCommand,
+    pub command: CliCmd,
 }
 
 #[derive(Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
-pub enum NHCommand {
+pub enum CliCmd {
     Os(OsArgs),
     Search(SearchArgs),
     Clean(CleanProxy),
@@ -48,7 +48,7 @@ pub enum NHCommand {
     Completions(CompletionArgs),
 }
 
-impl NHCommand {
+impl CliCmd {
     #[must_use]
     pub fn get_feature_requirements(
         &self,
