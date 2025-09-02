@@ -1512,6 +1512,7 @@ dependencies = [
  "nix",
  "owo-colors",
  "regex",
+ "rustix 1.0.8",
  "semver",
  "serde_json",
  "serial_test",

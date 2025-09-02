@@ -70,7 +70,7 @@ pub enum OsSubcmd {
 
 impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
-        use OsRebuildVariant::{Boot, Build, Switch, Test};
+        use BuildVariant::{Boot, Build, Switch, Test};
         match self {
             Self::Boot(args) => args.rebuild(&Boot, None),
             Self::Test(args) => args.rebuild(&Test, None),
@@ -115,9 +115,9 @@ pub struct BuildOpts {
     #[arg(last = true)]
     pub extra_args: Vec<String>,
 
-    /// Don't panic if calling nh as root
+    /// Allow noah to be executed as root.
     #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-    pub bypass_root_check: bool,
+    pub no_root_check: bool,
 
     /// Deploy the configuration to a different host over ssh
     #[arg(long)]
@@ -382,7 +382,7 @@ impl NixBuildPassthroughArgs {
 }
 
 #[derive(Debug)]
-enum OsRebuildVariant {
+enum BuildVariant {
     Build,
     Switch,
     Boot,
@@ -395,26 +395,35 @@ impl OsBuildVmArgs {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
         self.common
-            .rebuild(&OsRebuildVariant::BuildVm, Some(final_attr))
+            .rebuild(&BuildVariant::BuildVm, Some(final_attr))
     }
 }
 
 impl BuildOpts {
+    #[tracing::instrument(name = "build_nixos", skip(runtime))]
+    fn build(
+        self,
+        variant: BuildVariant,
+        runtime: &Runtime,
+    ) -> Result<()> {
+        todo!()
+    }
+
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
     fn rebuild(
         self,
-        variant: &OsRebuildVariant,
+        variant: &BuildVariant,
         final_attr: Option<String>,
     ) -> Result<()> {
-        use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
+        use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
         if self.build_host.is_some() || self.target_host.is_some() {
             // if it fails its okay
             let _ = ensure_ssh_key_login();
         }
 
-        let elevate = if self.bypass_root_check {
+        let elevate = if self.no_root_check {
             warn!("Bypassing root check, now running nix as root");
             false
         } else {
@@ -441,7 +450,7 @@ impl BuildOpts {
                     // Only show the warning if we're explicitly building a VM
                     // by directly calling build_vm(), not when the BuildVm variant
                     // is used internally via other code paths
-                    if matches!(variant, OsRebuildVariant::BuildVm)
+                    if matches!(variant, BuildVariant::BuildVm)
                         && final_attr.as_deref().is_some_and(|attr| {
                             attr == "vm" || attr == "vmWithBootLoader"
                         })

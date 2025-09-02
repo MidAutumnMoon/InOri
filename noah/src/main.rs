@@ -61,6 +61,7 @@ pub enum CliCmd {
     Complete { shell: clap_complete::Shell },
 }
 
+#[derive(Debug)]
 pub struct Runtime {
     flake: String,
 }
@@ -74,7 +75,9 @@ fn main() -> Result<()> {
     crate::logging::setup_logging(cliopts.verbosity)?;
     tracing::debug!("{cliopts:#?}");
 
-    let runtime = Runtime { flake: cliopts.flake };
+    let runtime = Runtime {
+        flake: cliopts.flake,
+    };
 
     match cliopts.command {
         CliCmd::NixOS(cmd) => {
