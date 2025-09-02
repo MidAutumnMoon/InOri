@@ -5,7 +5,6 @@ mod handy;
 mod installable;
 mod logging;
 mod nixos;
-mod update;
 
 use color_eyre::eyre::Context;
 use color_eyre::eyre::bail;

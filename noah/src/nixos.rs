@@ -14,7 +14,6 @@ use crate::generations;
 use crate::handy::ensure_ssh_key_login;
 use crate::handy::{get_hostname, print_dix_diff};
 use crate::installable::Installable;
-use crate::update::update;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -107,9 +106,6 @@ pub struct OsRebuildArgs {
     #[command(flatten)]
     pub common: CommonRebuildArgs,
 
-    #[command(flatten)]
-    pub update_args: UpdateArgs,
-
     /// When using a flake installable, select this hostname from nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
@@ -139,20 +135,6 @@ pub struct OsRebuildArgs {
     pub build_host: Option<String>,
 }
 
-#[derive(Debug, clap::Args)]
-pub struct UpdateArgs {
-    #[arg(short = 'u', long = "update", conflicts_with = "update_input")]
-    /// Update all flake inputs
-    pub update_all: bool,
-
-    #[arg(
-        short = 'U',
-        long = "update-input",
-        conflicts_with = "update_all"
-    )]
-    /// Update the specified flake input(s)
-    pub update_input: Option<Vec<String>>,
-}
 
 #[derive(Debug, clap::Args)]
 pub struct OsRollbackArgs {
@@ -465,15 +447,6 @@ impl OsRebuildArgs {
             }
             true
         };
-
-        if self.update_args.update_all
-            || self.update_args.update_input.is_some()
-        {
-            update(
-                &self.common.installable,
-                self.update_args.update_input,
-            )?;
-        }
 
         let system_hostname = match get_hostname() {
             Ok(hostname) => Some(hostname),
