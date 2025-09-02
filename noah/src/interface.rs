@@ -38,7 +38,7 @@ const fn make_style() -> Styles {
 "
 )]
 /// Yet another nix helper
-pub struct Main {
+pub struct CliOpts {
     #[command(flatten)]
     /// Increase logging verbosity, can be passed multiple times for
     /// more detailed logs.

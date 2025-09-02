@@ -18,7 +18,7 @@ pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
 fn main() -> Result<()> {
-    let args = <crate::interface::Main as clap::Parser>::parse();
+    let args = <crate::interface::CliOpts as clap::Parser>::parse();
 
     // Set up logging
     crate::logging::setup_logging(args.verbosity)?;
