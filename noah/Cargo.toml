@@ -26,10 +26,9 @@ subprocess = "0.2"
 tap.workspace = true
 tempfile = "3.5.0"
 thiserror = "2.0"
-tracing = "0.1.40"
+tracing.workspace = true
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.18" }
 
 [dev-dependencies]
-clap_mangen = "0.2.28"
 proptest    = "1.6.0"
 serial_test = "3.2.0"
