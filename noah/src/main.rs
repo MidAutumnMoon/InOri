@@ -5,7 +5,6 @@ mod completion;
 mod generations;
 mod handy;
 mod installable;
-mod json;
 mod logging;
 mod nixos;
 mod update;
