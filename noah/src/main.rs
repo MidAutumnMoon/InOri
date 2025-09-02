@@ -6,8 +6,6 @@ mod installable;
 mod logging;
 mod nixos;
 
-use std::path::PathBuf;
-
 use color_eyre::eyre::Context;
 use color_eyre::eyre::bail;
 use color_eyre::eyre::ensure;

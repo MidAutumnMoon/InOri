@@ -12,6 +12,7 @@ use color_eyre::eyre::Context;
 use color_eyre::eyre::bail;
 use regex::Regex;
 use semver::Version;
+use tap::Pipe;
 use tracing::debug;
 use tracing::info;
 
@@ -122,20 +123,14 @@ pub fn ensure_ssh_key_login() -> Result<()> {
     Ok(())
 }
 
-/// Gets the hostname of the current system
-///
-/// # Returns
-///
-/// * `Result<String>` - The hostname as a string or an error
-pub fn get_hostname() -> Result<String> {
-    use color_eyre::eyre::Context;
-    Ok(hostname::get()
-        .context("Failed to get hostname")?
+/// Get the hostname.
+pub fn hostname() -> Result<String> {
+    rustix::system::uname()
+        .nodename()
         .to_str()
-        .map_or_else(
-            || String::from("unknown-hostname"),
-            std::string::ToString::to_string,
-        ))
+        .context("Failed to convert hostname CStr into String")?
+        .to_owned()
+        .pipe(Ok)
 }
 
 /// Self-elevates the current process by re-executing it with sudo

@@ -1070,17 +1070,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hostname"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56f203cd1c76362b69e3863fd987520ac36cf70a8c92627449b2f64a8cf7d65"
-dependencies = [
- "cfg-if",
- "libc",
- "windows-link",
-]
-
-[[package]]
 name = "humantime"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1506,8 +1495,8 @@ dependencies = [
  "clap_complete",
  "color-eyre",
  "dix",
- "hostname",
  "humantime",
+ "ino_color",
  "inquire",
  "nix",
  "owo-colors",

@@ -12,8 +12,9 @@ use crate::Runtime;
 use crate::commands;
 use crate::commands::Command;
 use crate::generations;
+use crate::handy;
 use crate::handy::ensure_ssh_key_login;
-use crate::handy::{get_hostname, print_dix_diff};
+use crate::handy::print_dix_diff;
 use crate::installable::Installable;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -396,7 +397,7 @@ impl OsBuildVmArgs {
 
 impl BuildOpts {
     // final_attr is the attribute of config.system.build.X to evaluate.
-    #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn build(
         self,
         variant: BuildVariant,
@@ -421,38 +422,16 @@ impl BuildOpts {
             true
         };
 
-        let system_hostname = match get_hostname() {
-            Ok(hostname) => Some(hostname),
-            Err(err) => {
-                tracing::warn!("{}", err.to_string());
-                None
-            }
-        };
+        let local_hostname = handy::hostname()
+            .context("Failed to get hostname of current machine")?;
 
         let target_hostname = match &self.hostname {
             Some(h) => h.to_owned(),
-            None => match &system_hostname {
-                Some(hostname) => {
-                    // Only show the warning if we're explicitly building a VM
-                    // by directly calling build_vm(), not when the BuildVm variant
-                    // is used internally via other code paths
-                    if matches!(variant, BuildVariant::BuildVm)
-                        && final_attr.as_deref().is_some_and(|attr| {
-                            attr == "vm" || attr == "vmWithBootLoader"
-                        })
-                    {
-                        tracing::warn!(
-                            "Guessing system is {hostname} for a VM image. If this isn't intended, use --hostname to change."
-                        );
-                    }
-                    hostname.clone()
-                }
-                None => {
-                    return Err(eyre!(
-                        "Unable to fetch hostname, and no hostname supplied."
-                    ));
-                }
-            },
+            None => {
+                // TODO: reword
+                info!("Using hostname {local_hostname}");
+                local_hostname.clone()
+            }
         };
 
         let (out_path, _tempdir_guard): (
@@ -547,23 +526,24 @@ impl BuildOpts {
                 );
             }
             DiffType::Auto => {
-                if system_hostname.is_none_or(|h| h == target_hostname)
-                    && self.target_host.is_none()
-                    && self.build_host.is_none()
-                {
-                    debug!(
-                        "Comparing with target profile: {}",
-                        target_profile.display()
-                    );
-                    let _ = print_dix_diff(
-                        &PathBuf::from(CURRENT_PROFILE),
-                        &target_profile,
-                    );
-                } else {
-                    debug!(
-                        "Not running dix as the target hostname is different from the system hostname."
-                    );
-                }
+                // if local_hostname.is_none_or(|h| h == target_hostname)
+                //     && self.target_host.is_none()
+                //     && self.build_host.is_none()
+                // {
+                //     debug!(
+                //         "Comparing with target profile: {}",
+                //         target_profile.display()
+                //     );
+                //     let _ = print_dix_diff(
+                //         &PathBuf::from(CURRENT_PROFILE),
+                //         &target_profile,
+                //     );
+                // } else {
+                //     debug!(
+                //         "Not running dix as the target hostname is different from the system hostname."
+                //     );
+                // }
+                todo!()
             }
         }
 
@@ -1038,7 +1018,7 @@ impl OsReplArgs {
         }
 
         let hostname =
-            self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+            self.hostname.ok_or(()).or_else(|()| handy::hostname())?;
 
         if let Installable::Flake {
             ref mut attribute, ..
