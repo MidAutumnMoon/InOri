@@ -23,6 +23,7 @@ regex = "1.8.4"
 semver = "1.0.22"
 serde_json = "1.0.100"
 subprocess = "0.2"
+tap.workspace = true
 tempfile = "3.5.0"
 thiserror = "2.0"
 tracing = "0.1.40"

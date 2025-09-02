@@ -71,8 +71,11 @@ pub fn get_nix_variant() -> &'static NixVariant {
         .expect("NIX_VARIANT should be initialized by get_nix_variant")
 }
 
+/// Get various information through the nix cli.
+/// The returned tuple has 3 elements: the variant, the version,
+/// and a list of enabled experimental features.
 #[tracing::instrument]
-pub fn nix_info() -> EyreResult<(NixVariant, Version)> {
+pub fn nix_info() -> EyreResult<(NixVariant, Version, Vec<String>)> {
     use std::process::Command;
 
     debug!("get nix information from cli");
@@ -80,7 +83,7 @@ pub fn nix_info() -> EyreResult<(NixVariant, Version)> {
     let output = Command::new("nix")
         .arg("--version")
         .output()
-        .context("Failed to run nix command")?;
+        .context("Failed to run nix --version")?;
 
     // The first line of "nix --version" output contains both the
     // variant and the version string.
@@ -120,9 +123,24 @@ pub fn nix_info() -> EyreResult<(NixVariant, Version)> {
         bail!("nix command didn't produce a meaningful output")
     };
 
+    let output = Command::new("nix")
+        .arg("config")
+        .arg("show")
+        .arg("experimental-features")
+        .output()
+        .context("Failed to run nix config show")?;
+
+    let features = String::from_utf8(output.stdout)
+        .context("Failed to process nix --version output")?
+        .trim()
+        .split(" ")
+        .map(|s| s.to_owned())
+        .collect();
+
     debug!(?variant);
     debug!(?version);
-    Ok((variant, version))
+    debug!(?features);
+    Ok((variant, version, features))
 }
 
 // Matches and captures major, minor, and optional patch numbers from semantic

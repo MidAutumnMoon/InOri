@@ -1543,6 +1543,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "subprocess",
+ "tap",
  "tempfile",
  "thiserror",
  "tracing",
