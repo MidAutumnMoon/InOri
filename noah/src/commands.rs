@@ -376,31 +376,6 @@ impl Command {
             Err(e) => Err(e).wrap_err(msg),
         }
     }
-
-    /// Run the configured command and capture its output.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the command fails to execute.
-    pub fn run_capture(&self) -> Result<Option<String>> {
-        let cmd = self.apply_env_to_exec(
-            Exec::cmd(&self.command)
-                .args(&self.args)
-                .stderr(Redirection::None)
-                .stdout(Redirection::Pipe),
-        );
-
-        if let Some(m) = &self.message {
-            info!("{m}");
-        }
-
-        debug!(?cmd);
-
-        if self.dry {
-            return Ok(None);
-        }
-        Ok(Some(cmd.capture()?.stdout_str()))
-    }
 }
 
 #[derive(Debug)]

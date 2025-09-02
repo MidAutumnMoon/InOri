@@ -1,4 +1,3 @@
-use std::env;
 use std::path::PathBuf;
 
 use clap::ValueEnum;
@@ -6,11 +5,6 @@ use clap::{Args, Parser, Subcommand};
 use clap_verbosity_flag::InfoLevel;
 
 use crate::Result;
-use crate::checks::FeatureRequirements;
-use crate::checks::FlakeFeatures;
-use crate::checks::LegacyFeatures;
-use crate::checks::NoFeatures;
-use crate::checks::OsReplFeatures;
 use crate::installable::Installable;
 
 #[derive(Parser, Debug)]
@@ -48,22 +42,7 @@ pub enum CliCmd {
 }
 
 impl CliCmd {
-    #[must_use]
-    pub fn get_feature_requirements(
-        &self,
-    ) -> Box<dyn FeatureRequirements> {
-        match self {
-            Self::Os(args) => args.get_feature_requirements(),
-            Self::Clean(_) => Box::new(NoFeatures),
-            Self::Completion(_) => Box::new(NoFeatures),
-        }
-    }
-
     pub fn run(self) -> Result<()> {
-        // Check features specific to this command
-        let requirements = self.get_feature_requirements();
-        requirements.check_features()?;
-
         match self {
             Self::Os(args) => {
                 // TODO: get rid of envvar
@@ -86,40 +65,6 @@ impl CliCmd {
 pub struct OsArgs {
     #[command(subcommand)]
     pub subcommand: OsSubcommand,
-}
-
-impl OsArgs {
-    #[must_use]
-    pub fn get_feature_requirements(
-        &self,
-    ) -> Box<dyn FeatureRequirements> {
-        match &self.subcommand {
-            OsSubcommand::Repl(args) => {
-                let is_flake = args.uses_flakes();
-                Box::new(OsReplFeatures { is_flake })
-            }
-            OsSubcommand::Switch(args)
-            | OsSubcommand::Boot(args)
-            | OsSubcommand::Test(args)
-            | OsSubcommand::Build(args) => {
-                if args.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            OsSubcommand::BuildVm(args) => {
-                if args.common.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => {
-                Box::new(LegacyFeatures)
-            }
-        }
-    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -194,19 +139,6 @@ pub struct OsRebuildArgs {
     /// Build the configuration to a different host over ssh
     #[arg(long)]
     pub build_host: Option<String>,
-}
-
-impl OsRebuildArgs {
-    #[must_use]
-    pub fn uses_flakes(&self) -> bool {
-        // Check environment variables first
-        if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
-            return true;
-        }
-
-        // Check installable type
-        matches!(self.common.installable, Installable::Flake { .. })
-    }
 }
 
 #[derive(ValueEnum, Clone, Default, Debug)]
@@ -289,19 +221,6 @@ pub struct OsReplArgs {
     /// When using a flake installable, select this hostname from nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
-}
-
-impl OsReplArgs {
-    #[must_use]
-    pub fn uses_flakes(&self) -> bool {
-        // Check environment variables first
-        if env::var("NH_OS_FLAKE").is_ok() {
-            return true;
-        }
-
-        // Check installable type
-        matches!(self.installable, Installable::Flake { .. })
-    }
 }
 
 #[derive(Debug, Args)]

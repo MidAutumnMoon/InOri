@@ -33,9 +33,6 @@ fn main() -> Result<()> {
     crate::logging::setup_logging(args.verbosity)?;
     tracing::debug!("{args:#?}");
 
-    // Check Nix version upfront
-    checks::verify_nix_environment()?;
-
     // Once we assert required Nix features, validate NH environment checks
     // For now, this is just NH_* variables being set. More checks may be
     // added to setup_environment in the future.
