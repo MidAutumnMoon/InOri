@@ -35,7 +35,7 @@ pub struct CliOpts {
 #[derive(Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum CliCmd {
-    Os(OsArgs),
+    NixOS(OsArgs),
     // Deploy,
     Clean(CleanProxy),
     Completion(CompletionArgs),
@@ -44,7 +44,7 @@ pub enum CliCmd {
 impl CliCmd {
     pub fn run(self) -> Result<()> {
         match self {
-            Self::Os(args) => {
+            Self::NixOS(args) => {
                 // TODO: get rid of envvar
                 unsafe {
                     std::env::set_var("NH_CURRENT_COMMAND", "os");
