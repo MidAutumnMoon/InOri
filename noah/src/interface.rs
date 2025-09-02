@@ -42,7 +42,6 @@ pub struct CliOpts {
 #[command(disable_help_subcommand = true)]
 pub enum CliCmd {
     Os(OsArgs),
-    Search(SearchArgs),
     Clean(CleanProxy),
     #[command(hide = true)]
     Completions(CompletionArgs),
@@ -55,7 +54,6 @@ impl CliCmd {
     ) -> Box<dyn FeatureRequirements> {
         match self {
             Self::Os(args) => args.get_feature_requirements(),
-            Self::Search(_) => Box::new(NoFeatures),
             Self::Clean(_) => Box::new(NoFeatures),
             Self::Completions(_) => Box::new(NoFeatures),
         }
@@ -68,23 +66,23 @@ impl CliCmd {
 
         match self {
             Self::Os(args) => {
+                // TODO: get rid of envvar
                 unsafe {
                     std::env::set_var("NH_CURRENT_COMMAND", "os");
                 }
                 args.run()
             }
-            Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(),
             Self::Completions(args) => args.run(),
         }
     }
 }
 
-#[derive(Args, Debug)]
-#[clap(verbatim_doc_comment)]
 /// `NixOS` functionality
 ///
 /// Implements functionality mostly around but not exclusive to nixos-rebuild
+#[derive(Args, Debug)]
+#[clap(verbatim_doc_comment)]
 pub struct OsArgs {
     #[command(subcommand)]
     pub subcommand: OsSubcommand,
@@ -317,39 +315,6 @@ pub struct OsGenerationsArgs {
     pub profile: Option<String>,
 }
 
-#[derive(Args, Debug)]
-/// Searches packages by querying search.nixos.org
-pub struct SearchArgs {
-    #[arg(long, short, default_value = "30")]
-    /// Number of search results to display
-    pub limit: u64,
-
-    #[arg(
-        long,
-        short,
-        env = "NH_SEARCH_CHANNEL",
-        default_value = "nixos-unstable"
-    )]
-    /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
-    pub channel: String,
-
-    #[arg(long, short = 'P', env = "NH_SEARCH_PLATFORM", value_parser = clap::builder::BoolishValueParser::new())]
-    /// Show supported platforms for each package
-    pub platforms: bool,
-
-    #[arg(long, short = 'j', env = "NH_SEARCH_JSON", value_parser = clap::builder::BoolishValueParser::new())]
-    /// Output results as JSON
-    pub json: bool,
-
-    /// Name of the package to search
-    pub query: Vec<String>,
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-pub enum SearchNixpkgsFrom {
-    Flake,
-    Path,
-}
 
 // Needed a struct to have multiple sub-subcommands
 #[derive(Debug, Clone, Args)]

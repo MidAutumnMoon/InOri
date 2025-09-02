@@ -14,18 +14,12 @@ clap-verbosity-flag = { version = "3.0.3", features = [ "tracing" ], default-fea
 clap_complete = "4.5.8"
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.2" }
 dix = "1.2.1"
-elasticsearch-dsl = "0.4.19"
 hostname = "0.4"
 humantime = "2.1.0"
 inquire = { default-features = false, version = "0.7", features = [ "crossterm" ] }
 nix = { default-features = false, features = [ "fs", "user" ], version = "0.30.1" }
 owo-colors = "4.0.0"
 regex = "1.8.4"
-reqwest = { default-features = false, features = [
-  "rustls-tls-native-roots",
-  "blocking",
-  "json",
-], version = "0.12.0" }
 semver = "1.0.22"
 serde = { features = [ "derive" ], version = "1.0.166" }
 serde_json = "1.0.100"

@@ -8,7 +8,6 @@ mod interface;
 mod json;
 mod logging;
 mod nixos;
-mod search;
 mod update;
 mod util;
 
