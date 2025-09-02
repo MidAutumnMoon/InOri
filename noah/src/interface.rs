@@ -42,9 +42,9 @@ pub struct CliOpts {
 #[command(disable_help_subcommand = true)]
 pub enum CliCmd {
     Os(OsArgs),
+    // Deploy,
     Clean(CleanProxy),
-    #[command(hide = true)]
-    Completions(CompletionArgs),
+    Completion(CompletionArgs),
 }
 
 impl CliCmd {
@@ -55,7 +55,7 @@ impl CliCmd {
         match self {
             Self::Os(args) => args.get_feature_requirements(),
             Self::Clean(_) => Box::new(NoFeatures),
-            Self::Completions(_) => Box::new(NoFeatures),
+            Self::Completion(_) => Box::new(NoFeatures),
         }
     }
 
@@ -73,7 +73,7 @@ impl CliCmd {
                 args.run()
             }
             Self::Clean(proxy) => proxy.command.run(),
-            Self::Completions(args) => args.run(),
+            Self::Completion(args) => args.run(),
         }
     }
 }
@@ -315,7 +315,6 @@ pub struct OsGenerationsArgs {
     pub profile: Option<String>,
 }
 
-
 // Needed a struct to have multiple sub-subcommands
 #[derive(Debug, Clone, Args)]
 pub struct CleanProxy {
@@ -383,7 +382,7 @@ pub struct CleanProfileArgs {
 }
 
 #[derive(Debug, Parser)]
-/// Generate shell completion files into stdout
+/// Generate shell completions.
 pub struct CompletionArgs {
     /// Name of the shell
     pub shell: clap_complete::Shell,
@@ -478,7 +477,7 @@ pub struct NixBuildPassthroughArgs {
     #[arg(long)]
     pub no_update_lock_file: bool,
 
-    /// Do not write a lock file
+    /// Do not write a lockfile
     #[arg(long)]
     pub no_write_lock_file: bool,
 
@@ -486,7 +485,7 @@ pub struct NixBuildPassthroughArgs {
     #[arg(long)]
     pub no_registries: bool,
 
-    /// Commit the lock file after updates
+    /// Commit the lockfile after updates
     #[arg(long)]
     pub commit_lock_file: bool,
 

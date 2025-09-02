@@ -11,6 +11,7 @@ mod nixos;
 mod update;
 mod util;
 
+// TODO: get rid of eyre
 use color_eyre::Result;
 
 fn main() -> Result<()> {
