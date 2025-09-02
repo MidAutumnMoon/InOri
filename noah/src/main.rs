@@ -40,10 +40,13 @@ pub struct CliOpts {
 #[derive(clap::Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum CliCmd {
-    NixOS(crate::nixos::OsArgs),
+    #[command(flatten)]
+    NixOS(crate::nixos::OsSubcmd),
     // Deploy,
     Clean(crate::clean::CleanProxy),
-    Complete { shell: clap_complete::Shell },
+    Complete {
+        shell: clap_complete::Shell,
+    },
 }
 
 fn main() -> Result<()> {

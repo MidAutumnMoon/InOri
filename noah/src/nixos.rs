@@ -33,16 +33,6 @@ pub enum DiffType {
     Never,
 }
 
-/// NixOS related functionality.
-///
-/// Implements functionality mostly around but not exclusive to nixos-rebuild
-#[derive(clap::Args, Debug)]
-#[clap(verbatim_doc_comment)]
-pub struct OsArgs {
-    #[command(subcommand)]
-    pub subcommand: OsSubcmd,
-}
-
 #[derive(Debug, clap::Subcommand)]
 pub enum OsSubcmd {
     /// Build and activate the new configuration, and make it the boot default
@@ -68,6 +58,29 @@ pub enum OsSubcmd {
 
     /// Build a `NixOS` VM image
     BuildVm(OsBuildVmArgs),
+}
+
+impl OsSubcmd {
+    pub fn run(self) -> Result<()> {
+        use OsRebuildVariant::{Boot, Build, Switch, Test};
+        match self {
+            Self::Boot(args) => args.rebuild(&Boot, None),
+            Self::Test(args) => args.rebuild(&Test, None),
+            Self::Switch(args) => args.rebuild(&Switch, None),
+            Self::Build(args) => {
+                if args.common.ask || args.common.dry {
+                    warn!(
+                        "`--ask` and `--dry` have no effect for `nh os build`"
+                    );
+                }
+                args.rebuild(&Build, None)
+            }
+            Self::BuildVm(args) => args.build_vm(),
+            Self::Repl(args) => args.run(),
+            Self::Info(args) => args.info(),
+            Self::Rollback(args) => args.rollback(),
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -396,28 +409,6 @@ impl NixBuildPassthroughArgs {
         }
 
         args
-    }
-}
-impl OsArgs {
-    pub fn run(self) -> Result<()> {
-        use OsRebuildVariant::{Boot, Build, Switch, Test};
-        match self.subcommand {
-            OsSubcmd::Boot(args) => args.rebuild(&Boot, None),
-            OsSubcmd::Test(args) => args.rebuild(&Test, None),
-            OsSubcmd::Switch(args) => args.rebuild(&Switch, None),
-            OsSubcmd::Build(args) => {
-                if args.common.ask || args.common.dry {
-                    warn!(
-                        "`--ask` and `--dry` have no effect for `nh os build`"
-                    );
-                }
-                args.rebuild(&Build, None)
-            }
-            OsSubcmd::BuildVm(args) => args.build_vm(),
-            OsSubcmd::Repl(args) => args.run(),
-            OsSubcmd::Info(args) => args.info(),
-            OsSubcmd::Rollback(args) => args.rollback(),
-        }
     }
 }
 
