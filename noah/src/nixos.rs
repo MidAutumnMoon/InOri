@@ -8,7 +8,6 @@ use color_eyre::eyre::{Context, bail};
 use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 
-use crate::cli::{self, DiffType};
 use crate::commands;
 use crate::commands::Command;
 use crate::generations;
@@ -21,6 +20,18 @@ const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
 const SPEC_LOCATION: &str = "/etc/specialisation";
+
+#[derive(clap::ValueEnum, Clone, Default, Debug)]
+pub enum DiffType {
+    /// Display package diff only if the of the
+    /// current and the deployed configuration matches
+    #[default]
+    Auto,
+    /// Always display package diff
+    Always,
+    /// Never display package diff
+    Never,
+}
 
 /// NixOS related functionality.
 ///

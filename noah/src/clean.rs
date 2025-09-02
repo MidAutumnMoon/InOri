@@ -16,7 +16,75 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 
-use crate::{Result, cli, commands::Command};
+use crate::{Result, commands::Command};
+
+// Needed a struct to have multiple sub-subcommands
+#[derive(Debug, Clone)]
+#[derive(clap::Args)]
+pub struct CleanProxy {
+    #[clap(subcommand)]
+    pub command: CleanMode,
+}
+
+/// Enhanced nix cleanup
+#[derive(Debug, Clone)]
+#[derive(clap::Subcommand)]
+pub enum CleanMode {
+    /// Clean all profiles
+    All(CleanArgs),
+    /// Clean the current user's profiles
+    User(CleanArgs),
+    /// Clean a specific profile
+    Profile(CleanProfileArgs),
+}
+
+#[derive(clap::Args, Clone, Debug)]
+#[clap(verbatim_doc_comment)]
+/// Enhanced nix cleanup
+///
+/// For --keep-since, see the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
+pub struct CleanArgs {
+    #[arg(long, short, default_value = "1")]
+    /// At least keep this number of generations
+    pub keep: u32,
+
+    #[arg(long, short = 'K', default_value = "0h")]
+    /// At least keep gcroots and generations in this time range since now.
+    pub keep_since: humantime::Duration,
+
+    /// Only print actions, without performing them
+    #[arg(long, short = 'n')]
+    pub dry: bool,
+
+    /// Ask for confirmation
+    #[arg(long, short)]
+    pub ask: bool,
+
+    /// Don't run nix store --gc
+    #[arg(long = "no-gc", alias = "nogc")]
+    pub no_gc: bool,
+
+    /// Don't clean gcroots
+    #[arg(long = "no-gcroots", alias = "nogcroots")]
+    pub no_gcroots: bool,
+
+    /// Run nix-store --optimise after gc
+    #[arg(long)]
+    pub optimise: bool,
+
+    /// Pass --max to nix store gc
+    #[arg(long)]
+    pub max: Option<String>,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub struct CleanProfileArgs {
+    #[command(flatten)]
+    pub common: CleanArgs,
+
+    /// Which profile to clean
+    pub profile: PathBuf,
+}
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -64,7 +132,7 @@ where
     })
 }
 
-impl cli::CleanMode {
+impl CleanMode {
     /// Run the clean operation for the selected mode.
     ///
     /// # Errors
