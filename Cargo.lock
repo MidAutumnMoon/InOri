@@ -1842,7 +1842,6 @@ dependencies = [
 name = "noah"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "chrono",
  "clap",
  "clap-verbosity-flag",

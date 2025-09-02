@@ -1,9 +1,8 @@
 use std::env;
 use std::path::PathBuf;
 
-use anstyle::Style;
 use clap::ValueEnum;
-use clap::{Args, Parser, Subcommand, builder::Styles};
+use clap::{Args, Parser, Subcommand};
 use clap_verbosity_flag::InfoLevel;
 
 use crate::Result;
@@ -14,20 +13,11 @@ use crate::checks::NoFeatures;
 use crate::checks::OsReplFeatures;
 use crate::installable::Installable;
 
-const fn make_style() -> Styles {
-    Styles::plain().header(Style::new().bold()).literal(
-        Style::new().bold().fg_color(Some(anstyle::Color::Ansi(
-            anstyle::AnsiColor::Yellow,
-        ))),
-    )
-}
-
 #[derive(Parser, Debug)]
 #[command(
     version,
     about,
     long_about = None,
-    styles=make_style(),
     propagate_version = false,
     help_template = "
 {name} {version}
