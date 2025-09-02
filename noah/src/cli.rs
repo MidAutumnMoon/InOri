@@ -57,7 +57,7 @@ impl CliCmd {
     }
 }
 
-/// `NixOS` functionality
+/// NixOS related functionality.
 ///
 /// Implements functionality mostly around but not exclusive to nixos-rebuild
 #[derive(Args, Debug)]

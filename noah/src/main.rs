@@ -19,6 +19,7 @@ use color_eyre::Result as EyreResult;
 use semver::Version;
 
 use crate::handy::NixVariant;
+use crate::handy::nix_info;
 
 // const MINIMUM_NIX_VERSION: Version = Version::new(2, 28, 4);
 const MINIMUM_LIX_VERSION: Version = Version::new(2, 93, 3);
@@ -37,7 +38,7 @@ fn main() -> Result<()> {
 
 fn startup_check() -> EyreResult<()> {
     let (variant, version, features) =
-        handy::nix_info().context("Failed to fetch nix information")?;
+        nix_info().context("Failed to fetch nix information")?;
 
     if matches!(variant, NixVariant::DetSys | NixVariant::Nix) {
         bail!(

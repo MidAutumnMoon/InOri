@@ -1,3 +1,5 @@
+//! This module essentially reimplements nixos-rebuild-ng
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

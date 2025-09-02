@@ -4,7 +4,10 @@ use crate::Result;
 use crate::commands::Command;
 use crate::installable::Installable;
 
-pub fn update(installable: &Installable, inputs: Option<Vec<String>>) -> Result<()> {
+pub fn update(
+    installable: &Installable,
+    inputs: Option<Vec<String>>,
+) -> Result<()> {
     match installable {
         Installable::Flake { reference, .. } => {
             let mut cmd = Command::new("nix").args(["flake", "update"]);
