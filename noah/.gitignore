@@ -1,0 +1,14 @@
+# Rust
+target
+gen*
+
+# Nix
+.direnv
+result*
+
+# From cargo-mutants
+mutants*
+
+# Misc
+report*
+
