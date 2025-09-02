@@ -18,8 +18,6 @@ use crate::installable::Installable;
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
-const SPEC_LOCATION: &str = "/etc/specialisation";
-
 #[derive(clap::ValueEnum, Clone, Default, Debug)]
 pub enum DiffType {
     /// Display package diff only if the of the
@@ -110,14 +108,6 @@ pub struct BuildOpts {
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 
-    /// Explicitly select some specialization
-    #[arg(long, short)]
-    pub specialisation: Option<String>,
-
-    /// Ignore specializations
-    #[arg(long, short = 'S')]
-    pub no_specialisation: bool,
-
     /// Extra arguments passed to nix build
     #[arg(last = true)]
     pub extra_args: Vec<String>,
@@ -135,7 +125,6 @@ pub struct BuildOpts {
     pub build_host: Option<String>,
 }
 
-
 #[derive(Debug, clap::Args)]
 pub struct OsRollbackArgs {
     /// Only print actions, without performing them
@@ -145,14 +134,6 @@ pub struct OsRollbackArgs {
     /// Ask for confirmation
     #[arg(long, short)]
     pub ask: bool,
-
-    /// Explicitly select some specialization
-    #[arg(long, short)]
-    pub specialisation: Option<String>,
-
-    /// Ignore specializations
-    #[arg(long, short = 'S')]
-    pub no_specialisation: bool,
 
     /// Rollback to a specific generation number (defaults to previous generation)
     #[arg(long, short)]
@@ -546,21 +527,7 @@ impl BuildOpts {
             .run()
             .wrap_err("Failed to build configuration")?;
 
-        let current_specialisation =
-            std::fs::read_to_string(SPEC_LOCATION).ok();
-
-        let target_specialisation = if self.no_specialisation {
-            None
-        } else {
-            current_specialisation.or_else(|| self.specialisation.clone())
-        };
-
-        debug!("Target specialisation: {target_specialisation:?}");
-
-        let target_profile = match &target_specialisation {
-            None => out_path.clone(),
-            Some(spec) => out_path.join("specialisation").join(spec),
-        };
+        let target_profile = out_path.clone();
 
         debug!("Output path: {out_path:?}");
         debug!("Target profile path: {}", target_profile.display());
@@ -768,18 +735,6 @@ impl OsRollbackArgs {
         let generation_link = profile_dir
             .join(format!("system-{}-link", target_generation.number));
 
-        // Handle specialisations
-        let current_specialisation =
-            fs::read_to_string(SPEC_LOCATION).ok();
-
-        let target_specialisation = if self.no_specialisation {
-            None
-        } else {
-            self.specialisation.clone().or(current_specialisation)
-        };
-
-        debug!("target_specialisation: {target_specialisation:?}");
-
         // Compare changes between current and target generation
         if matches!(self.diff, DiffType::Never) {
             debug!(
@@ -840,26 +795,7 @@ impl OsRollbackArgs {
             .run()
             .wrap_err("Failed to set system profile during rollback")?;
 
-        // Determine the correct profile to use with specialisations
-        let final_profile = match &target_specialisation {
-            None => generation_link,
-            Some(spec) => {
-                let spec_path =
-                    generation_link.join("specialisation").join(spec);
-                if spec_path.exists() {
-                    spec_path
-                } else {
-                    warn!(
-                        "Specialisation '{}' does not exist in generation {}",
-                        spec, target_generation.number
-                    );
-                    warn!(
-                        "Using base configuration without specialisations"
-                    );
-                    generation_link
-                }
-            }
-        };
+        let final_profile = generation_link;
 
         // Activate the configuration
         info!("Activating...");

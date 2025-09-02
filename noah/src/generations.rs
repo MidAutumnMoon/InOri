@@ -25,9 +25,6 @@ pub struct GenerationInfo {
     /// set in `config.system.configurationRevision`
     pub configuration_revision: String,
 
-    /// Specialisations, if any.
-    pub specialisations: Vec<String>,
-
     /// Whether a given generation is the current one.
     pub current: bool,
 }
@@ -41,7 +38,9 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
             let no_link_gen = generation_base.trim_end_matches("-link");
             no_link_gen
                 .rsplit_once('-')
-                .and_then(|(_, generation_num)| generation_num.parse::<u64>().ok())
+                .and_then(|(_, generation_num)| {
+                    generation_num.parse::<u64>().ok()
+                })
         })
 }
 
@@ -59,18 +58,21 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
                 let duration = system_time
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default();
-                DateTime::<Utc>::from(std::time::UNIX_EPOCH + duration).to_rfc3339()
+                DateTime::<Utc>::from(std::time::UNIX_EPOCH + duration)
+                    .to_rfc3339()
             },
         );
 
-    let nixos_version = fs::read_to_string(generation_dir.join("nixos-version"))
-        .unwrap_or_else(|_| "Unknown".to_string());
+    let nixos_version =
+        fs::read_to_string(generation_dir.join("nixos-version"))
+            .unwrap_or_else(|_| "Unknown".to_string());
 
     // XXX: Nixpkgs appears to have changed where kernel modules are stored in a
     // recent change. I do not care to track which, but we should try the new path
     // and fall back to the old one IF and ONLY IF the new one fails. This is to
     // avoid breakage for outdated channels.
-    let kernel_modules_dir_new = generation_dir.join("kernel-modules/lib/modules");
+    let kernel_modules_dir_new =
+        generation_dir.join("kernel-modules/lib/modules");
     let kernel_modules_dir_old = generation_dir
         .join("kernel")
         .canonicalize()
@@ -110,7 +112,8 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
     };
 
     let configuration_revision = {
-        let nixos_version_path = generation_dir.join("sw/bin/nixos-version");
+        let nixos_version_path =
+            generation_dir.join("sw/bin/nixos-version");
         if nixos_version_path.exists() {
             process::Command::new(&nixos_version_path)
                 .arg("--configuration-revision")
@@ -125,25 +128,6 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
         }
     };
 
-    let specialisations = {
-        let specialisation_path = generation_dir.join("specialisation");
-        if specialisation_path.exists() {
-            fs::read_dir(specialisation_path)
-                .map(|entries| {
-                    let mut specs = Vec::with_capacity(5);
-                    for entry in entries.filter_map(Result::ok) {
-                        if let Some(name) = entry.file_name().to_str() {
-                            specs.push(name.to_string());
-                        }
-                    }
-                    specs
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        }
-    };
-
     // Check if this generation is the current one
     let Some(run_current_target) = fs::read_link("/run/current-system")
         .ok()
@@ -155,7 +139,6 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
             nixos_version,
             kernel_version,
             configuration_revision,
-            specialisations,
             current: false,
         });
     };
@@ -170,7 +153,6 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
             nixos_version,
             kernel_version,
             configuration_revision,
-            specialisations,
             current: false,
         });
     };
@@ -183,7 +165,6 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
         nixos_version,
         kernel_version,
         configuration_revision,
-        specialisations,
         current,
     })
 }
@@ -205,14 +186,19 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
         .output()
     {
         Ok(output) => {
-            debug!("Got the following output for nix path-info: {:#?}", &output);
-            match serde_json::from_str::<serde_json::Value>(&String::from_utf8_lossy(
-                &output.stdout,
-            )) {
+            debug!(
+                "Got the following output for nix path-info: {:#?}",
+                &output
+            );
+            match serde_json::from_str::<serde_json::Value>(
+                &String::from_utf8_lossy(&output.stdout),
+            ) {
                 #[allow(clippy::cast_precision_loss)]
                 Ok(json) => json[0]["closureSize"].as_u64().map_or_else(
                     || "Unknown".to_string(),
-                    |bytes| format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
+                    |bytes| {
+                        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+                    },
                 ),
                 Err(_) => "Unknown".to_string(),
             }
@@ -223,10 +209,11 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
     // Parse all dates at once and cache them
     let mut parsed_dates = HashMap::with_capacity(generations.len());
     for generation in &generations {
-        let date = DateTime::parse_from_rfc3339(&generation.date).map_or_else(
-            |_| Local.timestamp_opt(0, 0).unwrap(),
-            |dt| dt.with_timezone(&Local),
-        );
+        let date = DateTime::parse_from_rfc3339(&generation.date)
+            .map_or_else(
+                |_| Local.timestamp_opt(0, 0).unwrap(),
+                |dt| dt.with_timezone(&Local),
+            );
         parsed_dates.insert(
             generation.date.clone(),
             date.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -234,9 +221,12 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
     }
 
     // Sort generations by numeric value of the generation number
-    generations.sort_by_key(|generation| generation.number.parse::<u64>().unwrap_or(0));
+    generations.sort_by_key(|generation| {
+        generation.number.parse::<u64>().unwrap_or(0)
+    });
 
-    let current_generation = generations.iter().find(|generation| generation.current);
+    let current_generation =
+        generations.iter().find(|generation| generation.current);
     debug!(?current_generation);
 
     if let Some(current) = current_generation {
@@ -262,7 +252,7 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
         .unwrap_or(12); // arbitrary value
 
     println!(
-        "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<22} Specialisations",
+        "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<22}",
         "Generation No",
         "Build Date",
         "NixOS Version",
@@ -279,19 +269,8 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
             .cloned()
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let specialisations = if generation.specialisations.is_empty() {
-            String::new()
-        } else {
-            generation
-                .specialisations
-                .iter()
-                .map(|s| format!("*{s}"))
-                .collect::<Vec<String>>()
-                .join(" ")
-        };
-
         println!(
-            "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<25} {}",
+            "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<25}",
             format!(
                 "{}{}",
                 generation.number,
@@ -301,7 +280,6 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
             generation.nixos_version,
             generation.kernel_version,
             generation.configuration_revision,
-            specialisations,
             width_nixos = max_nixos_version_len,
             width_kernel = max_kernel_len
         );
