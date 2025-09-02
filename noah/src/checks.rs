@@ -99,8 +99,7 @@ pub fn verify_variables() -> Result<()> {
             // AND none of the command-specific env vars are set
             if std::env::var("NH_OS_FLAKE").is_err() {
                 tracing::warn!(
-                    "nh {} now uses NH_FLAKE instead of FLAKE, please update your configuration",
-                    super::NH_VERSION
+                    "nh now uses NH_FLAKE instead of FLAKE, please update your configuration",
                 );
             }
         }

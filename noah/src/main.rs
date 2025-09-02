@@ -13,16 +13,12 @@ mod util;
 
 use color_eyre::Result;
 
-pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const NH_REV: Option<&str> = option_env!("NH_REV");
-
 fn main() -> Result<()> {
     let args = <crate::interface::CliOpts as clap::Parser>::parse();
 
     // Set up logging
     crate::logging::setup_logging(args.verbosity)?;
     tracing::debug!("{args:#?}");
-    tracing::debug!(%NH_VERSION, ?NH_REV);
 
     // Check Nix version upfront
     checks::verify_nix_environment()?;
