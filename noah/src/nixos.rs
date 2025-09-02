@@ -280,10 +280,6 @@ pub struct NixBuildPassthroughArgs {
     #[arg(long)]
     pub no_registries: bool,
 
-    /// Commit the lockfile after updates
-    #[arg(long)]
-    pub commit_lock_file: bool,
-
     /// Suppress build output
     #[arg(long, short = 'Q')]
     pub no_build_output: bool,
@@ -366,9 +362,6 @@ impl NixBuildPassthroughArgs {
         }
         if self.no_registries {
             args.push("--no-registries".into());
-        }
-        if self.commit_lock_file {
-            args.push("--commit-lock-file".into());
         }
         if self.no_build_output {
             args.push("--no-build-output".into());
