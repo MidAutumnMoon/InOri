@@ -42,8 +42,11 @@ pub struct CliOpts {
 pub enum CliCmd {
     #[command(flatten)]
     NixOS(crate::nixos::OsSubcmd),
+
     // Deploy,
     Clean(crate::clean::CleanProxy),
+
+    /// Generate completions for shells.
     Complete {
         shell: clap_complete::Shell,
     },

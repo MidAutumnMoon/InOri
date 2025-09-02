@@ -58,6 +58,14 @@ pub enum OsSubcmd {
 
     /// Build a `NixOS` VM image
     BuildVm(OsBuildVmArgs),
+
+    /// Update flake.lock and commit. Currently the commit message is
+    /// hardcoded.
+    Update {
+        /// Disable automatic commit.
+        #[arg(long, short)]
+        no_commit: bool,
+    },
 }
 
 impl OsSubcmd {
@@ -79,6 +87,7 @@ impl OsSubcmd {
             Self::Repl(args) => args.run(),
             Self::Info(args) => args.info(),
             Self::Rollback(args) => args.rollback(),
+            Self::Update { .. } => todo!(),
         }
     }
 }
