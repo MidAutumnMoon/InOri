@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
+use clap::Arg;
+use clap::ArgAction;
+use clap::Args;
+use clap::FromArgMatches;
 use clap::error::ErrorKind;
-use clap::{Arg, ArgAction, Args, FromArgMatches};
 use color_eyre::owo_colors::OwoColorize;
 use tracing::debug;
 
@@ -28,12 +31,16 @@ pub enum Installable {
 }
 
 impl FromArgMatches for Installable {
-    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+    fn from_arg_matches(
+        matches: &clap::ArgMatches,
+    ) -> Result<Self, clap::Error> {
         let mut matches = matches.clone();
         Self::from_arg_matches_mut(&mut matches)
     }
 
-    fn from_arg_matches_mut(matches: &mut clap::ArgMatches) -> Result<Self, clap::Error> {
+    fn from_arg_matches_mut(
+        matches: &mut clap::ArgMatches,
+    ) -> Result<Self, clap::Error> {
         let installable = matches.get_one::<String>("installable");
         let file = matches.get_one::<String>("file");
         let expr = matches.get_one::<String>("expr");
@@ -51,14 +58,18 @@ impl FromArgMatches for Installable {
         if let Some(f) = file {
             return Ok(Self::File {
                 path: PathBuf::from(f),
-                attribute: parse_attribute(installable.cloned().unwrap_or_default()),
+                attribute: parse_attribute(
+                    installable.cloned().unwrap_or_default(),
+                ),
             });
         }
 
         if let Some(e) = expr {
             return Ok(Self::Expression {
                 expression: e.to_string(),
-                attribute: parse_attribute(installable.cloned().unwrap_or_default()),
+                attribute: parse_attribute(
+                    installable.cloned().unwrap_or_default(),
+                ),
             });
         }
 
@@ -97,25 +108,19 @@ impl FromArgMatches for Installable {
             debug!("Current subcommand: {subcommand:?}");
             let env_var = match subcommand.as_str() {
                 "os" => "NH_OS_FLAKE",
-                "home" => "NH_HOME_FLAKE",
                 "darwin" => "NH_DARWIN_FLAKE",
                 _ => "",
             };
 
-            if !env_var.is_empty() {
-                if let Some(installable) = parse_flake_env(env_var) {
-                    return Ok(installable);
-                }
+            if !env_var.is_empty()
+                && let Some(installable) = parse_flake_env(env_var)
+            {
+                return Ok(installable);
             }
         }
 
         // General flake env fallbacks
-        for var in &[
-            "NH_FLAKE",
-            "NH_OS_FLAKE",
-            "NH_HOME_FLAKE",
-            "NH_DARWIN_FLAKE",
-        ] {
+        for var in &["NH_FLAKE", "NH_OS_FLAKE", "NH_DARWIN_FLAKE"] {
             if let Some(installable) = parse_flake_env(var) {
                 return Ok(installable);
             }
@@ -124,14 +129,19 @@ impl FromArgMatches for Installable {
         if let Ok(f) = env::var("NH_FILE") {
             return Ok(Self::File {
                 path: PathBuf::from(f),
-                attribute: parse_attribute(env::var("NH_ATTRP").unwrap_or_default()),
+                attribute: parse_attribute(
+                    env::var("NH_ATTRP").unwrap_or_default(),
+                ),
             });
         }
 
         Err(clap::Error::new(ErrorKind::TooFewValues))
     }
 
-    fn update_from_arg_matches(&mut self, _matches: &clap::ArgMatches) -> Result<(), clap::Error> {
+    fn update_from_arg_matches(
+        &mut self,
+        _matches: &clap::ArgMatches,
+    ) -> Result<(), clap::Error> {
         todo!()
     }
 }
@@ -166,7 +176,6 @@ Nix accepts various kinds of installables:
     Flake reference with an optional attribute path.
     [env: NH_FLAKE={}]
     [env: NH_OS_FLAKE={}]
-    [env: NH_HOME_FLAKE={}]
     [env: NH_DARWIN_FLAKE={}]
 
 {}, {} <FILE> [ATTRPATH]
@@ -182,7 +191,6 @@ Nix accepts various kinds of installables:
 ",
                     env::var("NH_FLAKE").unwrap_or_default(),
                     env::var("NH_OS_FLAKE").unwrap_or_default(),
-                    env::var("NH_HOME_FLAKE").unwrap_or_default(),
                     env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
                     "-f".yellow(),
                     "--file".yellow(),
@@ -242,7 +250,10 @@ where
 #[test]
 fn test_parse_attribute() {
     assert_eq!(parse_attribute(r"foo.bar"), vec!["foo", "bar"]);
-    assert_eq!(parse_attribute(r#"foo."bar.baz""#), vec!["foo", "bar.baz"]);
+    assert_eq!(
+        parse_attribute(r#"foo."bar.baz""#),
+        vec!["foo", "bar.baz"]
+    );
     let v: Vec<String> = vec![];
     assert_eq!(parse_attribute(""), v);
 }
@@ -256,7 +267,10 @@ impl Installable {
                 reference,
                 attribute,
             } => {
-                res.push(format!("{reference}#{}", join_attribute(attribute)));
+                res.push(format!(
+                    "{reference}#{}",
+                    join_attribute(attribute)
+                ));
             }
             Self::File { path, attribute } => {
                 res.push(String::from("--file"));
@@ -271,7 +285,9 @@ impl Installable {
                 res.push(expression.to_string());
                 res.push(join_attribute(attribute));
             }
-            Self::Store { path } => res.push(path.to_str().unwrap().to_string()),
+            Self::Store { path } => {
+                res.push(path.to_str().unwrap().to_string())
+            }
         }
 
         res
@@ -283,7 +299,10 @@ fn test_installable_to_args() {
     assert_eq!(
         (Installable::Flake {
             reference: String::from("w"),
-            attribute: ["x", "y.z"].into_iter().map(str::to_string).collect()
+            attribute: ["x", "y.z"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
         })
         .to_args(),
         vec![r#"w#x."y.z""#]
@@ -292,7 +311,10 @@ fn test_installable_to_args() {
     assert_eq!(
         (Installable::File {
             path: PathBuf::from("w"),
-            attribute: ["x", "y.z"].into_iter().map(str::to_string).collect()
+            attribute: ["x", "y.z"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
         })
         .to_args(),
         vec!["--file", "w", r#"x."y.z""#]

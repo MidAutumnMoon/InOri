@@ -3,7 +3,6 @@ mod clean;
 mod commands;
 mod completion;
 mod generations;
-mod home;
 mod installable;
 mod interface;
 mod json;

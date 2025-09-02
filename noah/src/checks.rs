@@ -97,9 +97,7 @@ pub fn verify_variables() -> Result<()> {
 
             // Only warn if FLAKE is set and we're using it to set NH_FLAKE
             // AND none of the command-specific env vars are set
-            if std::env::var("NH_OS_FLAKE").is_err()
-                && std::env::var("NH_HOME_FLAKE").is_err()
-            {
+            if std::env::var("NH_OS_FLAKE").is_err() {
                 tracing::warn!(
                     "nh {} now uses NH_FLAKE instead of FLAKE, please update your configuration",
                     super::NH_VERSION
@@ -254,32 +252,6 @@ impl FeatureRequirements for OsReplFeatures {
     }
 }
 
-/// Feature requirements for Home Manager repl commands
-#[derive(Debug)]
-pub struct HomeReplFeatures {
-    pub is_flake: bool,
-}
-
-impl FeatureRequirements for HomeReplFeatures {
-    fn required_features(&self) -> Vec<&'static str> {
-        let mut features = vec![];
-
-        // For non-flake repls, no experimental features needed
-        if !self.is_flake {
-            return features;
-        }
-
-        // For flake repls, only need nix-command and flakes
-        let variant = util::get_nix_variant();
-        if !matches!(variant, NixVariant::Determinate) {
-            features.push("nix-command");
-            features.push("flakes");
-        }
-
-        features
-    }
-}
-
 /// Feature requirements for commands that don't need experimental features
 #[derive(Debug)]
 pub struct NoFeatures;
@@ -423,24 +395,14 @@ mod tests {
             let os_features = OsReplFeatures { is_flake };
             let os_result = os_features.required_features();
 
-            // Test Home repl features
-            let home_features = HomeReplFeatures { is_flake };
-            let home_result = home_features.required_features();
-
             if is_flake {
                 // Property: All flake repls should have consistent base features
                 // (when features are required, they should include nix-command and flakes)
-                for result in [&os_result, &home_result,] {
+                for result in [&os_result] {
                     if !result.is_empty() {
                         prop_assert!(result.contains(&"nix-command"));
                         prop_assert!(result.contains(&"flakes"));
                     }
-                }
-
-                // Property: Only OS repl may have additional features (repl-flake for older Lix)
-                // Home and Darwin should never have more than the base features
-                if !home_result.is_empty() {
-                    prop_assert_eq!(home_result.len(), 2);
                 }
 
                 // Property: OS repl may have 2 or 3 features (base + optional repl-flake)
@@ -453,7 +415,6 @@ mod tests {
             } else {
                 // Property: Non-flake repls should never require features
                 prop_assert!(os_result.is_empty());
-                prop_assert!(home_result.is_empty());
             }
         }
 
@@ -465,7 +426,6 @@ mod tests {
                 Box::new(FlakeFeatures) as Box<dyn FeatureRequirements>,
                 Box::new(LegacyFeatures) as Box<dyn FeatureRequirements>,
                 Box::new(OsReplFeatures { is_flake }) as Box<dyn FeatureRequirements>,
-                Box::new(HomeReplFeatures { is_flake }) as Box<dyn FeatureRequirements>,
                 Box::new(NoFeatures) as Box<dyn FeatureRequirements>,
             ];
 
@@ -529,7 +489,6 @@ mod tests {
             env::remove_var("FLAKE");
             env::remove_var("NH_FLAKE");
             env::remove_var("NH_OS_FLAKE");
-            env::remove_var("NH_HOME_FLAKE");
         }
 
         let _guard = EnvGuard::new("FLAKE", "/test/flake");
@@ -550,7 +509,6 @@ mod tests {
             env::remove_var("FLAKE");
             env::remove_var("NH_FLAKE");
             env::remove_var("NH_OS_FLAKE");
-            env::remove_var("NH_HOME_FLAKE");
         }
 
         let _guard1 = EnvGuard::new("FLAKE", "/test/flake");
@@ -573,7 +531,6 @@ mod tests {
             env::remove_var("FLAKE");
             env::remove_var("NH_FLAKE");
             env::remove_var("NH_OS_FLAKE");
-            env::remove_var("NH_HOME_FLAKE");
         }
 
         let _guard1 = EnvGuard::new("FLAKE", "/test/flake");
