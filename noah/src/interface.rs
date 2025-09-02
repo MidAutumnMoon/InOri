@@ -52,7 +52,6 @@ pub struct Main {
 pub enum NHCommand {
     Os(OsArgs),
     Home(HomeArgs),
-    Darwin(DarwinArgs),
     Search(SearchArgs),
     Clean(CleanProxy),
     #[command(hide = true)]
@@ -65,7 +64,6 @@ impl NHCommand {
         match self {
             Self::Os(args) => args.get_feature_requirements(),
             Self::Home(args) => args.get_feature_requirements(),
-            Self::Darwin(args) => args.get_feature_requirements(),
             Self::Search(_) => Box::new(NoFeatures),
             Self::Clean(_) => Box::new(NoFeatures),
             Self::Completions(_) => Box::new(NoFeatures),
@@ -90,12 +88,6 @@ impl NHCommand {
             Self::Home(args) => {
                 unsafe {
                     std::env::set_var("NH_CURRENT_COMMAND", "home");
-                }
-                args.run()
-            }
-            Self::Darwin(args) => {
-                unsafe {
-                    std::env::set_var("NH_CURRENT_COMMAND", "darwin");
                 }
                 args.run()
             }
