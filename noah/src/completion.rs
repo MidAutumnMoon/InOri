@@ -2,10 +2,9 @@ use clap_complete::generate;
 use color_eyre::Result;
 use tracing::instrument;
 
-use crate::cli;
-use crate::cli::CliOpts;
+use crate::CliOpts;
 
-impl cli::CompletionArgs {
+impl crate::CompletionArgs {
     #[instrument(ret, level = "trace")]
     /// Run the completion subcommand.
     ///
