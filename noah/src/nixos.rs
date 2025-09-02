@@ -72,16 +72,16 @@ impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
         use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(args) => args.rebuild(&Boot, None),
-            Self::Test(args) => args.rebuild(&Test, None),
-            Self::Switch(args) => args.rebuild(&Switch, None),
+            Self::Boot(args) => args.build(&Boot, None),
+            Self::Test(args) => args.build(&Test, None),
+            Self::Switch(args) => args.build(&Switch, None),
             Self::Build(args) => {
                 if args.common.ask || args.common.dry {
                     warn!(
                         "`--ask` and `--dry` have no effect for `nh os build`"
                     );
                 }
-                args.rebuild(&Build, None)
+                args.build(&Build, None)
             }
             Self::Vm(args) => args.build_vm(),
             Self::Repl(args) => args.run(),
@@ -394,24 +394,14 @@ impl OsBuildVmArgs {
     fn build_vm(self) -> Result<()> {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
-        self.common
-            .rebuild(&BuildVariant::BuildVm, Some(final_attr))
+        self.common.build(&BuildVariant::BuildVm, Some(final_attr))
     }
 }
 
 impl BuildOpts {
-    #[tracing::instrument(name = "build_nixos", skip(runtime))]
-    fn build(
-        self,
-        variant: BuildVariant,
-        runtime: &Runtime,
-    ) -> Result<()> {
-        todo!()
-    }
-
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-    fn rebuild(
+    fn build(
         self,
         variant: &BuildVariant,
         final_attr: Option<String>,
