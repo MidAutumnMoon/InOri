@@ -34,6 +34,14 @@ pub struct CliOpts {
     /// more detailed logs.
     pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
+    /// The flake to use. Can be anything that is considered as
+    /// "installable" by Nix.
+    #[arg(global = true)]
+    #[arg(required = false)]
+    #[arg(long, short = 'F')]
+    #[arg(env = "NH_FLAKE")]
+    pub flake: String,
+
     #[command(subcommand)]
     pub command: CliCmd,
 }
@@ -54,25 +62,27 @@ pub enum CliCmd {
 }
 
 pub struct Runtime {
-    flake_repo: PathBuf,
+    flake: String,
 }
 
 fn main() -> Result<()> {
-    let args = <CliOpts as clap::Parser>::parse();
+    let cliopts = <CliOpts as clap::Parser>::parse();
 
     startup_check().context("Failed to run startup checks")?;
 
     // Set up logging
-    crate::logging::setup_logging(args.verbosity)?;
-    tracing::debug!("{args:#?}");
+    crate::logging::setup_logging(cliopts.verbosity)?;
+    tracing::debug!("{cliopts:#?}");
 
-    match args.command {
-        CliCmd::NixOS(args) => {
+    let runtime = Runtime { flake: cliopts.flake };
+
+    match cliopts.command {
+        CliCmd::NixOS(cmd) => {
             // TODO: get rid of envvar
             unsafe {
                 std::env::set_var("NH_CURRENT_COMMAND", "os");
             }
-            args.run()
+            cmd.run(runtime)
         }
         CliCmd::Clean(clean) => clean.run(),
         CliCmd::Complete { shell } => {

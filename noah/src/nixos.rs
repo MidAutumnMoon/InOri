@@ -8,6 +8,7 @@ use color_eyre::eyre::{Context, bail};
 use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 
+use crate::Runtime;
 use crate::commands;
 use crate::commands::Command;
 use crate::generations;
@@ -68,7 +69,7 @@ pub enum OsSubcmd {
 }
 
 impl OsSubcmd {
-    pub fn run(self) -> Result<()> {
+    pub fn run(self, runtime: Runtime) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
         match self {
             Self::Boot(args) => args.rebuild(&Boot, None),
@@ -106,7 +107,7 @@ pub struct BuildOpts {
     #[command(flatten)]
     pub common: CommonRebuildArgs,
 
-    /// When using a flake installable, select this hostname from nixosConfigurations
+    /// Select this hostname from nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 
