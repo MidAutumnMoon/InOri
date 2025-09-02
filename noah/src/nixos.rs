@@ -54,9 +54,9 @@ pub enum OsSubcmd {
     /// Rollback to a previous generation
     Rollback(OsRollbackArgs),
 
-    /// Build a `NixOS` VM image
+    /// Build VM
     // TODO: remove?
-    BuildVm(OsBuildVmArgs),
+    Vm(OsBuildVmArgs),
 
     /// Update flake.lock and commit. Currently the commit message is
     /// hardcoded.
@@ -82,7 +82,7 @@ impl OsSubcmd {
                 }
                 args.rebuild(&Build, None)
             }
-            Self::BuildVm(args) => args.build_vm(),
+            Self::Vm(args) => args.build_vm(),
             Self::Repl(args) => args.run(),
             Self::Info(args) => args.info(),
             Self::Rollback(args) => args.rollback(),
