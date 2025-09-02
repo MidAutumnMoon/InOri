@@ -1,3 +1,6 @@
 UUIDv7
 cq
 dbus
+gcroots
+homeConfigurations
+nh
