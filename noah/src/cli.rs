@@ -64,11 +64,11 @@ impl CliCmd {
 #[clap(verbatim_doc_comment)]
 pub struct OsArgs {
     #[command(subcommand)]
-    pub subcommand: OsSubcommand,
+    pub subcommand: OsSubcmd,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum OsSubcommand {
+pub enum OsSubcmd {
     /// Build and activate the new configuration, and make it the boot default
     Switch(OsRebuildArgs),
 

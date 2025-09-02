@@ -8,7 +8,7 @@ use color_eyre::eyre::{Context, bail};
 use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 
-use crate::cli::OsSubcommand::{self};
+use crate::cli::OsSubcmd::{self};
 use crate::cli::{
     self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs,
     OsReplArgs, OsRollbackArgs,
@@ -30,10 +30,10 @@ impl cli::OsArgs {
     pub fn run(self) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
         match self.subcommand {
-            OsSubcommand::Boot(args) => args.rebuild(&Boot, None),
-            OsSubcommand::Test(args) => args.rebuild(&Test, None),
-            OsSubcommand::Switch(args) => args.rebuild(&Switch, None),
-            OsSubcommand::Build(args) => {
+            OsSubcmd::Boot(args) => args.rebuild(&Boot, None),
+            OsSubcmd::Test(args) => args.rebuild(&Test, None),
+            OsSubcmd::Switch(args) => args.rebuild(&Switch, None),
+            OsSubcmd::Build(args) => {
                 if args.common.ask || args.common.dry {
                     warn!(
                         "`--ask` and `--dry` have no effect for `nh os build`"
@@ -41,10 +41,10 @@ impl cli::OsArgs {
                 }
                 args.rebuild(&Build, None)
             }
-            OsSubcommand::BuildVm(args) => args.build_vm(),
-            OsSubcommand::Repl(args) => args.run(),
-            OsSubcommand::Info(args) => args.info(),
-            OsSubcommand::Rollback(args) => args.rollback(),
+            OsSubcmd::BuildVm(args) => args.build_vm(),
+            OsSubcmd::Repl(args) => args.run(),
+            OsSubcmd::Info(args) => args.info(),
+            OsSubcmd::Rollback(args) => args.rollback(),
         }
     }
 }
