@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::process::Command;
 use std::process::ExitStatus;
 
 use anyhow::Context;
@@ -64,7 +65,7 @@ enum CliOpts {
     /// (unimplemented) Print various information for scripting.
     Print,
 
-    /// (unimplemented) Generate shell completion.
+    /// Generate shell completion.
     Complete {
         #[arg(long, short)]
         shell: clap_complete::Shell,
@@ -93,9 +94,9 @@ struct SharedCliOpts {
     /// Allow processing pictures marked as already transcoded
     /// by ignoring the xattr check.
     // TODO: needed?
-    #[arg(long, short = 'i')]
-    #[arg(default_value_t = false)]
-    ignore_tag: bool,
+    // #[arg(long, short = 'i')]
+    // #[arg(default_value_t = false)]
+    // ignore_tag: bool,
 
     /// (unimplemented) Number of parallel transcoding to run.
     #[arg(long, short)]
@@ -235,7 +236,16 @@ impl PictureFormat {
 }
 
 fn main_with_result() -> AnyResult<()> {
-    let opt = CliOpts::parse();
+    let opts = CliOpts::parse();
+
+    if let CliOpts::Complete { shell } = &opts {
+        use clap::CommandFactory;
+        use clap_complete::generate;
+        let mut cmd = CliOpts::command();
+        generate(*shell, &mut cmd, "avxl", &mut std::io::stdout());
+        return Ok(());
+    }
+
     let f = fs::collect_pictures(
         &PathBuf::from("/mnt/z"),
         &[PictureFormat::AVIF],
