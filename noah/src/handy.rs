@@ -201,5 +201,3 @@ pub fn print_dix_diff(
     }
     Ok(())
 }
-
-pub fn list_nixos_names() {}

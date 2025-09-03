@@ -162,11 +162,11 @@ impl Command {
         }
 
         // Only propagate HOME for non-elevated commands
-        if !self.elevate {
-            if let Ok(home) = std::env::var("HOME") {
-                self.env_vars
-                    .insert("HOME".to_string(), EnvAction::Set(home));
-            }
+        if !self.elevate
+            && let Ok(home) = std::env::var("HOME")
+        {
+            self.env_vars
+                .insert("HOME".to_string(), EnvAction::Set(home));
         }
 
         // Preserve all variables in PRESERVE_ENV if present

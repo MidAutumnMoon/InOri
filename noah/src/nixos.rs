@@ -750,14 +750,12 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
     .filter_map(|entry| {
         entry.ok().and_then(|e| {
             let path = e.path();
-            if let Some(filename) = path.file_name() {
-                if let Some(name) = filename.to_str() {
-                    if name.starts_with("system-")
-                        && name.ends_with("-link")
-                    {
-                        return generations::describe(&path);
-                    }
-                }
+            if let Some(filename) = path.file_name()
+                && let Some(name) = filename.to_str()
+                && name.starts_with("system-")
+                && name.ends_with("-link")
+            {
+                return generations::describe(&path);
             }
             None
         })
