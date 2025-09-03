@@ -41,8 +41,11 @@ pub struct CliOpts {
     pub flake: String,
 
     /// Allow noah to be executed as root.
+    #[arg(global = true)]
+    #[arg(required = false)]
     #[arg(long)]
     #[arg(env = "NH_NO_ROOT_CHECK")]
+    #[arg(default_value_t = false)]
     pub no_root_check: bool,
 
     #[command(subcommand)]

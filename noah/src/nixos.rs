@@ -87,7 +87,7 @@ impl OsSubcmd {
             Self::Vm(args) => args.build_vm(&runtime),
             Self::Repl(args) => args.run(),
             Self::Info(args) => args.info(),
-            Self::Rollback(args) => args.rollback(),
+            Self::Rollback(args) => args.rollback(&runtime),
             Self::Update { .. } => todo!(),
         }
     }
@@ -127,10 +127,6 @@ pub struct BuildOpts {
     #[arg(last = true)]
     pub extra_args: Vec<String>,
 
-    /// Allow noah to be executed as root.
-    #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-    pub no_root_check: bool,
-
     /// Deploy the configuration to a different host over ssh
     #[arg(long)]
     pub target_host: Option<String>,
@@ -149,10 +145,6 @@ pub struct OsRollbackArgs {
     /// Rollback to a specific generation number (defaults to previous generation)
     #[arg(long, short)]
     pub to: Option<u64>,
-
-    /// Don't panic if calling nh as root
-    #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-    pub bypass_root_check: bool,
 
     /// Whether to display a package diff
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
@@ -390,7 +382,7 @@ fn build_nixos(
         let _ = ensure_ssh_key_login();
     }
 
-    let elevate = if build_opts.no_root_check {
+    let elevate = if runtime.no_root_check {
         warn!("Bypassing root check, now running nix as root");
         false
     } else {
@@ -636,8 +628,8 @@ fn build_nixos(
 }
 
 impl OsRollbackArgs {
-    fn rollback(&self) -> Result<()> {
-        let elevate = if self.bypass_root_check {
+    fn rollback(&self, runtime: &Runtime) -> Result<()> {
+        let elevate = if runtime.no_root_check {
             warn!("Bypassing root check, now running nix as root");
             false
         } else {
