@@ -226,7 +226,7 @@ trait Transcoder {
     fn input_format(&self) -> &'static [PictureFormat];
 
     /// The picture format that this transcoder outputs.
-    fn output(&self) -> PictureFormat;
+    fn output_format(&self) -> PictureFormat;
 
     /// Do the transcoding.
     // TODO: Get rid of ExitStatus

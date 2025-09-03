@@ -40,7 +40,7 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[inline]
-    fn output(&self) -> PictureFormat {
+    fn output_format(&self) -> PictureFormat {
         PictureFormat::PNG
     }
 

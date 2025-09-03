@@ -23,7 +23,7 @@ impl crate::Transcoder for Jxl {
     }
 
     #[inline]
-    fn output(&self) -> PictureFormat {
+    fn output_format(&self) -> PictureFormat {
         PictureFormat::JXL
     }
 
