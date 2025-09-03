@@ -78,9 +78,7 @@ impl OsSubcmd {
             Self::Switch(args) => args.build(Switch, None),
             Self::Build(args) => {
                 if args.common.dry {
-                    warn!(
-                        "`--dry` have no effect for `nh os build`"
-                    );
+                    warn!("`--dry` have no effect for `nh os build`");
                 }
                 args.build(Build, None)
             }
@@ -221,15 +219,11 @@ pub struct NixBuildPassthroughArgs {
     #[arg(long)]
     pub repair: bool,
 
-    /// Explicitly define remote builders
-    #[arg(long)]
-    pub builders: Option<String>,
-
     /// Paths to include
     #[arg(long, short = 'I')]
     pub include: Vec<String>,
 
-    /// Print build logs directly to stdout
+    /// Print build logs.
     #[arg(long, short = 'L')]
     pub print_build_logs: bool,
 
@@ -314,10 +308,6 @@ impl NixBuildPassthroughArgs {
         }
         if self.repair {
             args.push("--repair".into());
-        }
-        if let Some(ref builders) = self.builders {
-            args.push("--builders".into());
-            args.push(builders.clone());
         }
         for inc in &self.include {
             args.push("--include".into());
