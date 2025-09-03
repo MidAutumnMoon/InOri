@@ -193,6 +193,7 @@ dependencies = [
  "ino_tap",
  "ino_tracing",
  "itertools 0.14.0",
+ "pty-process",
  "tap",
  "tracing",
  "walkdir",

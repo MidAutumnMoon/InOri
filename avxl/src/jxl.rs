@@ -1,6 +1,6 @@
 use std::path::Path;
-use std::process::Command;
-use std::process::ExitStatus;
+
+use pty_process::blocking::Command;
 
 use crate::PictureFormat;
 
@@ -31,21 +31,18 @@ impl crate::Transcoder for Jxl {
     /// doesn't need too much tweaking. These options are used for squashing
     /// out more savings on spaces.
     #[tracing::instrument(name = "jxl_transcode")]
-    fn transcode_command(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<ExitStatus> {
-        let mut cjxl = Command::new(CJXL_PATH.unwrap_or("cjxl"));
+    fn generate_command(&self, input: &Path, output: &Path) -> Command {
+        let cjxl = Command::new(CJXL_PATH.unwrap_or("cjxl"));
 
         let cjxl = cjxl
             // Allow tweaking more parameters.
             .arg("--allow_expert_options")
-            // Increase the encoding time A LOT (30s in e9 comparing to few secs
+            // Increase the encoding time A LOT
+            // (30s in e9 comparing to few seconds
             // in default) but also saves a lot more spaces.
             .args(["--effort", "9"])
             // Following 3 options force cjxl to the lossless algorithm
-            // called modular, lossly speakig.
+            // called modular, loosely speaking.
             .args(["--modular", "1"])
             .args(["--lossless_jpeg", "1"])
             .args(["--distance", "0.0"])
@@ -63,8 +60,6 @@ impl crate::Transcoder for Jxl {
             // Use all threads
             .args(["--num_threads", "-1"]);
 
-        let status = cjxl.args([input, output]).spawn()?.wait()?;
-
-        Ok(status)
+        cjxl.args([input, output])
     }
 }

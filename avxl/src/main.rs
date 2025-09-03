@@ -102,9 +102,10 @@ struct SharedCliOpts {
     // #[arg(default_value_t = false)]
     // ignore_tag: bool,
     /// (unimplemented) Number of parallel transcoding to run.
+    /// Specify "0" to 85% of all cores.
     #[arg(long, short)]
     #[arg(default_value = "1")]
-    jobs: NonZeroUsize,
+    jobs: usize,
 
     /// Display logs from transcoders.
     #[arg(long, short = 'L')]
@@ -262,14 +263,15 @@ trait Transcoder {
     /// The picture format that this transcoder outputs.
     fn output_format(&self) -> PictureFormat;
 
-    /// Do the transcoding.
-    // TODO: Get rid of ExitStatus
+    /// Build the command to do transcoding.
+    // This does count as some sort of sans-io lol
+    // TODO: Switch to async?
     #[allow(clippy::missing_errors_doc)]
-    fn transcode_command(
+    fn generate_command(
         &self,
         input: &Path,
         output: &Path,
-    ) -> AnyResult<ExitStatus>;
+    ) -> pty_process::blocking::Command;
 }
 
 /// Commonly encountered image formats.

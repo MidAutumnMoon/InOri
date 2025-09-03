@@ -1,9 +1,9 @@
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use itertools::Itertools;
+use pty_process::blocking::Command;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::process::ExitStatus;
 use tap::Pipe;
 
 use crate::PictureFormat;
@@ -45,29 +45,20 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[tracing::instrument]
-    fn transcode_command(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> AnyResult<ExitStatus> {
+    fn generate_command(&self, input: &Path, output: &Path) -> Command {
         let number_of_depseckles =
             std::iter::repeat_n("-despeckle", self.iteration.into())
                 .collect_vec();
 
-        let mut magick = MAGICK_PATH
+        let magick = MAGICK_PATH
             .unwrap_or("magick")
-            .pipe(std::process::Command::new);
+            .pipe(Command::new);
 
-        let status = magick
+        magick
             .arg("-verbose")
             .arg("--")
             .arg(input)
             .args(number_of_depseckles)
             .arg(output)
-            .spawn()
-            .context("Failed to run magick")?
-            .wait()?;
-
-        Ok(status)
     }
 }

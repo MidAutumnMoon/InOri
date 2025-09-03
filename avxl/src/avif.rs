@@ -1,7 +1,7 @@
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use pty_process::blocking::Command;
 use std::path::Path;
-use std::process::ExitStatus;
 use tap::Pipe;
 
 use crate::PictureFormat;
@@ -76,14 +76,9 @@ impl crate::Transcoder for Avif {
     }
 
     #[tracing::instrument(name = "avif_transcode")]
-    fn transcode_command(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> AnyResult<ExitStatus> {
-        let mut avifenc = AVIFENC_PATH
-            .unwrap_or("avifenc")
-            .pipe(std::process::Command::new);
+    fn generate_command(&self, input: &Path, output: &Path) -> Command {
+        let mut avifenc =
+            AVIFENC_PATH.unwrap_or("avifenc").pipe(Command::new);
 
         let avifenc = {
             let quality = match self.quality_preset {
@@ -133,13 +128,6 @@ impl crate::Transcoder for Avif {
             avifenc.args(["-a", &cq_level]);
         }
 
-        let status = avifenc
-            .arg("--")
-            .args([input, output])
-            .spawn()
-            .context("Failed to spawn avifenc")?
-            .wait()?;
-
-        Ok(status)
+        avifenc.arg("--").args([input, output])
     }
 }
