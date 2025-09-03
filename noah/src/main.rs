@@ -2,7 +2,6 @@ mod clean;
 mod commands;
 mod generations;
 mod handy;
-mod installable;
 mod logging;
 mod nixos;
 

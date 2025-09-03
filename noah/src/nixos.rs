@@ -1,6 +1,5 @@
 //! This module essentially reimplements nixos-rebuild-ng
 
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +14,6 @@ use crate::generations;
 use crate::handy;
 use crate::handy::ensure_ssh_key_login;
 use crate::handy::print_dix_diff;
-use crate::installable::Installable;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -86,7 +84,7 @@ impl OsSubcmd {
                 build_nixos(opts, Build, None, &runtime)
             }
             Self::Vm(opts) => opts.build_vm(&runtime),
-            Self::Repl(opts) => opts.run(),
+            Self::Repl(opts) => opts.run(&runtime),
             Self::Info(opts) => opts.info(),
             Self::Rollback(opts) => opts.rollback(&runtime),
             Self::Update { .. } => todo!(),
@@ -109,9 +107,6 @@ pub struct BuildOpts {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
     pub dry: bool,
-
-    #[command(flatten)]
-    pub installable: Installable,
 
     /// Whether to display a package diff
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
@@ -154,10 +149,7 @@ pub struct RollbackOpts {
 
 #[derive(Debug, clap::Args)]
 pub struct ReplOpts {
-    #[command(flatten)]
-    pub installable: Installable,
-
-    /// When using a flake installable, select this hostname from nixosConfigurations
+    /// Select the hostname.
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 }
@@ -419,40 +411,21 @@ fn build_nixos(
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_OS_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-        debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-        let mut elems = os_flake.splitn(2, '#');
-        let reference = elems
-            .next()
-            .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
-            .to_owned();
-        let attribute = elems
-            .next()
-            .map(crate::installable::parse_attribute)
-            .unwrap_or_default();
-
-        Installable::Flake {
-            reference,
-            attribute,
+    let drv = {
+        // TODO: escape?
+        format! { "{}#nixosConfigurations.{}.config.system.build.{}",
+            runtime.flake,
+            target_hostname,
+            final_attr.unwrap_or(String::from("toplevel")),
         }
-    } else {
-        build_opts.installable.clone()
     };
-
-    let toplevel = toplevel_for(
-        &target_hostname,
-        installable,
-        final_attr.unwrap_or(String::from("toplevel")).as_str(),
-    );
 
     let message = match variant {
         BuildVm => "Building NixOS VM image",
         _ => "Building NixOS configuration",
     };
 
-    commands::Build::new(toplevel)
+    commands::Build::new(drv)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&build_opts.extra_args)
@@ -883,93 +856,32 @@ pub fn get_final_attr(build_vm: bool, with_bootloader: bool) -> String {
     String::from(attr)
 }
 
-pub fn toplevel_for<S: AsRef<str>>(
-    hostname: S,
-    installable: Installable,
-    final_attr: &str,
-) -> Installable {
-    let mut res = installable;
-    let hostname = hostname.as_ref().to_owned();
-
-    let toplevel = ["config", "system", "build", final_attr]
-        .into_iter()
-        .map(String::from);
-
-    match res {
-        Installable::Flake {
-            ref mut attribute, ..
-        } => {
-            // If user explicitly selects some other attribute, don't push nixosConfigurations
-            if attribute.is_empty() {
-                attribute.push(String::from("nixosConfigurations"));
-                attribute.push(hostname);
-            }
-            attribute.extend(toplevel);
-        }
-        Installable::File {
-            ref mut attribute, ..
-        } => {
-            attribute.extend(toplevel);
-        }
-        Installable::Expression {
-            ref mut attribute, ..
-        } => {
-            attribute.extend(toplevel);
-        }
-        Installable::Store { .. } => {}
-    }
-
-    res
-}
-
 impl ReplOpts {
-    fn run(self) -> Result<()> {
-        // Use NH_OS_FLAKE if available, otherwise use the provided installable
-        let mut target_installable =
-            if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-                debug!("Using NH_OS_FLAKE: {}", os_flake);
+    fn run(self, runtime: &Runtime) -> Result<()> {
+        // TODO: dedup
+        let local_hostname = handy::hostname()
+            .context("Failed to get hostname of current machine")?;
 
-                let mut elems = os_flake.splitn(2, '#');
-                let reference = match elems.next() {
-                    Some(r) => r.to_owned(),
-                    None => {
-                        return Err(eyre!(
-                            "NH_OS_FLAKE missing reference part"
-                        ));
-                    }
-                };
-                let attribute = elems
-                    .next()
-                    .map(crate::installable::parse_attribute)
-                    .unwrap_or_default();
+        let target_hostname = match &self.hostname {
+            Some(h) => h.to_owned(),
+            None => {
+                // TODO: reword
+                info!("Using hostname {local_hostname}");
+                local_hostname.clone()
+            }
+        };
 
-                Installable::Flake {
-                    reference,
-                    attribute,
-                }
-            } else {
-                self.installable
-            };
-
-        if matches!(target_installable, Installable::Store { .. }) {
-            bail!("Nix doesn't support nix store installables.");
-        }
-
-        let hostname =
-            self.hostname.ok_or(()).or_else(|()| handy::hostname())?;
-
-        if let Installable::Flake {
-            ref mut attribute, ..
-        } = target_installable
-            && attribute.is_empty()
-        {
-            attribute.push(String::from("nixosConfigurations"));
-            attribute.push(hostname);
-        }
+        let attr = {
+            // TODO: escape?
+            format! { "{}#nixosConfigurations.{}",
+                runtime.flake,
+                target_hostname,
+            }
+        };
 
         Command::new("nix")
             .arg("repl")
-            .args(target_installable.to_args())
+            .arg(attr)
             .with_required_env()
             .show_output(true)
             .run()?;

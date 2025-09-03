@@ -9,7 +9,6 @@ use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info};
 
-use crate::installable::Installable;
 use crate::nixos::NixBuildPassthroughArgs;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
@@ -393,18 +392,17 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Build {
+    drv: String,
     message: Option<String>,
-    installable: Installable,
     extra_args: Vec<OsString>,
     builder: Option<String>,
 }
 
 impl Build {
-    #[must_use]
-    pub const fn new(installable: Installable) -> Self {
+    pub const fn new(drv: String) -> Self {
         Self {
             message: None,
-            installable,
+            drv,
             extra_args: vec![],
             builder: None,
         }
@@ -458,11 +456,9 @@ impl Build {
             info!("{m}");
         }
 
-        let installable_args = self.installable.to_args();
-
         let base_command = Exec::cmd("nix")
             .arg("build")
-            .args(&installable_args)
+            .arg(&self.drv)
             .args(&match &self.builder {
                 Some(host) => {
                     vec![
@@ -869,47 +865,6 @@ mod tests {
         // Should contain our explicit environment variables
         assert!(cmdline.contains("TEST_VAR1=value1"));
         assert!(cmdline.contains("TEST_VAR2=value2"));
-    }
-
-    #[test]
-    fn test_build_new() {
-        let installable = Installable::Flake {
-            reference: "github:user/repo".to_string(),
-            attribute: vec!["package".to_string()],
-        };
-
-        let build = Build::new(installable.clone());
-
-        assert!(build.message.is_none());
-        assert_eq!(build.installable.to_args(), installable.to_args());
-        assert!(build.extra_args.is_empty());
-        assert!(build.builder.is_none());
-    }
-
-    #[test]
-    fn test_build_builder_pattern() {
-        let installable = Installable::Flake {
-            reference: "github:user/repo".to_string(),
-            attribute: vec!["package".to_string()],
-        };
-
-        let build = Build::new(installable)
-            .message("Building package")
-            .extra_arg("--verbose")
-            .extra_args(["--option", "setting", "value"])
-            .builder(Some("build-host".to_string()));
-
-        assert_eq!(build.message, Some("Building package".to_string()));
-        assert_eq!(
-            build.extra_args,
-            vec![
-                OsString::from("--verbose"),
-                OsString::from("--option"),
-                OsString::from("setting"),
-                OsString::from("value")
-            ]
-        );
-        assert_eq!(build.builder, Some("build-host".to_string()));
     }
 
     #[test]
