@@ -128,7 +128,7 @@ fn startup_check() -> EyreResult<()> {
     ensure! {
         features.contains(&"flakes".to_string())
         && features.contains(&"nix-command".to_string()),
-        "Experimental feature flakes or nix-command not enabled"
+        "Experimental feature flakes or nix-command not enabled. Noah is built to be flake-only."
     };
 
     // lol lix
