@@ -1,14 +1,16 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::process::Command;
 use std::process::ExitStatus;
 
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
+use ino_path::PathExt;
 use ino_result::ResultExt;
 use tracing::debug;
+
+use crate::fs::collect_pictures;
 
 mod avif;
 mod despeckle;
@@ -87,9 +89,9 @@ struct SharedCliOpts {
 
     /// Skip putting original pictures into backup directory
     /// after transcoding.
-    #[arg(long, short = 'b')]
+    #[arg(long, short = 'N')]
     #[arg(default_value_t = false)]
-    skip_backup: bool,
+    no_backup: bool,
 
     /// Allow processing pictures marked as already transcoded
     /// by ignoring the xattr check.
@@ -140,7 +142,8 @@ struct App {
     root_dir: PathBuf,
     backup_dir: PathBuf,
     work_dir: PathBuf,
-    skip_backup: bool,
+    no_backup: bool,
+    pictures: Vec<PathBuf>,
 }
 
 impl TryFrom<CliOpts> for App {
@@ -148,40 +151,63 @@ impl TryFrom<CliOpts> for App {
 
     #[tracing::instrument(name = "app_from_cliopts", skip_all)]
     fn try_from(cliopts: CliOpts) -> AnyResult<Self> {
-        let (transcoder, shared) = cliopts.unwrap()?;
+        let (transcoder, opts) = cliopts.unwrap()?;
 
-        let pwd = std::env::current_dir().context("Failed to get pwd")?;
-        let root_dir = shared.root_dir.clone().unwrap_or(pwd);
+        let root_dir = opts.root_dir.unwrap_or(
+            std::env::current_dir().context("Failed to get pwd")?,
+        );
         ensure! { root_dir.is_absolute(),
             r#"`root_dir` must be abosulte, but got "{}""#,
             root_dir.display()
         };
+
         let backup_dir = root_dir.join(BACKUP_DIR_NAME);
         let work_dir = root_dir.join(WORK_DIR_NAME);
 
-        let pictures = Self::discover_pictures(&shared)?;
+        let pictures = if let Some(selection) = opts.selection {
+            debug!("process manual selection");
+            let mut accu = vec![];
+            for s in selection {
+                let path =
+                    if s.is_absolute() { s } else { root_dir.join(s) };
+                if path.is_dir_no_traverse()? {
+                    accu.append(&mut collect_pictures(
+                        &path,
+                        transcoder.input(),
+                    ));
+                } else if let Some(ext) = path.extension()
+                    && let Some(ext) = ext.to_str()
+                    && transcoder
+                        .input()
+                        .iter()
+                        .any(|fmt| fmt.ext_matches(ext))
+                {
+                    accu.push(path);
+                } else {
+                    debug!(
+                        ?path,
+                        "path is not valid or extension is not supported, ignored"
+                    );
+                }
+            }
+            accu
+        } else {
+            debug!("no selection provided, auto collect pictures");
+            collect_pictures(&root_dir, transcoder.input())
+        };
 
-        todo!()
+        ensure! { pictures.iter().all(|p| p.is_file()),
+            "[BUG] Some picture paths are not file"
+        };
 
-        // let pictures = list_pictures_recursively(
-        //     &working_dir,
-        //     transcoder.input_extensions(),
-        //     transcoder.output_extension(),
-        // )
-        // .context("Failed to list pictures")?;
-
-        // Ok(Self {
-        //     transcoder,
-        //     pictures,
-        // })
-    }
-}
-
-impl App {
-    fn discover_pictures(
-        shared: &SharedCliOpts,
-    ) -> AnyResult<Vec<PathBuf>> {
-        todo!()
+        Ok(Self {
+            transcoder,
+            root_dir,
+            backup_dir,
+            work_dir,
+            no_backup: opts.no_backup,
+            pictures,
+        })
     }
 }
 
@@ -233,6 +259,12 @@ impl PictureFormat {
             Self::GIF => &["gif"],
         }
     }
+
+    #[must_use]
+    #[inline]
+    pub fn ext_matches(&self, theirs: &str) -> bool {
+        self.exts().contains(&theirs)
+    }
 }
 
 fn main_with_result() -> AnyResult<()> {
@@ -246,11 +278,10 @@ fn main_with_result() -> AnyResult<()> {
         return Ok(());
     }
 
-    let f = fs::collect_pictures(
-        &PathBuf::from("/mnt/z"),
-        &[PictureFormat::AVIF],
-    );
-    dbg!(f);
+    let app = App::try_from(opts)?;
+
+    dbg!(app.pictures);
+
     Ok(())
 }
 
