@@ -91,13 +91,7 @@ fn main() -> Result<()> {
     };
 
     match cliopts.command {
-        CliCmd::NixOS(cmd) => {
-            // TODO: get rid of envvar
-            unsafe {
-                std::env::set_var("NH_CURRENT_COMMAND", "os");
-            }
-            cmd.run(runtime)
-        }
+        CliCmd::NixOS(cmd) => cmd.run(runtime),
         CliCmd::Deploy(..) => todo!(),
         CliCmd::Clean(clean) => clean.run(),
         CliCmd::Complete { shell } => {
