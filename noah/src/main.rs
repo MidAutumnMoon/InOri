@@ -1,5 +1,6 @@
 mod clean;
 mod commands;
+mod deploy;
 mod generations;
 mod handy;
 mod logging;
@@ -58,12 +59,15 @@ pub enum CliCmd {
     #[command(flatten)]
     NixOS(Box<crate::nixos::OsSubcmd>),
 
-    // Deploy,
+    Deploy(Box<crate::deploy::Deploy>),
+
     #[command(subcommand)]
     Clean(Box<crate::clean::CleanMode>),
 
     /// Generate completions for shells.
-    Complete { shell: clap_complete::Shell },
+    Complete {
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Debug)]
@@ -94,6 +98,7 @@ fn main() -> Result<()> {
             }
             cmd.run(runtime)
         }
+        CliCmd::Deploy(..) => todo!(),
         CliCmd::Clean(clean) => clean.run(),
         CliCmd::Complete { shell } => {
             use clap::CommandFactory;
