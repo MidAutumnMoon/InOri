@@ -28,40 +28,10 @@ pub const XATTR_TRANSCODE_OUTPUT: &str = "user.avxl-output";
 pub const XATTR_BACKUP_DIR: &str = "user.avxl-backup-dir";
 pub const XATTR_WORK_DIR: &str = "user.avxl-work-dir";
 
-#[derive(clap::Args, Debug)]
-struct SharedCliOpts {
-    /// (unimplemented) Abort transcoding when first error occurred.
-    #[arg(long)]
-    abort_on_error: bool,
-
-    /// (to write...)
-    /// Defaults to PWD.
-    #[arg(long, short = 'r')]
-    root_dir: Option<PathBuf>,
-
-    /// Don't put original pictures into backup directory
-    /// after transcoding.
-    #[arg(long, short = 'b')]
-    #[arg(default_value_t = false)]
-    skip_backup: bool,
-
-    /// Allow processing pictures marked as already transcoded
-    /// by ignoring the xattr check.
-    #[arg(long, short = 'i')]
-    #[arg(default_value_t = false)]
-    ignore_tag: bool,
-
-    /// Manually choose pictures to transcode. Paths should be
-    /// relative to or be a subdirectory of `root_dir`.
-    /// When specified, it disables recursive picture discovering
-    /// and implies `skip_backup` and `ignore_tag`.
-    #[arg(last = true)]
-    selection: Option<Vec<PathBuf>>,
-}
-
-#[derive(Debug)]
 /// Batch converting pictures between formats.
+#[derive(Debug)]
 #[derive(clap::Parser)]
+#[command(disable_help_subcommand = true)]
 enum CliOpts {
     /// (Lossy) Encode pictures into AVIF.
     Avif {
@@ -87,11 +57,47 @@ enum CliOpts {
         shared: SharedCliOpts,
     },
 
-    /// (unimplemented) Generate shell completion
-    Completion,
+    /// Sharpen poorly scanned manga to have crispy dots.
+    SharpenScan,
+
+    /// (unimplemented) Generate shell completion.
+    Complete {
+        #[arg(long, short)]
+        shell: clap_complete::Shell,
+    },
     // Dwebp?
-    // Clean-up scans?
     // Pipeline?
+}
+
+#[derive(clap::Args, Debug)]
+struct SharedCliOpts {
+    /// (unimplemented) Abort transcoding when first error occurred.
+    #[arg(long)]
+    abort_on_error: bool,
+
+    /// (to write...)
+    /// Defaults to PWD.
+    #[arg(long, short = 'r')]
+    root_dir: Option<PathBuf>,
+
+    /// Skip putting original pictures into backup directory
+    /// after transcoding.
+    #[arg(long, short = 'b')]
+    #[arg(default_value_t = false)]
+    skip_backup: bool,
+
+    /// Allow processing pictures marked as already transcoded
+    /// by ignoring the xattr check.
+    #[arg(long, short = 'i')]
+    #[arg(default_value_t = false)]
+    ignore_tag: bool,
+
+    /// Manually choose pictures to transcode. Paths should be
+    /// relative to or be a subdirectory of `root_dir`.
+    /// When specified, it disables recursive picture discovering
+    /// and implies `skip_backup` and `ignore_tag`.
+    #[arg(last = true)]
+    selection: Option<Vec<PathBuf>>,
 }
 
 impl CliOpts {
@@ -107,9 +113,11 @@ impl CliOpts {
             Self::Despeckle { transcoder, shared } => {
                 (Box::new(transcoder) as Box<dyn Transcoder>, shared)
             }
-            Self::Completion => bail!("[BUG] Shouldn't unwrap this cliopt"),
+            Self::SharpenScan => todo!(),
+            Self::Complete { .. } => {
+                bail!("[BUG] Shouldn't unwrap Complete")
+            }
         };
-        debug!("transcoder is {}", t.id());
         Ok((t, s))
     }
 
@@ -161,7 +169,9 @@ impl TryFrom<CliOpts> for App {
 }
 
 impl App {
-    fn discover_pictures(shared: &SharedCliOpts) -> AnyResult<Vec<PathBuf>> {
+    fn discover_pictures(
+        shared: &SharedCliOpts,
+    ) -> AnyResult<Vec<PathBuf>> {
         todo!()
     }
 }
