@@ -126,7 +126,7 @@ pub struct BuildOpts {
 
     /// Build the configuration to a different host over ssh
     #[arg(long)]
-    pub build_host: Option<String>,
+    pub builders: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -405,7 +405,7 @@ impl BuildOpts {
     ) -> Result<()> {
         use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
-        if self.build_host.is_some() || self.target_host.is_some() {
+        if self.builders.is_some() || self.target_host.is_some() {
             // if it fails its okay
             let _ = ensure_ssh_key_login();
         }
@@ -492,7 +492,7 @@ impl BuildOpts {
             .extra_arg(&out_path)
             .extra_args(&self.extra_args)
             .passthrough(&self.common.passthrough)
-            .builder(self.build_host.clone())
+            .builder(self.builders.clone())
             .message(message)
             .run()
             .wrap_err("Failed to build configuration")?;
