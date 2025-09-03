@@ -77,9 +77,9 @@ impl OsSubcmd {
             Self::Test(args) => args.build(Test, None),
             Self::Switch(args) => args.build(Switch, None),
             Self::Build(args) => {
-                if args.common.ask || args.common.dry {
+                if args.common.dry {
                     warn!(
-                        "`--ask` and `--dry` have no effect for `nh os build`"
+                        "`--dry` have no effect for `nh os build`"
                     );
                 }
                 args.build(Build, None)
@@ -135,10 +135,6 @@ pub struct OsRollbackArgs {
     #[arg(long, short = 'n')]
     pub dry: bool,
 
-    /// Ask for confirmation
-    #[arg(long, short)]
-    pub ask: bool,
-
     /// Rollback to a specific generation number (defaults to previous generation)
     #[arg(long, short)]
     pub to: Option<u64>,
@@ -157,10 +153,6 @@ pub struct CommonRebuildArgs {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
     pub dry: bool,
-
-    /// Ask for confirmation
-    #[arg(long, short)]
-    pub ask: bool,
 
     #[command(flatten)]
     pub installable: Installable,
@@ -548,20 +540,7 @@ impl BuildOpts {
         }
 
         if self.common.dry || matches!(variant, Build | BuildVm) {
-            if self.common.ask {
-                warn!("--ask has no effect as dry run was requested");
-            }
             return Ok(());
-        }
-
-        if self.common.ask {
-            let confirmation = inquire::Confirm::new("Apply the config?")
-                .with_default(false)
-                .prompt()?;
-
-            if !confirmation {
-                bail!("User rejected the new config");
-            }
         }
 
         if let Some(target_host) = &self.target_host {
@@ -728,19 +707,6 @@ impl OsRollbackArgs {
                 target_generation.number
             );
             return Ok(());
-        }
-
-        if self.ask {
-            let confirmation = inquire::Confirm::new(&format!(
-                "Roll back to generation {}?",
-                target_generation.number
-            ))
-            .with_default(false)
-            .prompt()?;
-
-            if !confirmation {
-                bail!("User rejected the rollback");
-            }
         }
 
         // Get current generation number for potential rollback

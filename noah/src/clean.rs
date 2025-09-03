@@ -7,7 +7,6 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, ContextCompat, bail, eyre};
-use inquire::Confirm;
 use nix::errno::Errno;
 use nix::{
     fcntl::AtFlags,
@@ -47,10 +46,6 @@ pub struct CleanArgs {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
     pub dry: bool,
-
-    /// Ask for confirmation
-    #[arg(long, short)]
-    pub ask: bool,
 
     /// Don't run nix store --gc
     #[arg(long = "no-gc", alias = "nogc")]
@@ -394,15 +389,6 @@ impl CleanMode {
                 }
             }
             println!();
-        }
-
-        // Clean the paths
-        if args.ask
-            && !Confirm::new("Confirm the cleanup plan?")
-                .with_default(false)
-                .prompt()?
-        {
-            bail!("User rejected the cleanup plan");
         }
 
         if !args.dry {
