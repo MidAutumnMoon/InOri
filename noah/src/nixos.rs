@@ -72,18 +72,23 @@ impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
         use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(opts) => build_nixos(opts, Boot, None, &runtime),
-            Self::Test(opts) => build_nixos(opts, Test, None, &runtime),
-            Self::Switch(opts) => {
-                build_nixos(opts, Switch, None, &runtime)
-            }
+            Self::Boot(opts) => build_nixos(opts, Boot, &runtime),
+            Self::Test(opts) => build_nixos(opts, Test, &runtime),
+            Self::Switch(opts) => build_nixos(opts, Switch, &runtime),
             Self::Build(opts) => {
                 if opts.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
-                build_nixos(opts, Build, None, &runtime)
+                build_nixos(opts, Build, &runtime)
             }
-            Self::Vm(opts) => opts.build_vm(&runtime),
+            Self::Vm(opts) => {
+                let variant = if opts.with_bootloader {
+                    BuildVariant::VmWithBootloader
+                } else {
+                    BuildVariant::Vm
+                };
+                build_nixos(opts.common, variant, &runtime)
+            }
             Self::Repl(opts) => opts.run(&runtime),
             Self::Info(opts) => opts.info(),
             Self::Rollback(opts) => opts.rollback(&runtime),
@@ -235,32 +240,29 @@ enum BuildVariant {
     Switch,
     Boot,
     Test,
-    BuildVm,
-    BuildVmWithBootloader,
+    Vm,
+    VmWithBootloader,
 }
 
-impl BuildVmOpts {
-    fn build_vm(self, runtime: &Runtime) -> Result<()> {
-        let final_attr = get_final_attr(true, self.with_bootloader);
-        debug!("Building VM with attribute: {}", final_attr);
-        build_nixos(
-            self.common,
-            BuildVariant::BuildVm,
-            Some(final_attr),
-            runtime,
-        )
+impl BuildVariant {
+    fn attr(&self) -> &'static str {
+        match self {
+            Self::Build | Self::Switch | Self::Boot | Self::Test => {
+                "toplevel"
+            }
+            Self::Vm => "vm",
+            Self::VmWithBootloader => "vmWithBootLoader",
+        }
     }
 }
 
-// final_attr is the attribute of config.system.build.X to evaluate.
 #[expect(clippy::too_many_lines)]
 fn build_nixos(
     build_opts: BuildOpts,
     variant: BuildVariant,
-    final_attr: Option<String>,
     runtime: &Runtime,
 ) -> Result<()> {
-    use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
+    use BuildVariant::{Boot, Build, Switch, Test, Vm};
 
     if build_opts.builders.is_some() || build_opts.target_host.is_some() {
         // if it fails its okay
@@ -293,7 +295,7 @@ fn build_nixos(
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
         match variant {
-            BuildVm | Build => (PathBuf::from("result"), None),
+            Vm | Build => (PathBuf::from("result"), None),
             _ => {
                 let dir =
                     tempfile::Builder::new().prefix("nh-os").tempdir()?;
@@ -303,17 +305,15 @@ fn build_nixos(
 
     debug!("Output path: {out_path:?}");
 
-    let drv = {
-        // TODO: escape?
-        format! { "{}#nixosConfigurations.{}.config.system.build.{}",
-            runtime.flake,
-            target_hostname,
-            final_attr.unwrap_or(String::from("toplevel")),
-        }
+    let drv = format! {
+        "{}#nixosConfigurations.{}.config.system.build.{}",
+        runtime.flake,
+        target_hostname,
+        variant.attr(),
     };
 
     let message = match variant {
-        BuildVm => "Building NixOS VM image",
+        Vm => "Building NixOS VM image",
         _ => "Building NixOS configuration",
     };
 
@@ -375,7 +375,7 @@ fn build_nixos(
         }
     }
 
-    if build_opts.dry || matches!(variant, Build | BuildVm) {
+    if build_opts.dry || matches!(variant, Build | Vm) {
         return Ok(());
     }
 
@@ -732,18 +732,6 @@ fn get_current_generation_number() -> Result<u64> {
         .number
         .parse::<u64>()
         .wrap_err("Invalid generation number")
-}
-
-#[must_use]
-pub fn get_final_attr(build_vm: bool, with_bootloader: bool) -> String {
-    let attr = if build_vm && with_bootloader {
-        "vmWithBootLoader"
-    } else if build_vm {
-        "vm"
-    } else {
-        "toplevel"
-    };
-    String::from(attr)
 }
 
 impl ReplOpts {
