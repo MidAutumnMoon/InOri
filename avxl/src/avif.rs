@@ -18,7 +18,8 @@ pub struct Avif {
     #[arg(default_value_t=Avif::default().quality_preset)]
     pub quality_preset: QualityPreset,
 
-    /// Opt-out of constant quality mode. May result in worse visual quality.
+    /// Opt-out of constant quality mode.
+    /// Will result in worse visual quality but save extra spaces.
     #[arg(long, short)]
     #[arg(default_value_t=Avif::default().no_cq)]
     pub no_cq: bool,

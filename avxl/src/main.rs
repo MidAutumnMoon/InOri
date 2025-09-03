@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -72,8 +73,8 @@ enum CliOpts {
 #[derive(clap::Args, Debug)]
 struct SharedCliOpts {
     /// (unimplemented) Abort transcoding when first error occurred.
-    #[arg(long)]
-    abort_on_error: bool,
+    // #[arg(long)]
+    // abort_on_error: bool,
 
     /// (to write...)
     /// Defaults to PWD.
@@ -88,14 +89,17 @@ struct SharedCliOpts {
 
     /// Allow processing pictures marked as already transcoded
     /// by ignoring the xattr check.
+    // TODO: needed?
     #[arg(long, short = 'i')]
     #[arg(default_value_t = false)]
     ignore_tag: bool,
 
-    /// Manually choose pictures to transcode. Paths should be
-    /// relative to or be a subdirectory of `root_dir`.
-    /// When specified, it disables recursive picture discovering
-    /// and implies `skip_backup` and `ignore_tag`.
+    /// (unimplemented) Number of parallel transcoding to run.
+    #[arg(long, short)]
+    #[arg(default_value = "1")]
+    jobs: NonZeroUsize,
+
+    /// Manually choose pictures to transcode.
     #[arg(last = true)]
     selection: Option<Vec<PathBuf>>,
 }
