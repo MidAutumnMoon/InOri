@@ -47,18 +47,19 @@ pub enum OsSubcmd {
     Build(BuildOpts),
 
     /// Open an REPL with the configuration.
-    Repl(OsReplArgs),
+    Repl(ReplOpts),
 
     /// List system generations.
     // TODO: show info about /run/current-system
+    // TODO: rename
     Info(OsGenerationsArgs),
 
     /// Rollback to a previous generation
-    Rollback(OsRollbackArgs),
+    Rollback(RollbackOpts),
 
     /// Build VM
     // TODO: remove?
-    Vm(OsBuildVmArgs),
+    Vm(BuildVmOpts),
 
     /// Update flake.lock and commit. Currently the commit message is
     /// hardcoded.
@@ -73,28 +74,28 @@ impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
         use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(args) => build_nixos(args, Boot, None, &runtime),
-            Self::Test(args) => build_nixos(args, Test, None, &runtime),
-            Self::Switch(args) => {
-                build_nixos(args, Switch, None, &runtime)
+            Self::Boot(opts) => build_nixos(opts, Boot, None, &runtime),
+            Self::Test(opts) => build_nixos(opts, Test, None, &runtime),
+            Self::Switch(opts) => {
+                build_nixos(opts, Switch, None, &runtime)
             }
-            Self::Build(args) => {
-                if args.dry {
+            Self::Build(opts) => {
+                if opts.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
-                build_nixos(args, Build, None, &runtime)
+                build_nixos(opts, Build, None, &runtime)
             }
-            Self::Vm(args) => args.build_vm(&runtime),
-            Self::Repl(args) => args.run(),
-            Self::Info(args) => args.info(),
-            Self::Rollback(args) => args.rollback(&runtime),
+            Self::Vm(opts) => opts.build_vm(&runtime),
+            Self::Repl(opts) => opts.run(),
+            Self::Info(opts) => opts.info(),
+            Self::Rollback(opts) => opts.rollback(&runtime),
             Self::Update { .. } => todo!(),
         }
     }
 }
 
 #[derive(Debug, clap::Args)]
-pub struct OsBuildVmArgs {
+pub struct BuildVmOpts {
     #[command(flatten)]
     pub common: BuildOpts,
 
@@ -137,7 +138,7 @@ pub struct BuildOpts {
 }
 
 #[derive(Debug, clap::Args)]
-pub struct OsRollbackArgs {
+pub struct RollbackOpts {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
     pub dry: bool,
@@ -152,7 +153,7 @@ pub struct OsRollbackArgs {
 }
 
 #[derive(Debug, clap::Args)]
-pub struct OsReplArgs {
+pub struct ReplOpts {
     #[command(flatten)]
     pub installable: Installable,
 
@@ -354,7 +355,7 @@ enum BuildVariant {
     BuildVmWithBootloader,
 }
 
-impl OsBuildVmArgs {
+impl BuildVmOpts {
     fn build_vm(self, runtime: &Runtime) -> Result<()> {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
@@ -627,7 +628,7 @@ fn build_nixos(
     Ok(())
 }
 
-impl OsRollbackArgs {
+impl RollbackOpts {
     fn rollback(&self, runtime: &Runtime) -> Result<()> {
         let elevate = if runtime.no_root_check {
             warn!("Bypassing root check, now running nix as root");
@@ -921,7 +922,7 @@ pub fn toplevel_for<S: AsRef<str>>(
     res
 }
 
-impl OsReplArgs {
+impl ReplOpts {
     fn run(self) -> Result<()> {
         // Use NH_OS_FLAKE if available, otherwise use the provided installable
         let mut target_installable =
