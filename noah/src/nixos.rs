@@ -18,18 +18,6 @@ use crate::handy::print_dix_diff;
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
-#[derive(clap::ValueEnum, Clone, Default, Debug)]
-pub enum DiffType {
-    /// Display package diff only if the of the
-    /// current and the deployed configuration matches
-    #[default]
-    Auto,
-    /// Always display package diff
-    Always,
-    /// Never display package diff
-    Never,
-}
-
 #[derive(Debug, clap::Subcommand)]
 pub enum OsSubcmd {
     /// Build && activate && add to boot entry.
@@ -118,10 +106,6 @@ pub struct BuildOpts {
     #[arg(long, short = 'n')]
     pub dry: bool,
 
-    /// Whether to display a package diff
-    #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-    pub diff: DiffType,
-
     #[command(flatten)]
     pub passthrough: NixBuildPassthroughArgs,
 
@@ -151,10 +135,6 @@ pub struct RollbackOpts {
     /// Rollback to a specific generation number (defaults to previous generation)
     #[arg(long, short)]
     pub to: Option<u64>,
-
-    /// Whether to display a package diff
-    #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-    pub diff: DiffType,
 }
 
 #[derive(Debug, clap::Args)]
@@ -352,37 +332,26 @@ fn build_nixos(
         ));
     }
 
-    match build_opts.diff {
-        DiffType::Always => {
-            let _ = print_dix_diff(
-                &PathBuf::from(CURRENT_PROFILE),
-                &target_profile,
-            );
-        }
-        DiffType::Never => {
-            debug!("Not running dix as the --diff flag is set to never.");
-        }
-        DiffType::Auto => {
-            // if local_hostname.is_none_or(|h| h == target_hostname)
-            //     && self.target_host.is_none()
-            //     && self.build_host.is_none()
-            // {
-            //     debug!(
-            //         "Comparing with target profile: {}",
-            //         target_profile.display()
-            //     );
-            //     let _ = print_dix_diff(
-            //         &PathBuf::from(CURRENT_PROFILE),
-            //         &target_profile,
-            //     );
-            // } else {
-            //     debug!(
-            //         "Not running dix as the target hostname is different from the system hostname."
-            //     );
-            // }
-            todo!()
-        }
-    }
+    // if local_hostname.is_none_or(|h| h == target_hostname)
+    //     && self.target_host.is_none()
+    //     && self.build_host.is_none()
+    // {
+    //     debug!(
+    //         "Comparing with target profile: {}",
+    //         target_profile.display()
+    //     );
+    //     let _ = print_dix_diff(
+    //         &PathBuf::from(CURRENT_PROFILE),
+    //         &target_profile,
+    //     );
+    // } else {
+    //     debug!(
+    //         "Not running dix as the target hostname is different from the system hostname."
+    //     );
+    // }
+    // TODO: handle remote diff
+    let _ =
+        print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
 
     if build_opts.dry || matches!(variant, Build | Vm) {
         return Ok(());
@@ -538,20 +507,14 @@ impl RollbackOpts {
             .join(format!("system-{}-link", target_generation.number));
 
         // Compare changes between current and target generation
-        if matches!(self.diff, DiffType::Never) {
-            debug!(
-                "Not running dix as the target hostname is different from the system hostname."
-            );
-        } else {
-            debug!(
-                "Comparing with target profile: {}",
-                generation_link.display()
-            );
-            let _ = print_dix_diff(
-                &PathBuf::from(CURRENT_PROFILE),
-                &generation_link,
-            );
-        }
+        debug!(
+            "Comparing with target profile: {}",
+            generation_link.display()
+        );
+        let _ = print_dix_diff(
+            &PathBuf::from(CURRENT_PROFILE),
+            &generation_link,
+        );
 
         if self.dry {
             info!(
