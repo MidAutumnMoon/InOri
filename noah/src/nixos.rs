@@ -110,10 +110,6 @@ pub struct BuildOpts {
     #[command(flatten)]
     pub installable: Installable,
 
-    /// Path to save the result link, defaults to using a temporary directory
-    #[arg(long, short)]
-    pub out_link: Option<PathBuf>,
-
     /// Whether to display a package diff
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
     pub diff: DiffType,
@@ -413,17 +409,13 @@ impl BuildOpts {
         let (out_path, _tempdir_guard): (
             PathBuf,
             Option<tempfile::TempDir>,
-        ) = match self.out_link {
-            Some(ref p) => (p.clone(), None),
-            None => match variant {
-                BuildVm | Build => (PathBuf::from("result"), None),
-                _ => {
-                    let dir = tempfile::Builder::new()
-                        .prefix("nh-os")
-                        .tempdir()?;
-                    (dir.as_ref().join("result"), Some(dir))
-                }
-            },
+        ) = match variant {
+            BuildVm | Build => (PathBuf::from("result"), None),
+            _ => {
+                let dir =
+                    tempfile::Builder::new().prefix("nh-os").tempdir()?;
+                (dir.as_ref().join("result"), Some(dir))
+            }
         };
 
         debug!("Output path: {out_path:?}");
