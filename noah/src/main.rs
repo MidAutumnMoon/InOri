@@ -40,6 +40,11 @@ pub struct CliOpts {
     #[arg(env = "NH_FLAKE")]
     pub flake: String,
 
+    /// Allow noah to be executed as root.
+    #[arg(long)]
+    #[arg(env = "NH_NO_ROOT_CHECK")]
+    pub no_root_check: bool,
+
     #[command(subcommand)]
     pub command: CliCmd,
 }
@@ -62,6 +67,7 @@ pub enum CliCmd {
 #[derive(Debug)]
 pub struct Runtime {
     flake: String,
+    no_root_check: bool,
 }
 
 fn main() -> Result<()> {
@@ -75,6 +81,7 @@ fn main() -> Result<()> {
 
     let runtime = Runtime {
         flake: cliopts.flake,
+        no_root_check: cliopts.no_root_check,
     };
 
     match cliopts.command {

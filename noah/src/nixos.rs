@@ -73,16 +73,18 @@ impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
         use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(args) => build_nixos(args, Boot, None),
-            Self::Test(args) => build_nixos(args, Test, None),
-            Self::Switch(args) => build_nixos(args, Switch, None),
+            Self::Boot(args) => build_nixos(args, Boot, None, &runtime),
+            Self::Test(args) => build_nixos(args, Test, None, &runtime),
+            Self::Switch(args) => {
+                build_nixos(args, Switch, None, &runtime)
+            }
             Self::Build(args) => {
                 if args.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
-                build_nixos(args, Build, None)
+                build_nixos(args, Build, None, &runtime)
             }
-            Self::Vm(args) => args.build_vm(),
+            Self::Vm(args) => args.build_vm(&runtime),
             Self::Repl(args) => args.run(),
             Self::Info(args) => args.info(),
             Self::Rollback(args) => args.rollback(),
@@ -357,13 +359,19 @@ enum BuildVariant {
     Boot,
     Test,
     BuildVm,
+    BuildVmWithBootloader,
 }
 
 impl OsBuildVmArgs {
-    fn build_vm(self) -> Result<()> {
+    fn build_vm(self, runtime: &Runtime) -> Result<()> {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
-        build_nixos(self.common, BuildVariant::BuildVm, Some(final_attr))
+        build_nixos(
+            self.common,
+            BuildVariant::BuildVm,
+            Some(final_attr),
+            runtime,
+        )
     }
 }
 
@@ -373,6 +381,7 @@ fn build_nixos(
     build_opts: BuildOpts,
     variant: BuildVariant,
     final_attr: Option<String>,
+    runtime: &Runtime,
 ) -> Result<()> {
     use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
