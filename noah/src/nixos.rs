@@ -57,7 +57,14 @@ pub enum OsSubcmd {
 
     /// Build VM
     // TODO: remove?
-    Vm(BuildVmOpts),
+    Vm {
+        #[command(flatten)]
+        common: BuildOpts,
+
+        /// Build with bootloader. Bootloader is bypassed by default.
+        #[arg(long, short = 'B')]
+        with_bootloader: bool,
+    },
 
     /// Update flake.lock and commit. Currently the commit message is
     /// hardcoded.
@@ -70,24 +77,32 @@ pub enum OsSubcmd {
 
 impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
-        use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(opts) => build_nixos(opts, Boot, &runtime),
-            Self::Test(opts) => build_nixos(opts, Test, &runtime),
-            Self::Switch(opts) => build_nixos(opts, Switch, &runtime),
+            Self::Boot(opts) => {
+                build_nixos(opts, BuildVariant::Boot, &runtime)
+            }
+            Self::Test(opts) => {
+                build_nixos(opts, BuildVariant::Test, &runtime)
+            }
+            Self::Switch(opts) => {
+                build_nixos(opts, BuildVariant::Switch, &runtime)
+            }
             Self::Build(opts) => {
                 if opts.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
-                build_nixos(opts, Build, &runtime)
+                build_nixos(opts, BuildVariant::Build, &runtime)
             }
-            Self::Vm(opts) => {
-                let variant = if opts.with_bootloader {
+            Self::Vm {
+                common,
+                with_bootloader,
+            } => {
+                let variant = if with_bootloader {
                     BuildVariant::VmWithBootloader
                 } else {
                     BuildVariant::Vm
                 };
-                build_nixos(opts.common, variant, &runtime)
+                build_nixos(common, variant, &runtime)
             }
             Self::Repl(opts) => opts.run(&runtime),
             Self::Info(opts) => opts.info(),
@@ -95,16 +110,6 @@ impl OsSubcmd {
             Self::Update { .. } => todo!(),
         }
     }
-}
-
-#[derive(Debug, clap::Args)]
-pub struct BuildVmOpts {
-    #[command(flatten)]
-    pub common: BuildOpts,
-
-    /// Build with bootloader. Bootloader is bypassed by default.
-    #[arg(long, short = 'B')]
-    pub with_bootloader: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -293,17 +298,21 @@ fn build_nixos(
         }
     };
 
+    // TODO: get rid the guard pattern
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
         match variant {
-            Vm | Build => (PathBuf::from("result"), None),
+            BuildVariant::Vm
+            | BuildVariant::VmWithBootloader
+            | BuildVariant::Build => (PathBuf::from("result"), None),
             _ => {
-                let dir =
-                    tempfile::Builder::new().prefix("nh-os").tempdir()?;
-                (dir.as_ref().join("result"), Some(dir))
+                let dir = tempfile::Builder::new()
+                    .prefix("nh-nixos-build")
+                    .tempdir()?;
+                (dir.path().join("result"), Some(dir))
             }
         };
 
-    debug!("Output path: {out_path:?}");
+    debug!(?out_path);
 
     let drv = format! {
         "{}#nixosConfigurations.{}.config.system.build.{}",
@@ -491,6 +500,10 @@ fn build_nixos(
     debug!("Completed operation with output path: {out_path:?}");
 
     Ok(())
+}
+
+pub fn switch_nixos() {
+    todo!()
 }
 
 impl RollbackOpts {
