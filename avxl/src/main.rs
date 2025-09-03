@@ -167,10 +167,12 @@ impl TryFrom<CliOpts> for App {
         let pictures = if let Some(selection) = opts.selection {
             debug!("process manual selection");
             let mut accu = vec![];
+            // TODO: reuse collect_pictures
             for s in selection {
                 let path =
                     if s.is_absolute() { s } else { root_dir.join(s) };
                 if path.is_dir_no_traverse()? {
+                    // If the selection is a dir, collect pictures under it.
                     accu.append(&mut collect_pictures(
                         &path,
                         transcoder.input_format(),
@@ -182,6 +184,8 @@ impl TryFrom<CliOpts> for App {
                         .iter()
                         .any(|fmt| fmt.ext_matches(ext))
                 {
+                    // If it is just a supported picture,
+                    // then pick it up as-is.
                     accu.push(path);
                 } else {
                     debug!(
@@ -289,113 +293,6 @@ fn main() {
     ino_tracing::init_tracing_subscriber();
     main_with_result().print_error_exit_process();
 
-    // let dir_and_files = if dir_and_files.is_empty() {
-    //     debug!( "CLI provided input is empty, use PWD" );
-    //     vec![ std::env::current_dir()? ]
-    // } else {
-    //     dir_and_files
-    // };
-    //
-    // let dir_and_files: Vec<DirOrFiles> = {
-    //     let mut dirs: Vec<PathBuf> = vec![];
-    //     let mut files: Vec<PathBuf> = vec![];
-    //
-    //     for it in dir_and_files {
-    //         if it.is_dir() {
-    //             let Some( basename ) = it.file_name() else { continue; };
-    //             // skip the dir created by ourselves.
-    //             if basename == ARCHIVE_DIR_NAME {
-    //                 eprintln!(
-    //                     "Skipping dir \"{}\" because it's named {ARCHIVE_DIR_NAME} \
-    //                     which is used for storing original files after encoding.\
-    //                     \n\
-    //                     This should be a mistake, otherwise rename the directory \
-    //                     to another name.",
-    //                     it.display()
-    //                 );
-    //                 continue;
-    //             }
-    //             dirs.push( it );
-    //         } else if it.is_file() {
-    //             files.push( it );
-    //         } else {
-    //             eprintln!(
-    //                 "\"{}\" is not a file nor dir, which is not supported.",
-    //                 it.display()
-    //             );
-    //             std::process::exit( 1 )
-    //         }
-    //     }
-    //
-    //     Vec::with_capacity( dirs.len() + 1 )
-    //         .tap_mut( |s| {
-    //             let mut dirs = dirs.into_iter()
-    //                 .map( DirOrFiles::Dir )
-    //                 .collect();
-    //             s.append( &mut dirs );
-    //         } )
-    //         .tap_mut( |s| {
-    //             s.push( DirOrFiles::Files( files ) );
-    //         } )
-    // };
-    //
-    // debug!( ?dir_and_files );
-
-    /*
-     * Tasks and encoding
-     */
-
-    // let _span_of_daf =
-    //     debug_span!( "encode_dir_and_files" ).entered();
-    //
-    // for dir_or_files in dir_and_files {
-    //
-    //     debug!( ?dir_or_files );
-    //
-    //     let archive_after_encode: bool;
-    //     let archive_dir: Option<PathBuf>;
-    //
-    //     let files_to_encode: Vec<PathBuf>;
-    //
-    //     /*
-    //      * Unwrap dir_and_files to construct tasks
-    //      */
-    //
-    //     match dir_or_files {
-    //         // If it is a dir, enable archive_after_encode
-    //         // and collect files inside it
-    //         DirOrFiles::Dir( dir ) => {
-    //             eprintln!(
-    //                 "Checking directory {}", dir.display()
-    //             );
-    //             archive_after_encode = true;
-    //             archive_dir = Some( dir.join( ARCHIVE_DIR_NAME ) );
-    //             files_to_encode = tool::filter_by_supported_exts(
-    //                 &encoder, tool::find_files( &dir )?
-    //             );
-    //
-    //         },
-    //         // If it is file otherwise, the files are already the tasks.
-    //         DirOrFiles::Files( files ) => {
-    //             let files = tool::filter_by_supported_exts( &encoder, files );
-    //             // ...so that app won't print "Checking 0 files"
-    //             if files.is_empty() { continue }
-    //             eprintln!(
-    //                 "Chekcing {} files", files.len()
-    //             );
-    //             archive_after_encode = false;
-    //             archive_dir = None;
-    //             files_to_encode = files;
-    //         }
-    //     }
-    //
-    //     debug!( ?files_to_encode, ?archive_after_encode, ?archive_dir );
-    //
-    //     if files_to_encode.is_empty() {
-    //         eprintln!( "No file need to be encoded" );
-    //         continue;
-    //     }
-    //
     //
     //     /*
     //      * Create archive_dir is needed
