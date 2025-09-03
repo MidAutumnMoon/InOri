@@ -73,14 +73,14 @@ impl OsSubcmd {
     pub fn run(self, runtime: Runtime) -> Result<()> {
         use BuildVariant::{Boot, Build, Switch, Test};
         match self {
-            Self::Boot(args) => args.build(Boot, None),
-            Self::Test(args) => args.build(Test, None),
-            Self::Switch(args) => args.build(Switch, None),
+            Self::Boot(args) => build_nixos(args, Boot, None),
+            Self::Test(args) => build_nixos(args, Test, None),
+            Self::Switch(args) => build_nixos(args, Switch, None),
             Self::Build(args) => {
                 if args.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
-                args.build(Build, None)
+                build_nixos(args, Build, None)
             }
             Self::Vm(args) => args.build_vm(),
             Self::Repl(args) => args.run(),
@@ -363,53 +363,50 @@ impl OsBuildVmArgs {
     fn build_vm(self) -> Result<()> {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
-        self.common.build(BuildVariant::BuildVm, Some(final_attr))
+        build_nixos(self.common, BuildVariant::BuildVm, Some(final_attr))
     }
 }
 
-impl BuildOpts {
-    // final_attr is the attribute of config.system.build.X to evaluate.
-    #[expect(clippy::too_many_lines)]
-    fn build(
-        self,
-        variant: BuildVariant,
-        final_attr: Option<String>,
-    ) -> Result<()> {
-        use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
+// final_attr is the attribute of config.system.build.X to evaluate.
+#[expect(clippy::too_many_lines)]
+fn build_nixos(
+    build_opts: BuildOpts,
+    variant: BuildVariant,
+    final_attr: Option<String>,
+) -> Result<()> {
+    use BuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
-        if self.builders.is_some() || self.target_host.is_some() {
-            // if it fails its okay
-            let _ = ensure_ssh_key_login();
+    if build_opts.builders.is_some() || build_opts.target_host.is_some() {
+        // if it fails its okay
+        let _ = ensure_ssh_key_login();
+    }
+
+    let elevate = if build_opts.no_root_check {
+        warn!("Bypassing root check, now running nix as root");
+        false
+    } else {
+        if nix::unistd::Uid::effective().is_root() {
+            bail!(
+                "Don't run nh os as root. I will call sudo internally as needed"
+            );
         }
+        true
+    };
 
-        let elevate = if self.no_root_check {
-            warn!("Bypassing root check, now running nix as root");
-            false
-        } else {
-            if nix::unistd::Uid::effective().is_root() {
-                bail!(
-                    "Don't run nh os as root. I will call sudo internally as needed"
-                );
-            }
-            true
-        };
+    let local_hostname = handy::hostname()
+        .context("Failed to get hostname of current machine")?;
 
-        let local_hostname = handy::hostname()
-            .context("Failed to get hostname of current machine")?;
+    let target_hostname = match &build_opts.hostname {
+        Some(h) => h.to_owned(),
+        None => {
+            // TODO: reword
+            info!("Using hostname {local_hostname}");
+            local_hostname.clone()
+        }
+    };
 
-        let target_hostname = match &self.hostname {
-            Some(h) => h.to_owned(),
-            None => {
-                // TODO: reword
-                info!("Using hostname {local_hostname}");
-                local_hostname.clone()
-            }
-        };
-
-        let (out_path, _tempdir_guard): (
-            PathBuf,
-            Option<tempfile::TempDir>,
-        ) = match variant {
+    let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
+        match variant {
             BuildVm | Build => (PathBuf::from("result"), None),
             _ => {
                 let dir =
@@ -418,216 +415,215 @@ impl BuildOpts {
             }
         };
 
-        debug!("Output path: {out_path:?}");
+    debug!("Output path: {out_path:?}");
 
-        // Use NH_OS_FLAKE if available, otherwise use the provided installable
-        let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-            debug!("Using NH_OS_FLAKE: {}", os_flake);
+    // Use NH_OS_FLAKE if available, otherwise use the provided installable
+    let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+        debug!("Using NH_OS_FLAKE: {}", os_flake);
 
-            let mut elems = os_flake.splitn(2, '#');
-            let reference = elems
-                .next()
-                .ok_or_else(|| {
-                    eyre!("NH_OS_FLAKE missing reference part")
-                })?
-                .to_owned();
-            let attribute = elems
-                .next()
-                .map(crate::installable::parse_attribute)
-                .unwrap_or_default();
+        let mut elems = os_flake.splitn(2, '#');
+        let reference = elems
+            .next()
+            .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
+            .to_owned();
+        let attribute = elems
+            .next()
+            .map(crate::installable::parse_attribute)
+            .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
-        } else {
-            self.installable.clone()
-        };
+        Installable::Flake {
+            reference,
+            attribute,
+        }
+    } else {
+        build_opts.installable.clone()
+    };
 
-        let toplevel = toplevel_for(
-            &target_hostname,
-            installable,
-            final_attr.unwrap_or(String::from("toplevel")).as_str(),
-        );
+    let toplevel = toplevel_for(
+        &target_hostname,
+        installable,
+        final_attr.unwrap_or(String::from("toplevel")).as_str(),
+    );
 
-        let message = match variant {
-            BuildVm => "Building NixOS VM image",
-            _ => "Building NixOS configuration",
-        };
+    let message = match variant {
+        BuildVm => "Building NixOS VM image",
+        _ => "Building NixOS configuration",
+    };
 
-        commands::Build::new(toplevel)
-            .extra_arg("--out-link")
-            .extra_arg(&out_path)
-            .extra_args(&self.extra_args)
-            .passthrough(&self.passthrough)
-            .builder(self.builders.clone())
-            .message(message)
-            .run()
-            .wrap_err("Failed to build configuration")?;
+    commands::Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(&out_path)
+        .extra_args(&build_opts.extra_args)
+        .passthrough(&build_opts.passthrough)
+        .builder(build_opts.builders.clone())
+        .message(message)
+        .run()
+        .wrap_err("Failed to build configuration")?;
 
-        let target_profile = out_path.clone();
+    let target_profile = out_path.clone();
 
-        debug!("Output path: {out_path:?}");
-        debug!("Target profile path: {}", target_profile.display());
-        debug!("Target profile exists: {}", target_profile.exists());
+    debug!("Output path: {out_path:?}");
+    debug!("Target profile path: {}", target_profile.display());
+    debug!("Target profile exists: {}", target_profile.exists());
 
-        if !target_profile
-            .try_exists()
-            .context("Failed to check if target profile exists")?
-        {
+    if !target_profile
+        .try_exists()
+        .context("Failed to check if target profile exists")?
+    {
+        return Err(eyre!(
+            "Target profile path does not exist: {}",
+            target_profile.display()
+        ));
+    }
+
+    match build_opts.diff {
+        DiffType::Always => {
+            let _ = print_dix_diff(
+                &PathBuf::from(CURRENT_PROFILE),
+                &target_profile,
+            );
+        }
+        DiffType::Never => {
+            debug!("Not running dix as the --diff flag is set to never.");
+        }
+        DiffType::Auto => {
+            // if local_hostname.is_none_or(|h| h == target_hostname)
+            //     && self.target_host.is_none()
+            //     && self.build_host.is_none()
+            // {
+            //     debug!(
+            //         "Comparing with target profile: {}",
+            //         target_profile.display()
+            //     );
+            //     let _ = print_dix_diff(
+            //         &PathBuf::from(CURRENT_PROFILE),
+            //         &target_profile,
+            //     );
+            // } else {
+            //     debug!(
+            //         "Not running dix as the target hostname is different from the system hostname."
+            //     );
+            // }
+            todo!()
+        }
+    }
+
+    if build_opts.dry || matches!(variant, Build | BuildVm) {
+        return Ok(());
+    }
+
+    if let Some(target_host) = &build_opts.target_host {
+        Command::new("nix")
+            .args([
+                "copy",
+                "--to",
+                format!("ssh://{target_host}").as_str(),
+                match target_profile.to_str() {
+                    Some(s) => s,
+                    None => {
+                        return Err(eyre!(
+                            "target_profile path is not valid UTF-8"
+                        ));
+                    }
+                },
+            ])
+            .message("Copying configuration to target")
+            .with_required_env()
+            .run()?;
+    }
+
+    if let Test | Switch = variant {
+        let switch_to_configuration =
+            target_profile.join("bin").join("switch-to-configuration");
+
+        if !switch_to_configuration.exists() {
             return Err(eyre!(
-                "Target profile path does not exist: {}",
-                target_profile.display()
+                "The 'switch-to-configuration' binary is missing from the built configuration.\n\
+         \n\
+         This typically happens when 'system.switch.enable' is set to false in your\n\
+         NixOS configuration. To fix this, please either:\n\
+         1. Remove 'system.switch.enable = false' from your configuration, or\n\
+         2. Set 'system.switch.enable = true' explicitly\n\
+         \n\
+         If the problem persists, please open an issue on our issue tracker!"
             ));
         }
 
-        match self.diff {
-            DiffType::Always => {
-                let _ = print_dix_diff(
-                    &PathBuf::from(CURRENT_PROFILE),
-                    &target_profile,
-                );
-            }
-            DiffType::Never => {
-                debug!(
-                    "Not running dix as the --diff flag is set to never."
-                );
-            }
-            DiffType::Auto => {
-                // if local_hostname.is_none_or(|h| h == target_hostname)
-                //     && self.target_host.is_none()
-                //     && self.build_host.is_none()
-                // {
-                //     debug!(
-                //         "Comparing with target profile: {}",
-                //         target_profile.display()
-                //     );
-                //     let _ = print_dix_diff(
-                //         &PathBuf::from(CURRENT_PROFILE),
-                //         &target_profile,
-                //     );
-                // } else {
-                //     debug!(
-                //         "Not running dix as the target hostname is different from the system hostname."
-                //     );
-                // }
-                todo!()
-            }
-        }
+        let switch_to_configuration = switch_to_configuration
+            .canonicalize()
+            .context("Failed to resolve switch-to-configuration path")?;
+        let switch_to_configuration =
+            switch_to_configuration.to_str().ok_or_else(|| {
+                eyre!(
+                    "switch-to-configuration path contains invalid UTF-8"
+                )
+            })?;
 
-        if self.dry || matches!(variant, Build | BuildVm) {
-            return Ok(());
-        }
-
-        if let Some(target_host) = &self.target_host {
-            Command::new("nix")
-                .args([
-                    "copy",
-                    "--to",
-                    format!("ssh://{target_host}").as_str(),
-                    match target_profile.to_str() {
-                        Some(s) => s,
-                        None => {
-                            return Err(eyre!(
-                                "target_profile path is not valid UTF-8"
-                            ));
-                        }
-                    },
-                ])
-                .message("Copying configuration to target")
-                .with_required_env()
-                .run()?;
-        }
-
-        if let Test | Switch = variant {
-            let switch_to_configuration =
-                target_profile.join("bin").join("switch-to-configuration");
-
-            if !switch_to_configuration.exists() {
-                return Err(eyre!(
-                    "The 'switch-to-configuration' binary is missing from the built configuration.\n\
-         \n\
-         This typically happens when 'system.switch.enable' is set to false in your\n\
-         NixOS configuration. To fix this, please either:\n\
-         1. Remove 'system.switch.enable = false' from your configuration, or\n\
-         2. Set 'system.switch.enable = true' explicitly\n\
-         \n\
-         If the problem persists, please open an issue on our issue tracker!"
-                ));
-            }
-
-            let switch_to_configuration =
-                switch_to_configuration.canonicalize().context(
-                    "Failed to resolve switch-to-configuration path",
-                )?;
-            let switch_to_configuration = switch_to_configuration
-                .to_str()
-                .ok_or_else(|| eyre!("switch-to-configuration path contains invalid UTF-8"))?;
-
-            Command::new(switch_to_configuration)
-                .arg("test")
-                .ssh(self.target_host.clone())
-                .message("Activating configuration")
-                .elevate(elevate)
-                .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
-                .with_required_env()
-                .run()
-                .wrap_err("Activation (test) failed")?;
-        }
-
-        if let Boot | Switch = variant {
-            let canonical_out_path = out_path
-                .canonicalize()
-                .context("Failed to resolve output path")?;
-
-            Command::new("nix")
-                .elevate(elevate)
-                .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-                .arg(&canonical_out_path)
-                .ssh(self.target_host.clone())
-                .with_required_env()
-                .run()
-                .wrap_err("Failed to set system profile")?;
-
-            let switch_to_configuration =
-                out_path.join("bin").join("switch-to-configuration");
-
-            if !switch_to_configuration.exists() {
-                return Err(eyre!(
-                    "The 'switch-to-configuration' binary is missing from the built configuration.\n\
-         \n\
-         This typically happens when 'system.switch.enable' is set to false in your\n\
-         NixOS configuration. To fix this, please either:\n\
-         1. Remove 'system.switch.enable = false' from your configuration, or\n\
-         2. Set 'system.switch.enable = true' explicitly\n\
-         \n\
-         If the problem persists, please open an issue on our issue tracker!"
-                ));
-            }
-
-            let switch_to_configuration =
-                switch_to_configuration.canonicalize().context(
-                    "Failed to resolve switch-to-configuration path",
-                )?;
-            let switch_to_configuration = switch_to_configuration
-                .to_str()
-                .ok_or_else(|| eyre!("switch-to-configuration path contains invalid UTF-8"))?;
-
-            Command::new(switch_to_configuration)
-                .arg("boot")
-                .ssh(self.target_host)
-                .elevate(elevate)
-                .message("Adding configuration to bootloader")
-                .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
-                .with_required_env()
-                .run()
-                .wrap_err("Bootloader activation failed")?;
-        }
-
-        debug!("Completed operation with output path: {out_path:?}");
-
-        Ok(())
+        Command::new(switch_to_configuration)
+            .arg("test")
+            .ssh(build_opts.target_host.clone())
+            .message("Activating configuration")
+            .elevate(elevate)
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+            .with_required_env()
+            .run()
+            .wrap_err("Activation (test) failed")?;
     }
+
+    if let Boot | Switch = variant {
+        let canonical_out_path = out_path
+            .canonicalize()
+            .context("Failed to resolve output path")?;
+
+        Command::new("nix")
+            .elevate(elevate)
+            .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+            .arg(&canonical_out_path)
+            .ssh(build_opts.target_host.clone())
+            .with_required_env()
+            .run()
+            .wrap_err("Failed to set system profile")?;
+
+        let switch_to_configuration =
+            out_path.join("bin").join("switch-to-configuration");
+
+        if !switch_to_configuration.exists() {
+            return Err(eyre!(
+                "The 'switch-to-configuration' binary is missing from the built configuration.\n\
+         \n\
+         This typically happens when 'system.switch.enable' is set to false in your\n\
+         NixOS configuration. To fix this, please either:\n\
+         1. Remove 'system.switch.enable = false' from your configuration, or\n\
+         2. Set 'system.switch.enable = true' explicitly\n\
+         \n\
+         If the problem persists, please open an issue on our issue tracker!"
+            ));
+        }
+
+        let switch_to_configuration = switch_to_configuration
+            .canonicalize()
+            .context("Failed to resolve switch-to-configuration path")?;
+        let switch_to_configuration =
+            switch_to_configuration.to_str().ok_or_else(|| {
+                eyre!(
+                    "switch-to-configuration path contains invalid UTF-8"
+                )
+            })?;
+
+        Command::new(switch_to_configuration)
+            .arg("boot")
+            .ssh(build_opts.target_host)
+            .elevate(elevate)
+            .message("Adding configuration to bootloader")
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+            .with_required_env()
+            .run()
+            .wrap_err("Bootloader activation failed")?;
+    }
+
+    debug!("Completed operation with output path: {out_path:?}");
+
+    Ok(())
 }
 
 impl OsRollbackArgs {
