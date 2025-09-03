@@ -173,12 +173,12 @@ impl TryFrom<CliOpts> for App {
                 if path.is_dir_no_traverse()? {
                     accu.append(&mut collect_pictures(
                         &path,
-                        transcoder.input(),
+                        transcoder.input_format(),
                     ));
                 } else if let Some(ext) = path.extension()
                     && let Some(ext) = ext.to_str()
                     && transcoder
-                        .input()
+                        .input_format()
                         .iter()
                         .any(|fmt| fmt.ext_matches(ext))
                 {
@@ -193,7 +193,7 @@ impl TryFrom<CliOpts> for App {
             accu
         } else {
             debug!("no selection provided, auto collect pictures");
-            collect_pictures(&root_dir, transcoder.input())
+            collect_pictures(&root_dir, transcoder.input_format())
         };
 
         ensure! { pictures.iter().all(|p| p.is_file()),
@@ -223,7 +223,7 @@ trait Transcoder {
     fn id(&self) -> &'static str;
 
     /// The picture formats that this transcoder accepts as input.
-    fn input(&self) -> &'static [PictureFormat];
+    fn input_format(&self) -> &'static [PictureFormat];
 
     /// The picture format that this transcoder outputs.
     fn output(&self) -> PictureFormat;

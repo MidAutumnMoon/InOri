@@ -35,7 +35,7 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[inline]
-    fn input(&self) -> &'static [PictureFormat] {
+    fn input_format(&self) -> &'static [PictureFormat] {
         &[PictureFormat::PNG, PictureFormat::JPG]
     }
 

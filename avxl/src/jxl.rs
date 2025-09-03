@@ -18,7 +18,7 @@ impl crate::Transcoder for Jxl {
     }
 
     #[inline]
-    fn input(&self) -> &'static [PictureFormat] {
+    fn input_format(&self) -> &'static [PictureFormat] {
         &[PictureFormat::PNG, PictureFormat::JPG, PictureFormat::GIF]
     }
 

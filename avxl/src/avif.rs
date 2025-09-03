@@ -66,7 +66,7 @@ impl crate::Transcoder for Avif {
     }
 
     #[inline]
-    fn input(&self) -> &'static [crate::PictureFormat] {
+    fn input_format(&self) -> &'static [crate::PictureFormat] {
         &[PictureFormat::JPG, PictureFormat::PNG]
     }
 
