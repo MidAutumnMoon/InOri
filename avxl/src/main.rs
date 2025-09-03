@@ -1,5 +1,6 @@
 use std::fs::create_dir_all;
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -250,12 +251,6 @@ impl TryFrom<CliOpts> for App {
     }
 }
 
-#[derive(Debug)]
-pub struct Task {
-    src: PathBuf,
-    dst: PathBuf,
-}
-
 /// A transcoder with its various information.
 trait Transcoder {
     /// A short and descriptive name for this transcoder.
@@ -270,7 +265,11 @@ trait Transcoder {
     /// Do the transcoding.
     // TODO: Get rid of ExitStatus
     #[allow(clippy::missing_errors_doc)]
-    fn transcode(&self, task: Task) -> AnyResult<ExitStatus>;
+    fn transcode_command(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> AnyResult<ExitStatus>;
 }
 
 /// Commonly encountered image formats.

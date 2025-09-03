@@ -2,14 +2,14 @@ use anyhow::Context;
 use anyhow::Result as AnyResult;
 use itertools::Itertools;
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::process::ExitStatus;
 use tap::Pipe;
 
 use crate::PictureFormat;
-use crate::Task;
 
 /// Path to the "avifenc" executable.
-const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
+pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 
 #[derive(Debug, clap::Args)]
 #[group(id = "DespeckleTranscoder")]
@@ -45,7 +45,11 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[tracing::instrument]
-    fn transcode(&self, task: Task) -> AnyResult<ExitStatus> {
+    fn transcode_command(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> AnyResult<ExitStatus> {
         let number_of_depseckles =
             std::iter::repeat_n("-despeckle", self.iteration.into())
                 .collect_vec();
@@ -57,9 +61,9 @@ impl crate::Transcoder for Despeckle {
         let status = magick
             .arg("-verbose")
             .arg("--")
-            .arg(&task.src)
+            .arg(input)
             .args(number_of_depseckles)
-            .arg(&task.dst)
+            .arg(output)
             .spawn()
             .context("Failed to run magick")?
             .wait()?;

@@ -1,8 +1,8 @@
+use std::path::Path;
 use std::process::Command;
 use std::process::ExitStatus;
 
 use crate::PictureFormat;
-use crate::Task;
 
 /// Path to the "cjxl" executable.
 const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
@@ -31,7 +31,11 @@ impl crate::Transcoder for Jxl {
     /// doesn't need too much tweaking. These options are used for squashing
     /// out more savings on spaces.
     #[tracing::instrument(name = "jxl_transcode")]
-    fn transcode(&self, task: Task) -> anyhow::Result<ExitStatus> {
+    fn transcode_command(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> anyhow::Result<ExitStatus> {
         let mut cjxl = Command::new(CJXL_PATH.unwrap_or("cjxl"));
 
         let cjxl = cjxl
@@ -59,7 +63,7 @@ impl crate::Transcoder for Jxl {
             // Use all threads
             .args(["--num_threads", "-1"]);
 
-        let status = cjxl.args([task.src, task.dst]).spawn()?.wait()?;
+        let status = cjxl.args([input, output]).spawn()?.wait()?;
 
         Ok(status)
     }

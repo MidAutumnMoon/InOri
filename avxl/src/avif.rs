@@ -1,10 +1,10 @@
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use std::path::Path;
 use std::process::ExitStatus;
 use tap::Pipe;
 
 use crate::PictureFormat;
-use crate::Task;
 
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!("CFG_AVIFENC_PATH");
@@ -76,7 +76,11 @@ impl crate::Transcoder for Avif {
     }
 
     #[tracing::instrument(name = "avif_transcode")]
-    fn transcode(&self, task: Task) -> AnyResult<ExitStatus> {
+    fn transcode_command(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> AnyResult<ExitStatus> {
         let mut avifenc = AVIFENC_PATH
             .unwrap_or("avifenc")
             .pipe(std::process::Command::new);
@@ -131,7 +135,7 @@ impl crate::Transcoder for Avif {
 
         let status = avifenc
             .arg("--")
-            .args([task.src, task.dst])
+            .args([input, output])
             .spawn()
             .context("Failed to spawn avifenc")?
             .wait()?;
