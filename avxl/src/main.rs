@@ -1,3 +1,4 @@
+use std::fs::create_dir_all;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -84,7 +85,7 @@ struct SharedCliOpts {
 
     /// (to write...)
     /// Defaults to PWD.
-    #[arg(long, short = 'r')]
+    #[arg(long, short = 'R')]
     root_dir: Option<PathBuf>,
 
     /// Skip putting original pictures into backup directory
@@ -93,17 +94,21 @@ struct SharedCliOpts {
     #[arg(default_value_t = false)]
     no_backup: bool,
 
-    /// Allow processing pictures marked as already transcoded
-    /// by ignoring the xattr check.
+    // Allow processing pictures marked as already transcoded
+    // by ignoring the xattr check.
     // TODO: needed?
     // #[arg(long, short = 'i')]
     // #[arg(default_value_t = false)]
     // ignore_tag: bool,
-
     /// (unimplemented) Number of parallel transcoding to run.
     #[arg(long, short)]
     #[arg(default_value = "1")]
     jobs: NonZeroUsize,
+
+    /// Display logs from transcoders.
+    #[arg(long, short = 'L')]
+    #[arg(default_value_t = false)]
+    show_logs: bool,
 
     /// Manually choose pictures to transcode.
     #[arg(last = true)]
@@ -143,7 +148,36 @@ struct App {
     backup_dir: PathBuf,
     work_dir: PathBuf,
     no_backup: bool,
+    show_logs: bool,
     pictures: Vec<PathBuf>,
+}
+
+impl App {
+    fn run(self) -> AnyResult<()> {
+        let Self {
+            transcoder,
+            root_dir,
+            backup_dir,
+            work_dir,
+            no_backup,
+            show_logs,
+            pictures,
+            ..
+        } = self;
+
+        if !pictures.is_empty() {
+            if !backup_dir.try_exists_no_traverse()? {
+                debug!("create backup dir");
+                create_dir_all(&backup_dir)?;
+            }
+            if !work_dir.try_exists_no_traverse()? {
+                debug!("create work dir");
+                create_dir_all(&work_dir)?;
+            }
+        }
+
+        todo!()
+    }
 }
 
 impl TryFrom<CliOpts> for App {
@@ -210,6 +244,7 @@ impl TryFrom<CliOpts> for App {
             backup_dir,
             work_dir,
             no_backup: opts.no_backup,
+            show_logs: opts.show_logs,
             pictures,
         })
     }
@@ -274,17 +309,20 @@ impl PictureFormat {
 fn main_with_result() -> AnyResult<()> {
     let opts = CliOpts::parse();
 
-    if let CliOpts::Complete { shell } = &opts {
+    if let CliOpts::Complete { shell } = opts {
         use clap::CommandFactory;
         use clap_complete::generate;
+        debug!("generate shell completion");
         let mut cmd = CliOpts::command();
-        generate(*shell, &mut cmd, "avxl", &mut std::io::stdout());
+        // TODO: don't hardcode program name
+        generate(shell, &mut cmd, "avxl", &mut std::io::stdout());
         return Ok(());
     }
 
-    let app = App::try_from(opts)?;
-
-    dbg!(app.pictures);
+    App::try_from(opts)
+        .context("Failed to create app")?
+        .run()
+        .context("Error happended when running app")?;
 
     Ok(())
 }
