@@ -61,6 +61,9 @@ enum CliOpts {
     /// Sharpen poorly scanned manga to have crispy dots.
     SharpenScan,
 
+    /// (unimplemented) Print various information for scripting.
+    Print,
+
     /// (unimplemented) Generate shell completion.
     Complete {
         #[arg(long, short)]
@@ -118,6 +121,7 @@ impl CliOpts {
                 (Box::new(transcoder) as Box<dyn Transcoder>, shared)
             }
             Self::SharpenScan => todo!(),
+            Self::Print => todo!(),
             Self::Complete { .. } => {
                 bail!("[BUG] Shouldn't unwrap Complete")
             }
@@ -232,7 +236,11 @@ impl PictureFormat {
 
 fn main_with_result() -> AnyResult<()> {
     let opt = CliOpts::parse();
-    dbg!(opt);
+    let f = fs::collect_pictures(
+        &PathBuf::from("/mnt/z"),
+        &[PictureFormat::AVIF],
+    );
+    dbg!(f);
     Ok(())
 }
 
