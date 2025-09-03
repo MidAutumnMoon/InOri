@@ -77,7 +77,7 @@ impl OsSubcmd {
             Self::Test(args) => args.build(Test, None),
             Self::Switch(args) => args.build(Switch, None),
             Self::Build(args) => {
-                if args.common.dry {
+                if args.dry {
                     warn!("`--dry` have no effect for `nh os build`");
                 }
                 args.build(Build, None)
@@ -103,8 +103,23 @@ pub struct OsBuildVmArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct BuildOpts {
+    /// Only print actions, without performing them
+    #[arg(long, short = 'n')]
+    pub dry: bool,
+
     #[command(flatten)]
-    pub common: CommonRebuildArgs,
+    pub installable: Installable,
+
+    /// Path to save the result link, defaults to using a temporary directory
+    #[arg(long, short)]
+    pub out_link: Option<PathBuf>,
+
+    /// Whether to display a package diff
+    #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
+    pub diff: DiffType,
+
+    #[command(flatten)]
+    pub passthrough: NixBuildPassthroughArgs,
 
     /// Select this hostname from nixosConfigurations
     #[arg(long, short = 'H', global = true)]
@@ -144,27 +159,6 @@ pub struct OsRollbackArgs {
     /// Whether to display a package diff
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
     pub diff: DiffType,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct CommonRebuildArgs {
-    /// Only print actions, without performing them
-    #[arg(long, short = 'n')]
-    pub dry: bool,
-
-    #[command(flatten)]
-    pub installable: Installable,
-
-    /// Path to save the result link, defaults to using a temporary directory
-    #[arg(long, short)]
-    pub out_link: Option<PathBuf>,
-
-    /// Whether to display a package diff
-    #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-    pub diff: DiffType,
-
-    #[command(flatten)]
-    pub passthrough: NixBuildPassthroughArgs,
 }
 
 #[derive(Debug, clap::Args)]
@@ -419,7 +413,7 @@ impl BuildOpts {
         let (out_path, _tempdir_guard): (
             PathBuf,
             Option<tempfile::TempDir>,
-        ) = match self.common.out_link {
+        ) = match self.out_link {
             Some(ref p) => (p.clone(), None),
             None => match variant {
                 BuildVm | Build => (PathBuf::from("result"), None),
@@ -455,7 +449,7 @@ impl BuildOpts {
                 attribute,
             }
         } else {
-            self.common.installable.clone()
+            self.installable.clone()
         };
 
         let toplevel = toplevel_for(
@@ -473,7 +467,7 @@ impl BuildOpts {
             .extra_arg("--out-link")
             .extra_arg(&out_path)
             .extra_args(&self.extra_args)
-            .passthrough(&self.common.passthrough)
+            .passthrough(&self.passthrough)
             .builder(self.builders.clone())
             .message(message)
             .run()
@@ -495,7 +489,7 @@ impl BuildOpts {
             ));
         }
 
-        match self.common.diff {
+        match self.diff {
             DiffType::Always => {
                 let _ = print_dix_diff(
                     &PathBuf::from(CURRENT_PROFILE),
@@ -529,7 +523,7 @@ impl BuildOpts {
             }
         }
 
-        if self.common.dry || matches!(variant, Build | BuildVm) {
+        if self.dry || matches!(variant, Build | BuildVm) {
             return Ok(());
         }
 
@@ -843,14 +837,12 @@ fn find_generation_by_number(
     .filter_map(|entry| {
         entry.ok().and_then(|e| {
             let path = e.path();
-            if let Some(filename) = path.file_name() {
-                if let Some(name) = filename.to_str() {
-                    if name.starts_with("system-")
-                        && name.ends_with("-link")
-                    {
-                        return generations::describe(&path);
-                    }
-                }
+            if let Some(filename) = path.file_name()
+                && let Some(name) = filename.to_str()
+                && name.starts_with("system-")
+                && name.ends_with("-link")
+            {
+                return generations::describe(&path);
             }
             None
         })
@@ -979,11 +971,10 @@ impl OsReplArgs {
         if let Installable::Flake {
             ref mut attribute, ..
         } = target_installable
+            && attribute.is_empty()
         {
-            if attribute.is_empty() {
-                attribute.push(String::from("nixosConfigurations"));
-                attribute.push(hostname);
-            }
+            attribute.push(String::from("nixosConfigurations"));
+            attribute.push(hostname);
         }
 
         Command::new("nix")
