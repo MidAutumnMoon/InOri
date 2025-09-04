@@ -10,6 +10,7 @@ use anyhow::bail;
 use anyhow::ensure;
 use ino_path::PathExt;
 use ino_result::ResultExt;
+use rand::Rng;
 use tracing::debug;
 
 use crate::fs::collect_pictures;
@@ -178,6 +179,32 @@ impl App {
             }
         }
 
+        for pic_path in pictures {
+            // If the picture is under root_dir then
+            // strip the prefix to make the paths shorter in backup_dir.
+            // If not, just give up.
+            let backup = pic_path.strip_prefix(&root_dir).map_or_else(
+                |_| backup_dir.join(&pic_path),
+                |suffix| backup_dir.join(suffix),
+            );
+
+            let temp = {
+                use rand::distr::Alphanumeric;
+                let prefix = rand::rng()
+                    .sample_iter(Alphanumeric)
+                    .take(8)
+                    .map(char::from)
+                    .collect::<String>();
+                let [ext, ..] = transcoder.output_format().exts() else {
+                    // TODO: don't bail?
+                    bail!("[BUG] Transcoder implements no output format")
+                };
+                work_dir.join(format!("{prefix}.{ext}"))
+            };
+
+            let cmd = transcoder.generate_command(&pic_path, &temp);
+        }
+
         todo!()
     }
 }
@@ -234,6 +261,10 @@ impl TryFrom<CliOpts> for App {
         } else {
             debug!("no selection provided, auto collect pictures");
             collect_pictures(&root_dir, transcoder.input_format())
+        };
+
+        ensure! { pictures.iter().all(|p| p.is_absolute()),
+            "[BUG] Some picture paths are not absolute"
         };
 
         ensure! { pictures.iter().all(|p| p.is_file()),

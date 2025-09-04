@@ -1,5 +1,3 @@
-use anyhow::Context;
-use anyhow::Result as AnyResult;
 use pty_process::blocking::Command;
 use std::path::Path;
 use tap::Pipe;
@@ -80,7 +78,7 @@ impl crate::Transcoder for Avif {
         let mut avifenc =
             AVIFENC_PATH.unwrap_or("avifenc").pipe(Command::new);
 
-        let avifenc = {
+        avifenc = {
             let quality = match self.quality_preset {
                 QualityPreset::Low => "27",
                 QualityPreset::Medium => "47",
@@ -89,7 +87,7 @@ impl crate::Transcoder for Avif {
             avifenc.args(["--qcolor", quality, "--qalpha", quality])
         };
 
-        let avifenc = avifenc
+        avifenc = avifenc
             // All following arguments are tuned for AOM encoder
             .args(["--codec", "aom"])
             // Let it use all cores.
@@ -125,7 +123,7 @@ impl crate::Transcoder for Avif {
         // If "no_cq" is *not* set, then cq is needed.
         if !self.no_cq {
             let cq_level = format!("cq-level={}", self.cq_level);
-            avifenc.args(["-a", &cq_level]);
+            avifenc = avifenc.args(["-a", &cq_level]);
         }
 
         avifenc.arg("--").args([input, output])

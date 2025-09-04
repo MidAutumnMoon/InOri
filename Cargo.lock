@@ -194,6 +194,7 @@ dependencies = [
  "ino_tracing",
  "itertools 0.14.0",
  "pty-process",
+ "rand",
  "tap",
  "tracing",
  "walkdir",
