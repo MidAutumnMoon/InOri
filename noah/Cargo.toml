@@ -29,6 +29,3 @@ tempfile = "3.5.0"
 thiserror = "2.0"
 tracing.workspace = true
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.18" }
-
-[dev-dependencies]
-serial_test = "3.2.0"
