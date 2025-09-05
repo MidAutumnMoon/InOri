@@ -1,8 +1,6 @@
 use std::fs::create_dir_all;
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::ExitStatus;
 
 use anyhow::Context;
 use anyhow::Result as AnyResult;
@@ -11,6 +9,7 @@ use anyhow::ensure;
 use ino_path::PathExt;
 use ino_result::ResultExt;
 use rand::Rng;
+use tap::Pipe;
 use tracing::debug;
 
 use crate::fs::collect_pictures;
@@ -152,61 +151,7 @@ struct App {
     work_dir: PathBuf,
     no_backup: bool,
     show_logs: bool,
-    pictures: Vec<PathBuf>,
-}
-
-impl App {
-    fn run(self) -> AnyResult<()> {
-        let Self {
-            transcoder,
-            root_dir,
-            backup_dir,
-            work_dir,
-            no_backup,
-            show_logs,
-            pictures,
-            ..
-        } = self;
-
-        if !pictures.is_empty() {
-            if !backup_dir.try_exists_no_traverse()? {
-                debug!("create backup dir");
-                create_dir_all(&backup_dir)?;
-            }
-            if !work_dir.try_exists_no_traverse()? {
-                debug!("create work dir");
-                create_dir_all(&work_dir)?;
-            }
-        }
-
-        for pic_path in pictures {
-            // If the picture is under root_dir then
-            // strip the prefix to make the paths shorter in backup_dir.
-            // If not, just give up.
-            let backup = pic_path.strip_prefix(&root_dir).map_or_else(
-                |_| backup_dir.join(&pic_path),
-                |suffix| backup_dir.join(suffix),
-            );
-
-            let temp = {
-                use rand::distr::Alphanumeric;
-                let prefix = rand::rng()
-                    .sample_iter(Alphanumeric)
-                    .take(8)
-                    .map(char::from)
-                    .collect::<String>();
-                let [ext, ..] = transcoder.output_format().exts() else {
-                    // TODO: don't bail?
-                    bail!("[BUG] Transcoder implements no output format")
-                };
-                work_dir.join(format!("{prefix}.{ext}"))
-            };
-
-            let cmd = transcoder.generate_command(&pic_path, &temp);
-        }
-
-        todo!()
-    }
+    pictures: Vec<(PathBuf, PictureFormat)>,
 }
 
 impl TryFrom<CliOpts> for App {
@@ -230,44 +175,36 @@ impl TryFrom<CliOpts> for App {
         let pictures = if let Some(selection) = opts.selection {
             debug!("process manual selection");
             let mut accu = vec![];
-            // TODO: reuse collect_pictures
-            for s in selection {
-                let path =
-                    if s.is_absolute() { s } else { root_dir.join(s) };
+            for elm in selection {
+                let path = if elm.is_absolute() {
+                    elm
+                } else {
+                    root_dir.join(elm)
+                };
                 if path.is_dir_no_traverse()? {
-                    // If the selection is a dir, collect pictures under it.
                     accu.append(&mut collect_pictures(
                         &path,
                         transcoder.input_format(),
                     ));
-                } else if let Some(ext) = path.extension()
-                    && let Some(ext) = ext.to_str()
-                    && transcoder
-                        .input_format()
-                        .iter()
-                        .any(|fmt| fmt.ext_matches(ext))
+                } else if let Some(format) =
+                    PictureFormat::from_path(&path)
                 {
-                    // If it is just a supported picture,
-                    // then pick it up as-is.
-                    accu.push(path);
+                    accu.push((path, format));
                 } else {
-                    debug!(
-                        ?path,
-                        "path is not valid or extension is not supported, ignored"
-                    );
+                    debug!(?path, "path skipped");
                 }
             }
             accu
         } else {
-            debug!("no selection provided, auto collect pictures");
+            debug!("no selection, collect pictures");
             collect_pictures(&root_dir, transcoder.input_format())
         };
 
-        ensure! { pictures.iter().all(|p| p.is_absolute()),
+        ensure! { pictures.iter().all(|(pic, _)| pic.is_absolute()),
             "[BUG] Some picture paths are not absolute"
         };
 
-        ensure! { pictures.iter().all(|p| p.is_file()),
+        ensure! { pictures.iter().all(|(pic, _)| pic.is_file()),
             "[BUG] Some picture paths are not file"
         };
 
@@ -307,6 +244,7 @@ trait Transcoder {
 
 /// Commonly encountered image formats.
 #[derive(Debug)]
+#[derive(strum::EnumIter)]
 pub enum PictureFormat {
     PNG,
     JPG,
@@ -336,6 +274,20 @@ impl PictureFormat {
     pub fn ext_matches(&self, theirs: &str) -> bool {
         self.exts().contains(&theirs)
     }
+
+    /// Guess the picture's format based on the extension of
+    /// the path.
+    #[inline]
+    pub fn from_path(path: &Path) -> Option<Self> {
+        use strum::IntoEnumIterator;
+        if let Some(ext) = path.extension()
+            && let Some(ext) = ext.to_str()
+        {
+            Self::iter().find(|fmt| fmt.ext_matches(ext))
+        } else {
+            None
+        }
+    }
 }
 
 fn main_with_result() -> AnyResult<()> {
@@ -353,7 +305,7 @@ fn main_with_result() -> AnyResult<()> {
 
     App::try_from(opts)
         .context("Failed to create app")?
-        .run()
+        .pipe(run_app)
         .context("Error happended when running app")?;
 
     Ok(())
@@ -431,4 +383,62 @@ fn main() {
     //     }
     //
     // }
+}
+
+fn run_app(app: App) -> AnyResult<()> {
+    let App {
+        transcoder,
+        root_dir,
+        backup_dir,
+        work_dir,
+        no_backup,
+        show_logs,
+        pictures,
+        ..
+    } = app;
+
+    if !pictures.is_empty() {
+        if !backup_dir.try_exists_no_traverse()? {
+            debug!("create backup dir");
+            create_dir_all(&backup_dir)?;
+        }
+        if !work_dir.try_exists_no_traverse()? {
+            debug!("create work dir");
+            create_dir_all(&work_dir)?;
+        }
+    }
+
+    // TODO: async?
+    for (pic, _format) in pictures {
+        // If the picture is under root_dir then
+        // strip the prefix to make the paths shorter in backup_dir.
+        // If not, just give up.
+        let backup = pic.strip_prefix(&root_dir).map_or_else(
+            |_| backup_dir.join(&pic),
+            |suffix| backup_dir.join(suffix),
+        );
+
+        let [output_ext, ..] = transcoder.output_format().exts() else {
+            // TODO: don't bail?
+            bail!("[BUG] Transcoder implements no output format")
+        };
+        let tempfile = tempfile_in_workdir(&work_dir, output_ext);
+
+        let cmd = transcoder.generate_command(&pic, &tempfile);
+    }
+
+    todo!()
+}
+
+// TODO: Name clash is not handled, but on real hardware
+// it probably won't happen within the lifespan of Rust.
+#[inline]
+fn tempfile_in_workdir(work_dir: &Path, ext: &str) -> PathBuf {
+    use rand::distr::Alphanumeric;
+    let prefix = rand::rng()
+        .sample_iter(Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect::<String>();
+    work_dir.join(format!("{prefix}.{ext}"))
 }

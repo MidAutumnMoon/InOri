@@ -18,6 +18,7 @@ ino_tracing.workspace = true
 itertools.workspace = true
 pty-process = { version = "0.5.3", default-features = false }
 rand = "0.9.2"
+strum = { version = "0", features = ["derive"] }
 tap.workspace = true
 tracing.workspace = true
 walkdir = "2.5.0"

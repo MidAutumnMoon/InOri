@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use anyhow::Result as AnyResult;
 use tracing::debug;
 use tracing::trace;
 use tracing::trace_span;
@@ -16,7 +15,7 @@ use crate::PictureFormat;
 pub fn collect_pictures(
     root: &Path,
     formats: &[PictureFormat],
-) -> Vec<PathBuf> {
+) -> Vec<(PathBuf, PictureFormat)> {
     debug!("collect pictures");
     let mut collected = vec![];
 
@@ -48,20 +47,13 @@ pub fn collect_pictures(
             }
         }
 
-        let path = entry.path();
-        let _s = trace_span!("collect_from_path", ?path).entered();
+        let pic_path = entry.path();
+        let _s = trace_span!("picture", ?pic_path).entered();
 
-        if let Some(ext) = path.extension()
-            && let Some(ext) = ext.to_str()
-        {
-            if formats.iter().any(|fmt| fmt.ext_matches(ext)) {
-                debug!("found supported picture");
-                collected.push(path.to_owned());
-            } else {
-                trace!("extension not supported, skipped");
-            }
+        if let Some(format) = PictureFormat::from_path(pic_path) {
+            collected.push((pic_path.to_owned(), format));
         } else {
-            trace!("can not get entry's extension, ignored");
+            debug!("picture is not supported");
         }
     }
 

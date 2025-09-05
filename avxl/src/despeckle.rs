@@ -1,4 +1,3 @@
-use anyhow::Context;
 use anyhow::Result as AnyResult;
 use itertools::Itertools;
 use pty_process::blocking::Command;
