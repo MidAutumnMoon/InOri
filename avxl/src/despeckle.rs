@@ -29,6 +29,7 @@ impl Default for Despeckle {
 }
 
 impl crate::Transcoder for Despeckle {
+    #[inline]
     fn id(&self) -> &'static str {
         "despeckle"
     }
@@ -48,12 +49,9 @@ impl crate::Transcoder for Despeckle {
         let number_of_depseckles =
             std::iter::repeat_n("-despeckle", self.iteration.into())
                 .collect_vec();
-
-        let magick = MAGICK_PATH
+        MAGICK_PATH
             .unwrap_or("magick")
-            .pipe(Command::new);
-
-        magick
+            .pipe(Command::new)
             .arg("-verbose")
             .arg("--")
             .arg(input)

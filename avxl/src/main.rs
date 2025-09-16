@@ -80,10 +80,6 @@ enum CliOpts {
 
 #[derive(clap::Args, Debug)]
 struct SharedCliOpts {
-    /// (unimplemented) Abort transcoding when first error occurred.
-    // #[arg(long)]
-    // abort_on_error: bool,
-
     /// (to write...)
     /// Defaults to PWD.
     #[arg(long, short = 'R')]
@@ -91,18 +87,11 @@ struct SharedCliOpts {
 
     /// Skip putting original pictures into backup directory
     /// after transcoding.
-    #[arg(long, short = 'N')]
+    #[arg(long, short = 'B')]
     #[arg(default_value_t = false)]
     no_backup: bool,
 
-    // Allow processing pictures marked as already transcoded
-    // by ignoring the xattr check.
-    // TODO: needed?
-    // #[arg(long, short = 'i')]
-    // #[arg(default_value_t = false)]
-    // ignore_tag: bool,
     /// (unimplemented) Number of parallel transcoding to run.
-    /// Specify "0" to 85% of all cores.
     #[arg(long, short)]
     #[arg(default_value = "1")]
     jobs: usize,
@@ -114,7 +103,7 @@ struct SharedCliOpts {
 
     /// Manually choose pictures to transcode.
     #[arg(last = true)]
-    selection: Option<Vec<PathBuf>>,
+    manual_selection: Option<Vec<PathBuf>>,
 }
 
 impl CliOpts {
@@ -172,14 +161,14 @@ impl TryFrom<CliOpts> for App {
         let backup_dir = root_dir.join(BACKUP_DIR_NAME);
         let work_dir = root_dir.join(WORK_DIR_NAME);
 
-        let pictures = if let Some(selection) = opts.selection {
-            debug!("process manual selection");
+        let pictures = if let Some(selection) = opts.manual_selection {
+            debug!("normalize manual selection");
             let mut accu = vec![];
-            for elm in selection {
-                let path = if elm.is_absolute() {
-                    elm
+            for sel in selection {
+                let path = if sel.is_absolute() {
+                    sel
                 } else {
-                    root_dir.join(elm)
+                    root_dir.join(sel)
                 };
                 if path.is_dir_no_traverse()? {
                     accu.append(&mut collect_pictures(
@@ -278,6 +267,7 @@ impl PictureFormat {
     /// Guess the picture's format based on the extension of
     /// the path.
     #[inline]
+    #[must_use]
     pub fn from_path(path: &Path) -> Option<Self> {
         use strum::IntoEnumIterator;
         if let Some(ext) = path.extension()
@@ -314,75 +304,6 @@ fn main_with_result() -> AnyResult<()> {
 fn main() {
     ino_tracing::init_tracing_subscriber();
     main_with_result().print_error_exit_process();
-
-    //
-    //     /*
-    //      * Create archive_dir is needed
-    //      */
-    //
-    //     if archive_after_encode {
-    //         debug!( ?archive_dir );
-    //
-    //         // UNWRAP: when archive_after_encode is set archive_dir is also set
-    //         #[ allow( clippy::unwrap_used ) ]
-    //         let dir = archive_dir.clone().unwrap();
-    //
-    //         eprintln!(
-    //             "Archive after encoding\
-    //             \n\
-    //             Create directory \"{}\"for archiving",
-    //             dir.display()
-    //         );
-    //
-    //         if !dir.try_exists()? {
-    //             std::fs::create_dir_all( dir )?;
-    //         }
-    //     }
-    //
-    //     /*
-    //      * Do collected tasks
-    //      */
-    //
-    //     let total_tasks = files_to_encode.len();
-    //
-    //     for ( index, file ) in files_to_encode.iter().enumerate() {
-    //         debug!( ?index, ?file );
-    //
-    //         let _span = debug_span!( "encoding_tasks", ?file ).entered();
-    //
-    //         let progress_percent = format!(
-    //             "[{}/{total_tasks} {}]",
-    //             index + 1,
-    //             file.file_name()
-    //                 .unwrap_or_default()
-    //                 .to_string_lossy(),
-    //         );
-    //
-    //         eprintln!(
-    //             "{progress_percent} Encode in progress..."
-    //         );
-    //
-    //         let encode_status = encoder.transcode( file )?;
-    //
-    //         if !encode_status.success() {
-    //             eprintln!(
-    //                 "{progress_percent} Failed to encode!"
-    //             );
-    //             std::process::exit( 1 )
-    //         }
-    //
-    //         if archive_after_encode {
-    //             eprintln!( "{progress_percent} Archive original file");
-    //             let basename = file.file_name()
-    //                 .expect( "It doesn't have a basename, how come?!" );
-    //             // TODO: this is code smell, do something later
-    //             #[ allow( clippy::unwrap_used ) ]
-    //             let target = archive_dir.clone().unwrap().join( basename );
-    //             std::fs::rename( file, target )?;
-    //         }
-    //     }
-    //
-    // }
 }
 
 fn run_app(app: App) -> AnyResult<()> {
@@ -419,7 +340,6 @@ fn run_app(app: App) -> AnyResult<()> {
         );
 
         let [output_ext, ..] = transcoder.output_format().exts() else {
-            // TODO: don't bail?
             bail!("[BUG] Transcoder implements no output format")
         };
         let tempfile = tempfile_in_workdir(&work_dir, output_ext);

@@ -40,21 +40,24 @@ impl Default for Avif {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(strum::Display)]
 pub enum QualityPreset {
+    #[strum(to_string = "low")]
     Low,
+    #[strum(to_string = "medium")]
     Medium,
+    #[strum(to_string = "high")]
     High,
 }
 
-impl std::fmt::Display for QualityPreset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let r = match self {
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-        };
-        f.write_str(r)
-    }
+#[derive(strum::Display)]
+#[derive(clap::ValueEnum)]
+#[derive(Debug, Clone)]
+enum Yuv {
+    #[strum(to_string = "420")]
+    Yuv420,
+    #[strum(to_string = "400")]
+    Yuv400,
 }
 
 impl crate::Transcoder for Avif {

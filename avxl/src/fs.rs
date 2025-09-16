@@ -17,7 +17,7 @@ pub fn collect_pictures(
     formats: &[PictureFormat],
 ) -> Vec<(PathBuf, PictureFormat)> {
     debug!("collect pictures");
-    let mut collected = vec![];
+    let mut accu = vec![];
 
     // TODO: cleanup
     for entry in WalkDir::new(root)
@@ -51,13 +51,13 @@ pub fn collect_pictures(
         let _s = trace_span!("picture", ?pic_path).entered();
 
         if let Some(format) = PictureFormat::from_path(pic_path) {
-            collected.push((pic_path.to_owned(), format));
+            accu.push((pic_path.to_owned(), format));
         } else {
             debug!("picture is not supported");
         }
     }
 
-    collected
+    accu
 }
 
 #[inline]
