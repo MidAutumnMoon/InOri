@@ -1,4 +1,3 @@
-use std::fs::create_dir_all;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -7,8 +6,6 @@ use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
 use ino_path::PathExt;
-use ino_result::ResultExt;
-use rand::Rng;
 use tap::Pipe;
 use tracing::debug;
 
@@ -18,6 +15,7 @@ mod avif;
 mod despeckle;
 mod fs;
 mod jxl;
+mod runner;
 
 /// Name of the directory for storing original pictures.
 pub const BACKUP_DIR_NAME: &str = ".backup";
@@ -258,12 +256,6 @@ impl PictureFormat {
         }
     }
 
-    #[must_use]
-    #[inline]
-    pub fn ext_matches(&self, theirs: &str) -> bool {
-        self.exts().contains(&theirs)
-    }
-
     /// Guess the picture's format based on the extension of
     /// the path.
     #[inline]
@@ -273,14 +265,15 @@ impl PictureFormat {
         if let Some(ext) = path.extension()
             && let Some(ext) = ext.to_str()
         {
-            Self::iter().find(|fmt| fmt.ext_matches(ext))
+            Self::iter().find(|fmt| fmt.exts().contains(&ext))
         } else {
             None
         }
     }
 }
 
-fn main_with_result() -> AnyResult<()> {
+fn main() -> AnyResult<()> {
+    ino_tracing::init_tracing_subscriber();
     let opts = CliOpts::parse();
 
     if let CliOpts::Complete { shell } = opts {
@@ -295,70 +288,6 @@ fn main_with_result() -> AnyResult<()> {
 
     App::try_from(opts)
         .context("Failed to create app")?
-        .pipe(run_app)
-        .context("Error happended when running app")?;
-
-    Ok(())
-}
-
-fn main() {
-    ino_tracing::init_tracing_subscriber();
-    main_with_result().print_error_exit_process();
-}
-
-fn run_app(app: App) -> AnyResult<()> {
-    let App {
-        transcoder,
-        root_dir,
-        backup_dir,
-        work_dir,
-        no_backup,
-        show_logs,
-        pictures,
-        ..
-    } = app;
-
-    if !pictures.is_empty() {
-        if !backup_dir.try_exists_no_traverse()? {
-            debug!("create backup dir");
-            create_dir_all(&backup_dir)?;
-        }
-        if !work_dir.try_exists_no_traverse()? {
-            debug!("create work dir");
-            create_dir_all(&work_dir)?;
-        }
-    }
-
-    // TODO: async?
-    for (pic, _format) in pictures {
-        // If the picture is under root_dir then
-        // strip the prefix to make the paths shorter in backup_dir.
-        // If not, just give up.
-        let backup = pic.strip_prefix(&root_dir).map_or_else(
-            |_| backup_dir.join(&pic),
-            |suffix| backup_dir.join(suffix),
-        );
-
-        let [output_ext, ..] = transcoder.output_format().exts() else {
-            bail!("[BUG] Transcoder implements no output format")
-        };
-        let tempfile = tempfile_in_workdir(&work_dir, output_ext);
-
-        let cmd = transcoder.generate_command(&pic, &tempfile);
-    }
-
-    todo!()
-}
-
-// TODO: Name clash is not handled, but on real hardware
-// it probably won't happen within the lifespan of Rust.
-#[inline]
-fn tempfile_in_workdir(work_dir: &Path, ext: &str) -> PathBuf {
-    use rand::distr::Alphanumeric;
-    let prefix = rand::rng()
-        .sample_iter(Alphanumeric)
-        .take(8)
-        .map(char::from)
-        .collect::<String>();
-    work_dir.join(format!("{prefix}.{ext}"))
+        .pipe(runner::run_app)
+        .context("Error happended when running app")
 }

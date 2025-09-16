@@ -183,7 +183,6 @@ dependencies = [
  "clap",
  "clap_complete",
  "ino_path",
- "ino_result",
  "ino_tap",
  "ino_tracing",
  "itertools 0.14.0",

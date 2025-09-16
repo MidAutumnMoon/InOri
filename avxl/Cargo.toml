@@ -12,7 +12,6 @@ anyhow.workspace = true
 clap.workspace = true
 clap_complete = "4.5.57"
 ino_path.workspace = true
-ino_result.workspace = true
 ino_tap.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
