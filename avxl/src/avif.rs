@@ -83,9 +83,9 @@ impl crate::Transcoder for Avif {
 
         avifenc = {
             let quality = match self.quality_preset {
-                QualityPreset::Low => "27",
-                QualityPreset::Medium => "47",
-                QualityPreset::High => "77",
+                QualityPreset::Low => "28",
+                QualityPreset::Medium => "48",
+                QualityPreset::High => "78",
             };
             avifenc.args(["--qcolor", quality, "--qalpha", quality])
         };
@@ -123,7 +123,6 @@ impl crate::Transcoder for Avif {
             .args(["-a", "color:denoise-noise-level=10"])
             .args(["-a", "tune=ssim"]);
 
-        // If "no_cq" is *not* set, then cq is needed.
         if !self.no_cq {
             let cq_level = format!("cq-level={}", self.cq_level);
             avifenc = avifenc.args(["-a", &cq_level]);

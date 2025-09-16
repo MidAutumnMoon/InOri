@@ -15,17 +15,8 @@ pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 pub struct Despeckle {
     /// How many despeckle passes to run on the picture
     #[arg(long, short)]
-    #[ arg( default_value_t=Self::default().iteration ) ]
+    #[arg(default_value = "1")]
     pub iteration: NonZeroUsize,
-}
-
-impl Default for Despeckle {
-    fn default() -> Self {
-        #[allow(clippy::unwrap_used)]
-        Self {
-            iteration: NonZeroUsize::new(1).unwrap(),
-        }
-    }
 }
 
 impl crate::Transcoder for Despeckle {

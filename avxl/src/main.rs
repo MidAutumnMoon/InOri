@@ -28,10 +28,6 @@ pub const WORK_DIR_NAME: &str = ".work";
 /// Tag the transcoded pictures with this name in xattr.
 pub const XATTR_TRANSCODE_OUTPUT: &str = "user.avxl-output";
 
-// ...unused
-pub const XATTR_BACKUP_DIR: &str = "user.avxl-backup-dir";
-pub const XATTR_WORK_DIR: &str = "user.avxl-work-dir";
-
 /// Batch converting pictures between formats.
 #[derive(Debug)]
 #[derive(clap::Parser)]
@@ -80,21 +76,24 @@ enum CliOpts {
 struct SharedCliOpts {
     /// (to write...)
     /// Defaults to PWD.
-    #[arg(long, short = 'R')]
+    #[arg(long, short = 'r')]
     root_dir: Option<PathBuf>,
 
-    /// Skip putting original pictures into backup directory
-    /// after transcoding.
-    #[arg(long, short = 'B')]
+    #[arg(long, short = 'R')]
+    no_recursive: bool,
+
+    /// Leaving original pictures at the place after transcoding
+    /// for manual comparison.
+    #[arg(long, short = 'C')]
     #[arg(default_value_t = false)]
-    no_backup: bool,
+    compare: bool,
 
     /// (unimplemented) Number of parallel transcoding to run.
-    #[arg(long, short)]
+    #[arg(long, short = 'J')]
     #[arg(default_value = "1")]
     jobs: usize,
 
-    /// Display logs from transcoders.
+    /// Show logs from transcoders.
     #[arg(long, short = 'L')]
     #[arg(default_value_t = false)]
     show_logs: bool,
@@ -200,7 +199,7 @@ impl TryFrom<CliOpts> for App {
             root_dir,
             backup_dir,
             work_dir,
-            no_backup: opts.no_backup,
+            no_backup: opts.compare,
             show_logs: opts.show_logs,
             pictures,
         })
