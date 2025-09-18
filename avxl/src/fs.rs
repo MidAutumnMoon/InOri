@@ -7,15 +7,15 @@ use tracing::trace_span;
 use walkdir::DirEntry;
 use walkdir::WalkDir;
 
-use crate::PictureFormat;
+use crate::PicFormat;
 
 /// Find all pictures under toplevel matching given formats.
 // TODO: don't swallow errors?
 #[tracing::instrument]
 pub fn collect_pictures(
     root: &Path,
-    formats: &[PictureFormat],
-) -> Vec<(PathBuf, PictureFormat)> {
+    formats: &[PicFormat],
+) -> Vec<(PathBuf, PicFormat)> {
     debug!("collect pictures");
     let mut accu = vec![];
 
@@ -50,7 +50,7 @@ pub fn collect_pictures(
         let pic_path = entry.path();
         let _s = trace_span!("picture", ?pic_path).entered();
 
-        if let Some(format) = PictureFormat::from_path(pic_path) {
+        if let Some(format) = PicFormat::from_path(pic_path) {
             accu.push((pic_path.to_owned(), format));
         } else {
             debug!("picture is not supported");
@@ -65,7 +65,7 @@ fn skip_backup_dir(entry: &DirEntry) -> bool {
     if entry.file_type().is_dir() {
         if let Some(basename) = entry.path().file_name()
             && let Some(basename) = basename.to_str()
-            && basename == crate::BACKUP_DIR_NAME
+            && basename == crate::BACKUP_DIR_PREFIX
         {
             // "false" tells walkdir to skip the entry
             false

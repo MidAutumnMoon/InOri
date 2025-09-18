@@ -2,7 +2,7 @@ use pty_process::blocking::Command;
 use std::path::Path;
 use tap::Pipe;
 
-use crate::PictureFormat;
+use crate::PicFormat;
 
 /// Path to the "avifenc" executable.
 const AVIFENC_PATH: Option<&str> = std::option_env!("CFG_AVIFENC_PATH");
@@ -67,13 +67,13 @@ impl crate::Transcoder for Avif {
     }
 
     #[inline]
-    fn input_format(&self) -> &'static [crate::PictureFormat] {
-        &[PictureFormat::JPG, PictureFormat::PNG]
+    fn input_format(&self) -> &'static [crate::PicFormat] {
+        &[PicFormat::JPG, PicFormat::PNG]
     }
 
     #[inline]
-    fn output_format(&self) -> PictureFormat {
-        PictureFormat::AVIF
+    fn output_format(&self) -> PicFormat {
+        PicFormat::AVIF
     }
 
     #[tracing::instrument(name = "avif_transcode")]

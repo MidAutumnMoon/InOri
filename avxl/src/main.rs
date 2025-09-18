@@ -18,7 +18,7 @@ mod jxl;
 mod runner;
 
 /// Name of the directory for storing original pictures.
-pub const BACKUP_DIR_NAME: &str = ".backup";
+pub const BACKUP_DIR_PREFIX: &str = ".backup";
 
 /// Name of the directory for stashing temporary files.
 /// The work directory should be on the same filesystem
@@ -137,7 +137,7 @@ struct App {
     work_dir: PathBuf,
     no_backup: bool,
     show_logs: bool,
-    pictures: Vec<(PathBuf, PictureFormat)>,
+    pictures: Vec<(PathBuf, PicFormat)>,
 }
 
 impl TryFrom<CliOpts> for App {
@@ -155,7 +155,7 @@ impl TryFrom<CliOpts> for App {
             root_dir.display()
         };
 
-        let backup_dir = root_dir.join(BACKUP_DIR_NAME);
+        let backup_dir = root_dir.join(BACKUP_DIR_PREFIX);
         let work_dir = root_dir.join(WORK_DIR_NAME);
 
         let pictures = if let Some(selection) = opts.manual_selection {
@@ -172,9 +172,7 @@ impl TryFrom<CliOpts> for App {
                         &path,
                         transcoder.input_format(),
                     ));
-                } else if let Some(format) =
-                    PictureFormat::from_path(&path)
-                {
+                } else if let Some(format) = PicFormat::from_path(&path) {
                     accu.push((path, format));
                 } else {
                     debug!(?path, "path skipped");
@@ -212,10 +210,10 @@ trait Transcoder {
     fn id(&self) -> &'static str;
 
     /// The picture formats that this transcoder accepts as input.
-    fn input_format(&self) -> &'static [PictureFormat];
+    fn input_format(&self) -> &'static [PicFormat];
 
     /// The picture format that this transcoder outputs.
-    fn output_format(&self) -> PictureFormat;
+    fn output_format(&self) -> PicFormat;
 
     /// Build the command to do transcoding.
     // This does count as some sort of sans-io lol
@@ -228,10 +226,21 @@ trait Transcoder {
     ) -> pty_process::blocking::Command;
 }
 
+struct Picture {
+    format: PicFormat,
+    path: PicPath,
+}
+
+enum PicPath {
+    Absolute { path: PathBuf },
+    Relative { root: PathBuf, path: PathBuf },
+}
+
 /// Commonly encountered image formats.
 #[derive(Debug)]
 #[derive(strum::EnumIter)]
-pub enum PictureFormat {
+#[allow(clippy::upper_case_acronyms)]
+enum PicFormat {
     PNG,
     JPG,
     WEBP,
@@ -240,7 +249,7 @@ pub enum PictureFormat {
     GIF,
 }
 
-impl PictureFormat {
+impl PicFormat {
     /// Extensions of each image format.
     #[must_use]
     #[inline]

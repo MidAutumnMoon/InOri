@@ -2,7 +2,7 @@ use std::path::Path;
 
 use pty_process::blocking::Command;
 
-use crate::PictureFormat;
+use crate::PicFormat;
 
 /// Path to the "cjxl" executable.
 const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
@@ -18,13 +18,13 @@ impl crate::Transcoder for Jxl {
     }
 
     #[inline]
-    fn input_format(&self) -> &'static [PictureFormat] {
-        &[PictureFormat::PNG, PictureFormat::JPG, PictureFormat::GIF]
+    fn input_format(&self) -> &'static [PicFormat] {
+        &[PicFormat::PNG, PicFormat::JPG, PicFormat::GIF]
     }
 
     #[inline]
-    fn output_format(&self) -> PictureFormat {
-        PictureFormat::JXL
+    fn output_format(&self) -> PicFormat {
+        PicFormat::JXL
     }
 
     /// JPEG XL has a superior lossless encoding algorithm which also

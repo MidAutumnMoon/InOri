@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use tap::Pipe;
 
-use crate::PictureFormat;
+use crate::PicFormat;
 
 /// Path to the "avifenc" executable.
 pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
@@ -26,13 +26,13 @@ impl crate::Transcoder for Despeckle {
     }
 
     #[inline]
-    fn input_format(&self) -> &'static [PictureFormat] {
-        &[PictureFormat::PNG, PictureFormat::JPG]
+    fn input_format(&self) -> &'static [PicFormat] {
+        &[PicFormat::PNG, PicFormat::JPG]
     }
 
     #[inline]
-    fn output_format(&self) -> PictureFormat {
-        PictureFormat::PNG
+    fn output_format(&self) -> PicFormat {
+        PicFormat::PNG
     }
 
     #[tracing::instrument]
