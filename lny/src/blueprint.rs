@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use anyhow::ensure;
 use ino_tap::TapExt;
 use itertools::Itertools;
 use serdev::Deserialize;
@@ -14,9 +14,9 @@ use crate::template::RenderedPath;
 
 const CURRENT_BLUEPRINT_VERSION: usize = 1;
 
-#[ derive( Deserialize, Debug ) ]
-#[ serde( deny_unknown_fields ) ]
-#[ serde( validate="Self::validate" ) ]
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+#[serde(validate = "Self::validate")]
 pub struct Blueprint {
     version: usize,
     // TODO avoid direct field access
@@ -24,25 +24,28 @@ pub struct Blueprint {
 }
 
 impl Blueprint {
-    #[ tracing::instrument ]
-    pub fn from_file( path: &Path ) -> AnyResult<Self> {
-        debug!( "read the blueprint file" );
+    #[tracing::instrument]
+    pub fn from_file(path: &Path) -> AnyResult<Self> {
+        debug!("read the blueprint file");
         ensure! { path.is_file(),
             r#"The given path "{}" is not file"#, path.display()
         };
-        std::fs::read_to_string( path )
-            .context( "Failed to read blueprint file" )?
-            .pipe_deref( Self::from_str )
-            .context( "Failed to parse the blueprint's content" )
+        std::fs::read_to_string(path)
+            .context("Failed to read blueprint file")?
+            .pipe_deref(Self::from_str)
+            .context("Failed to parse the blueprint's content")
     }
 
     pub fn empty() -> Self {
-        Self { version: CURRENT_BLUEPRINT_VERSION, symlinks: vec![] }
+        Self {
+            version: CURRENT_BLUEPRINT_VERSION,
+            symlinks: vec![],
+        }
     }
 
-    #[ tracing::instrument( skip_all ) ]
-    fn validate( &self ) -> AnyResult<()> {
-        debug!( "validate the blueprint" );
+    #[tracing::instrument(skip_all)]
+    fn validate(&self) -> AnyResult<()> {
+        debug!("validate the blueprint");
         ensure! { self.version == CURRENT_BLUEPRINT_VERSION,
             r#"Blueprint version mismatch, expect "{}", got "{}""#,
             CURRENT_BLUEPRINT_VERSION,
@@ -62,13 +65,13 @@ impl Blueprint {
 impl FromStr for Blueprint {
     type Err = anyhow::Error;
 
-    #[ tracing::instrument( skip_all ) ]
-    fn from_str( raw: &str ) -> Result<Self, Self::Err> {
-        debug!( "try parse the input as json" );
-        serde_json::from_str::<Self>( raw )
-            .context( "Blueprint contains invalid JSON" )?
+    #[tracing::instrument(skip_all)]
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        debug!("try parse the input as json");
+        serde_json::from_str::<Self>(raw)
+            .context("Blueprint contains invalid JSON")?
             .tap_trace()
-            .pipe( Ok )
+            .pipe(Ok)
     }
 }
 
@@ -78,42 +81,40 @@ impl Default for Blueprint {
     }
 }
 
-#[ derive( Deserialize, Debug, Clone ) ]
-#[ derive( PartialEq, Eq ) ]
-#[ serde( deny_unknown_fields ) ]
+#[derive(Deserialize, Debug, Clone)]
+#[derive(PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Symlink {
     pub src: RenderedPath,
     pub dst: RenderedPath,
 }
 
 impl Symlink {
-    #[ allow( dead_code ) ]
-    pub(crate) fn new_test( src: RenderedPath, dst: RenderedPath )
-        -> Self
-    {
+    #[allow(dead_code)]
+    pub(crate) fn new_test(src: RenderedPath, dst: RenderedPath) -> Self {
         Self { src, dst }
     }
 
-    pub fn same_dst( &self, other: &Self ) -> bool {
+    pub fn same_dst(&self, other: &Self) -> bool {
         self.dst == other.dst
     }
 
-    pub fn same_src( &self, other: &Self ) -> bool {
+    pub fn same_src(&self, other: &Self) -> bool {
         self.src == other.src
     }
 }
 
-#[ cfg( test ) ]
+#[cfg(test)]
 mod test {
 
     use super::*;
     use serde::de::IntoDeserializer;
     use tap::Tap;
 
-    #[ test ]
-    #[ allow( clippy::unwrap_used ) ]
+    #[test]
+    #[allow(clippy::unwrap_used)]
     fn symlinks_are_unique() {
-        let json = serde_json::json!{ {
+        let json = serde_json::json! { {
             "version": CURRENT_BLUEPRINT_VERSION,
             "symlinks": [
                 { "src": "/a", "dst": "/tar" },
@@ -121,17 +122,18 @@ mod test {
             ]
         } };
         let der = json.into_deserializer();
-        let res = Blueprint::deserialize( der );
-        assert!( res.is_err() );
+        let res = Blueprint::deserialize(der);
+        assert!(res.is_err());
         assert!(
-            res.err().unwrap()
-                .tap( |it| eprintln!( "{it:?}" ) )
+            res.err()
+                .unwrap()
+                .tap(|it| eprintln!("{it:?}"))
                 .to_string()
-                .contains( "conflicting" )
+                .contains("conflicting")
         );
     }
 
-    #[ test ]
+    #[test]
     fn be_strict_when_parsing() {
         let json = serde_json::json!( {
             "version": CURRENT_BLUEPRINT_VERSION,
@@ -139,8 +141,7 @@ mod test {
             "symlinks": [ { "src": "/", "dst": "/", "aa": "bb" } ]
         } );
         let der = json.into_deserializer();
-        let res = Blueprint::deserialize( der );
-        assert!( res.is_err() );
+        let res = Blueprint::deserialize(der);
+        assert!(res.is_err());
     }
-
 }

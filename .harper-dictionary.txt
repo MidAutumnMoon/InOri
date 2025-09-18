@@ -1,5 +1,6 @@
 Brotli
 Premultiply
+TOU
 UUIDv7
 cq
 dbus
@@ -7,4 +8,7 @@ gcroots
 homeConfigurations
 nh
 noah
+posix
+subdirs
+unrendered
 walkdir
