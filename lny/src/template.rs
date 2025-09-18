@@ -17,14 +17,12 @@ use tracing::debug;
 // Constructing an [`Environment`] is expensive.
 #[allow(clippy::unwrap_used)]
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
-    use ino_result::ResultExt;
     use minijinja::UndefinedBehavior;
 
     debug!("Initialize global template engine");
 
     let context = ContextOfTemplate::new()
         .context("Failed to initialize context for template")
-        .print_error()
         .unwrap();
 
     let mut environ = Environment::empty();

@@ -12,7 +12,6 @@ use tracing::debug;
 use ino_color::InoColor;
 use ino_color::fg::Blue;
 use ino_color::fg::Yellow;
-use ino_result::ResultExt;
 use ino_tap::TapExt;
 
 use std::path::PathBuf;
@@ -93,19 +92,15 @@ impl App {
     }
 }
 
-fn main() {
-    fn main_but_result() -> AnyResult<()> {
-        let cliopt = {
-            debug!("Parse cliopts");
-            CliOpts::parse().tap_trace()
-        };
-        App::run_with(cliopt).context("Error ocurred when running app")?;
-        Ok(())
-    }
-
+fn main() -> AnyResult<()> {
     ino_tracing::init_tracing_subscriber();
 
     eprintln!("{}", "Strech hands".fg::<Blue>());
 
-    main_but_result().print_error_exit_process();
+    let cliopt = {
+        debug!("Parse cliopts");
+        CliOpts::parse().tap_trace()
+    };
+
+    App::run_with(cliopt).context("Error ocurred when running app")
 }

@@ -1063,7 +1063,6 @@ dependencies = [
  "etcetera",
  "ino_color",
  "ino_path",
- "ino_result",
  "ino_tap",
  "ino_tracing",
  "itertools",
