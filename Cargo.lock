@@ -413,7 +413,6 @@ dependencies = [
  "clap",
  "ino_color",
  "ino_path",
- "ino_result",
  "ino_tracing",
  "path-clean",
  "tap",
