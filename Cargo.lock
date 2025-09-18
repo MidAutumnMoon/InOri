@@ -918,10 +918,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ino_result"
-version = "0.1.0"
-
-[[package]]
 name = "ino_tap"
 version = "0.1.0"
 dependencies = [
