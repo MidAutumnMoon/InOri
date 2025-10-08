@@ -166,17 +166,19 @@ macro_rules! impl_painter {
             OBJ: $trait,
             SGR: AnsiSgr
         {
-            fn fmt( &self, f: &mut std::fmt::Formatter<'_> ) -> std::fmt::Result {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>)
+                -> std::fmt::Result
+            {
                 // Of course it's the right use case for macro
                 macro_rules! snippet {
-                    () => { <OBJ as $trait>::fmt( self.get_inner(), f )?; }
+                    () => { <OBJ as $trait>::fmt(self.get_inner(), f)?; }
                 }
                 if self.should_colorize() {
-                    f.write_str( "\x1b[" )?;
-                    f.write_str( SGR::ATTR )?;
-                    f.write_str( "m" )?;
+                    f.write_str("\x1b[")?;
+                    f.write_str(SGR::ATTR)?;
+                    f.write_str("m")?;
                     snippet!();
-                    f.write_str( "\x1b[0m" )?;
+                    f.write_str("\x1b[0m")?;
                 } else {
                     snippet!();
                 }
@@ -280,4 +282,7 @@ mod test {
         println!("{}", "uh".fg::<Yellow>().style::<Italic>());
         println!("{:x}", 123.fg::<Green>());
     }
+
+    #[test]
+    fn test_macro() {}
 }
