@@ -7,7 +7,7 @@
 //! use ino_color::InoColor;
 //!
 //! // These two modules contain predefined colors and styles.
-//! // As a personal preferrence, wildcard import is avoided,
+//! // As a personal preferrence, wildcard import should be avoided,
 //! // even though doing so makes the function call looks funnier.
 //! use ino_color::fg;
 //! use ino_color::style;
@@ -25,6 +25,23 @@
 //! // In fact, anything which implements `std::fmt` traits can be colored.
 //! println!( "{:?}", vec![123].fg::<fg::Green>() );
 //! println!( "{:X}", 123.fg::<fg::Green>() );
+//! ```
+//!
+//! # Convenient Macros
+//!
+//! ```rust
+//! use ino_color::cprintln;
+//! use ino_color::ceprintln;
+//! use ino_color::fg::Blue;
+//! use ino_color::fg::Green;
+//!
+//! // The first parameter is the foreground color,
+//! // and the remainings are idetical to the corresponding
+//! // print macros from std.
+//! cprintln!(Blue, "The message is blue");
+//!
+//! let elems = vec![1, 2, 3, 4];
+//! ceprintln!(Green, "{elems:?}");
 //! ```
 
 pub use has_colors::HasColors;
@@ -271,9 +288,58 @@ where
 
 impl<T: Sized> InoColor for T {}
 
+/// Create the color printing macros.
+///
+/// ## Dollar sign workaround
+///
+/// To create new macros, nested macro is used.
+/// However, it hits sorta of rustc limitation and the dollar sign
+/// needs to be escaped while creating nested macros.
+///
+/// Ref: <https://github.com/rust-lang/rust/issues/35853>
+macro_rules! create_print_macro {
+    // Repetition to create each named print macro
+    ($(($name:ident, $print_macro:path)),* $(,)?) => {
+        // pass `$`
+        $(create_print_macro!($name, $print_macro, $);)*
+    };
+    // Create a single macro
+    // `$dol` the "escaped" dollar sign
+    ($name:ident, $print_macro:path, $dol:tt) => {
+        #[macro_export]
+        #[clippy::format_args]
+        #[doc = concat!(
+            "Print with color, wraps [`",stringify!($print_macro),"!`]",
+            "\n\n",
+            "Currently styling is **not** supported, only colors.\n\n\
+            ## Usage\n\
+            ```rust\n\
+            use ino_color::", stringify!($name), "; \n\
+            use ino_color::fg::Yellow; \n\
+            ", stringify!($name), "!(Yellow, \"Hello, {:?}!\", \"World\");\n\
+            ```"
+        )]
+        macro_rules! $name {
+            ($dol color:path, $dol ($dol a:tt),*) => {{
+                use $crate::InoColor;
+                $print_macro!("{}",
+                    ::std::format!($dol ($dol a),*)
+                        .fg::<$dol color>()
+                );
+            }};
+        }
+    };
+}
+
+create_print_macro! {
+    // (cprint, std::print),
+    // (ceprint, std::eprint),
+    (cprintln, std::println),
+    (ceprintln, std::eprintln),
+}
+
 #[cfg(test)]
 mod test {
-
     use super::*;
     use fg::*;
     use style::*;
@@ -283,8 +349,15 @@ mod test {
         println!("{:?}", "wooo".fg::<Blue>());
         println!("{}", "uh".fg::<Yellow>().style::<Italic>());
         println!("{:x}", 123.fg::<Green>());
+        let num = 1;
+        println!("{}", format!("hello {num}").fg::<Cyan>());
     }
 
     #[test]
-    fn test_macro() {}
+    fn test_macro() {
+        let num = 2;
+        let msg = "yello";
+        let hi = "hi";
+        cprintln!(BrightBlue, "hello {num} {msg:?} {}", hi);
+    }
 }
