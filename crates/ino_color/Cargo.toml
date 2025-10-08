@@ -14,5 +14,3 @@ categories = [ "command-line-interface" ]
 
 [lints]
 workspace = true
-
-# vim: set nowrap:

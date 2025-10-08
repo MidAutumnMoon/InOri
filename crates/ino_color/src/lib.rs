@@ -38,12 +38,12 @@ pub trait AnsiSgr {
 }
 
 /// The corresponding attribute is for *foreground color*.
-pub trait FG : AnsiSgr {}
+pub trait FG: AnsiSgr {}
 /// The corresponding attribute is for *background color*.
-pub trait BG : AnsiSgr {}
+pub trait BG: AnsiSgr {}
 /// The corresponding attribute is for attributes which mainly
-/// effects the *style* of output, such as italic or bold.
-pub trait Style : AnsiSgr {}
+/// affects the *style* of output, such as italic or bold.
+pub trait Style: AnsiSgr {}
 
 macro_rules! lets_colors {
     ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => {
@@ -113,50 +113,53 @@ lets_styles! {
 }
 
 enum ShouldColorize<'obj, OBJ> {
-    Yes( &'obj OBJ ),
-    No( &'obj OBJ ),
+    Yes(&'obj OBJ),
+    No(&'obj OBJ),
 }
 
 /// Add colors to some object. The color and style information
 /// is embedded in its type, cool!
-#[ repr( transparent ) ]
+#[repr(transparent)]
 pub struct Painter<'painter, OBJ, SGR> {
     object: ShouldColorize<'painter, OBJ>,
-    _phantom: PhantomData<(SGR, )>,
+    _phantom: PhantomData<(SGR,)>,
 }
 
 impl<'painter, OBJ, SGR> Painter<'painter, OBJ, SGR>
 where
     OBJ: 'painter,
-    SGR: AnsiSgr
+    SGR: AnsiSgr,
 {
-    #[ inline ]
-    const fn new<const COLOR: bool>( object: &'painter OBJ ) -> Self {
+    #[inline]
+    const fn new<const COLOR: bool>(object: &'painter OBJ) -> Self {
         let object = if COLOR {
-            ShouldColorize::Yes( object )
+            ShouldColorize::Yes(object)
         } else {
-            ShouldColorize::No( object )
+            ShouldColorize::No(object)
         };
-        Self { object, _phantom: PhantomData }
+        Self {
+            object,
+            _phantom: PhantomData,
+        }
     }
 
-    #[ inline ]
-    const fn should_colorize( &self ) -> bool {
-        matches!( self.object, ShouldColorize::Yes(_) )
+    #[inline]
+    const fn should_colorize(&self) -> bool {
+        matches!(self.object, ShouldColorize::Yes(_))
     }
 
-    #[ inline ]
-    const fn get_inner( &self ) -> &OBJ {
-        use ShouldColorize::{ Yes, No };
+    #[inline]
+    const fn get_inner(&self) -> &OBJ {
+        use ShouldColorize::{No, Yes};
         match self.object {
-            Yes( o ) | No( o ) => o
+            Yes(o) | No(o) => o,
         }
     }
 }
 
 macro_rules! impl_painter {
     // $trait : a trait to be implemented, repeated
-    // $(,) : allow trailling comma
+    // $(,) : allow trailing comma
     ( $( $trait:path ),* $(,)? ) => { $(
         impl<OBJ, SGR> $trait for Painter<'_, OBJ, SGR>
         where
@@ -196,17 +199,17 @@ impl_painter! {
 }
 
 macro_rules! should_colorize_snippet {
-    () => { {
+    () => {{
         use crate::HasColors;
-        use std::io::stdout;
         use std::io::stderr;
+        use std::io::stdout;
         stdout().has_colors() && stderr().has_colors()
-    } };
+    }};
     ( $self:ident ) => {
         if should_colorize_snippet!() {
-            Painter::new::<true>( $self )
+            Painter::new::<true>($self)
         } else {
-            Painter::new::<false>( $self )
+            Painter::new::<false>($self)
         }
     };
 }
@@ -237,45 +240,44 @@ macro_rules! METHOD_NOTE { ( $name:ident ) => {
 /// Background coloring is **not yet implemented** because I don't need them, yet.
 pub trait InoColor
 where
-    Self: Sized
+    Self: Sized,
 {
     #[ doc = METHOD_NOTE!( fg ) ]
-    #[ inline ]
-    fn fg<F: FG>( &self ) -> Painter<'_, Self, F> {
-        should_colorize_snippet!( self )
+    #[inline]
+    fn fg<F: FG>(&self) -> Painter<'_, Self, F> {
+        should_colorize_snippet!(self)
     }
 
     #[ doc = METHOD_NOTE!( style ) ]
-    #[ inline ]
-    fn style<S: Style>( &self ) -> Painter<'_, Self, S> {
-        should_colorize_snippet!( self )
+    #[inline]
+    fn style<S: Style>(&self) -> Painter<'_, Self, S> {
+        should_colorize_snippet!(self)
     }
 
-    #[ inline ]
-    fn fg_always<F: FG>( &self ) -> Painter<'_, Self, F> {
-        Painter::new::<true>( self )
+    #[inline]
+    fn fg_always<F: FG>(&self) -> Painter<'_, Self, F> {
+        Painter::new::<true>(self)
     }
 
-    #[ inline ]
-    fn style_always<S: Style>( &self ) -> Painter<'_, Self, S> {
-        Painter::new::<true>( self )
+    #[inline]
+    fn style_always<S: Style>(&self) -> Painter<'_, Self, S> {
+        Painter::new::<true>(self)
     }
 }
 
 impl<T: Sized> InoColor for T {}
 
-#[ cfg( test ) ]
+#[cfg(test)]
 mod test {
 
     use super::*;
     use fg::*;
     use style::*;
 
-    #[ test ]
+    #[test]
     fn print_something_to_see_theres_no_automated_tests() {
-        println!( "{:?}", "wooo".fg::<Blue>() );
-        println!( "{}", "uh".fg::<Yellow>().style::<Italic>() );
-        println!( "{:x}", 123.fg::<Green>() );
+        println!("{:?}", "wooo".fg::<Blue>());
+        println!("{}", "uh".fg::<Yellow>().style::<Italic>());
+        println!("{:x}", 123.fg::<Green>());
     }
-
 }
