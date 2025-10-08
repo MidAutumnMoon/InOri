@@ -298,11 +298,6 @@ impl<T: Sized> InoColor for T {}
 ///
 /// Ref: <https://github.com/rust-lang/rust/issues/35853>
 macro_rules! create_print_macro {
-    // Repetition to create each named print macro
-    ($(($name:ident, $print_macro:path)),* $(,)?) => {
-        // pass `$`
-        $(create_print_macro!($name, $print_macro, $);)*
-    };
     // Create a single macro
     // `$dol` the "escaped" dollar sign
     ($name:ident, $print_macro:path, $dol:tt) => {
@@ -320,14 +315,22 @@ macro_rules! create_print_macro {
             ```"
         )]
         macro_rules! $name {
-            ($dol color:path, $dol ($dol a:tt),*) => {{
+            (
+                $dol color:path,
+                $dol ($dol param:tt)*
+            ) => {{
                 use $crate::InoColor;
                 $print_macro!("{}",
-                    ::std::format!($dol ($dol a),*)
+                    ::std::format!($dol ($dol param)*)
                         .fg::<$dol color>()
                 );
             }};
         }
+    };
+    // Repetition to create each named print macro
+    ($(($name:ident, $print_macro:path)),* $(,)?) => {
+        // pass `$`
+        $(create_print_macro!($name, $print_macro, $);)*
     };
 }
 
@@ -340,6 +343,8 @@ create_print_macro! {
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
     use super::*;
     use fg::*;
     use style::*;
@@ -359,5 +364,8 @@ mod test {
         let msg = "yello";
         let hi = "hi";
         cprintln!(BrightBlue, "hello {num} {msg:?} {}", hi);
+
+        let p = Path::new("/sys");
+        cprintln!(BrightGreen, "{:?}", p.display());
     }
 }
