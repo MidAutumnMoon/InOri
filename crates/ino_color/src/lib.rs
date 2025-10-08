@@ -256,11 +256,13 @@ where
         should_colorize_snippet!(self)
     }
 
+    /// Similar to [`Self::fg`] but without [`HasColors`] checking.
     #[inline]
     fn fg_always<F: FG>(&self) -> Painter<'_, Self, F> {
         Painter::new::<true>(self)
     }
 
+    /// Similar to [`Self::style`] but without [`HasColors`] checking.
     #[inline]
     fn style_always<S: Style>(&self) -> Painter<'_, Self, S> {
         Painter::new::<true>(self)
