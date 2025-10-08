@@ -1,6 +1,6 @@
 # ino_color
 
-A output coloring crate with limited functionality, limit platform support
+An output coloring crate with limited functionality, limit platform support
 and limited allocations. It's perfect for scratching tiny spot of itch.
 
 ## Basic Usage
@@ -28,6 +28,11 @@ println!(
 // In fact, anything implements `std::fmt` traits can be colored.
 println!( "{:?}", vec![123].fg::<fg::Green>() );
 println!( "{:X}", 123.fg::<fg::Green>() );
+
+// There's also convenient macros!
+use ino_color::cprintln;
+
+cprintln!(fg::Blue, "The message is blue");
 ```
 
 ## Pros & Cons
@@ -42,7 +47,7 @@ println!( "{:X}", 123.fg::<fg::Green>() );
 ### Cons
 
 - Linux only.
-  - However it doesn't use platfor specific API, so it might also works on Darwin and modern Windows
+  - However, it doesn't use platform specific API, so it might also works on Darwin and modern Windows
     as long as the terminal emulator speaks ANSI SGR.
 
 - Can't set background color (yet?).
@@ -65,6 +70,6 @@ namely the using of generic to select color and styles.
 90% out of which will never be called anyway. More over, the caller needs to jump some hoops and be explicit
 about whether to enable colors (the `if_supports_color` method), which is both good and bad.
 
-`ino_color` removes the runtime color selection support, in gain it has a even slimer API. And as stated in *Pros*,
+`ino_color` removes the runtime color selection support, in gain it has an even slimer API. And as stated in *Pros*,
 it follows the ANSI color standard by default, although the various checks do introduce amounts of costs, so it's
 recommended to cache the colored result, or use `*_always` APIs to skip the check.

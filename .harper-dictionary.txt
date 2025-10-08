@@ -1,5 +1,6 @@
 Brotli
 Premultiply
+SGR
 TOU
 UUIDv7
 cq
@@ -8,6 +9,7 @@ gcroots
 homeConfigurations
 nh
 noah
+owo
 posix
 subdirs
 unrendered

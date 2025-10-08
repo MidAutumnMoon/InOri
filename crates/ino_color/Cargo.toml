@@ -1,6 +1,6 @@
 [package]
 name = "ino_color"
-version = "3.1.0"
+version = "3.1.1"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ rust-version.workspace = true
 readme = "README.md"
 description = "A output coloring crate with limited functionality, limit platform support and limited allocations."
 categories = [ "command-line-interface" ]
+documentation = "https://docs.rs/ino_color"
 
 [dependencies]
 
