@@ -1,0 +1,15 @@
+[package]
+name = "ino_iter"
+version = "0.1.0"
+description = "Some iterator extensions"
+documentation = "https://docs.rs/ino_iter"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
