@@ -72,14 +72,14 @@ macro_rules! lets_colors {
             }
             impl crate::FG for $name {}
         )* }
-        /// Named 16 background colors.
-        pub mod bg { $(
-            pub struct $name;
-            impl crate::AnsiSgr for $name {
-                const ATTR: &'static str = stringify!( $bg );
-            }
-            impl crate::BG for $name {}
-        )* }
+        // /// Named 16 background colors.
+        // pub mod bg { $(
+        //     pub struct $name;
+        //     impl crate::AnsiSgr for $name {
+        //         const ATTR: &'static str = stringify!( $bg );
+        //     }
+        //     impl crate::BG for $name {}
+        // )* }
     }
 }
 lets_colors! {
