@@ -1,0 +1,22 @@
+[package]
+name = "pickit"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "pic"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+clap_complete = "4.5.59"
+strum.workspace = true
+tap.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
