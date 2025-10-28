@@ -10,7 +10,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-etcetera = "0.10.0"
+etcetera = "0.11.0"
 ino_color.workspace = true
 ino_path.workspace = true
 ino_tap.workspace = true
