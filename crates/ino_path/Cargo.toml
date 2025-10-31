@@ -15,6 +15,7 @@ tap.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+assert2 = "0.3.16"
 assert_fs.workspace = true
 
 [lints]

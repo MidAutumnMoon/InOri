@@ -6,7 +6,7 @@ use std::path::Path;
 /// is an executable.
 ///
 /// The interface is based on crate `is_executable`.
-/// However the implementation of that crate is primitive
+/// However, the implementation of that crate is primitive
 /// and straight up isn't accurate.
 ///
 /// This implementation is based on what used in `find(1)`
@@ -16,53 +16,56 @@ use std::path::Path;
 /// to my taste.
 pub trait IsExecutable
 where
-    Self: AsRef<Path>
+    Self: AsRef<Path>,
 {
     /// Check whether the file pointed by given path is an executable.
     ///
     /// # Errors
     ///
     /// See [`std::io::Error`]
-    fn is_executable( &self ) -> std::io::Result<bool>;
+    fn is_executable(&self) -> std::io::Result<bool>;
 }
 
-#[ cfg( unix ) ]
+#[cfg(unix)]
 mod unix {
 
     use super::IsExecutable;
     use std::path::Path;
 
     impl IsExecutable for Path {
-        #[ inline ]
-        fn is_executable( &self ) -> std::io::Result<bool> {
+        #[inline]
+        fn is_executable(&self) -> std::io::Result<bool> {
             let ret = {
-                use rustix::fs::accessat;
-                use rustix::fs::CWD;
                 use rustix::fs::Access;
                 use rustix::fs::AtFlags;
-                accessat( CWD, self, Access::EXEC_OK, AtFlags::empty() )
+                use rustix::fs::CWD;
+                use rustix::fs::accessat;
+                accessat(CWD, self, Access::EXEC_OK, AtFlags::empty())
             };
             match ret {
-                Err( err ) => {
+                Err(err) => {
                     use std::io::ErrorKind;
-                    if matches!( err.kind(), ErrorKind::PermissionDenied ) {
-                        Ok( false )
+                    if matches!(err.kind(), ErrorKind::PermissionDenied) {
+                        Ok(false)
                     } else {
-                        Err( err.into() )
+                        Err(err.into())
                     }
-                },
-                Ok(()) => Ok( true ),
+                }
+                Ok(()) => Ok(true),
             }
         }
     }
 
-    #[ test ]
-    #[ allow( clippy::unwrap_used ) ]
-    fn unix_test() {
-        use tap::Pipe;
-        use std::path::PathBuf;
+    #[cfg(test)]
+    use assert2::assert;
 
-        let binsh = Path::new( "/bin/sh" );
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn unix_test() {
+        use std::path::PathBuf;
+        use tap::Pipe;
+
+        let binsh = Path::new("/bin/sh");
         assert! {
             binsh.is_executable()
                 .inspect_err( |err| println!( "{err:?}" ) )
@@ -70,21 +73,18 @@ mod unix {
         };
 
         // Unix directory is also executable
-        let root = Path::new( "/" );
+        let root = Path::new("/");
         assert! {
             root.is_executable()
                 .inspect_err( |err| println!( "{err:?}" ) )
                 .unwrap()
         };
 
-        let manifest = env!( "CARGO_MANIFEST_PATH" )
-            .pipe( PathBuf::from );
+        let manifest = env!("CARGO_MANIFEST_PATH").pipe(PathBuf::from);
         assert! {
             !manifest.is_executable()
                 .inspect_err( |err| println!( "{err:?}" ) )
                 .unwrap()
         };
-
     }
-
 }
