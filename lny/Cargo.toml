@@ -19,7 +19,7 @@ itertools.workspace = true
 rand = "0.9.1"
 serde.workspace = true
 serde_json.workspace = true
-serdev = "0.2.0"
+serdev = "0.3.0"
 tap.workspace = true
 tracing.workspace = true
 
