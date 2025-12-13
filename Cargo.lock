@@ -1808,9 +1808,9 @@ dependencies = [
 
 [[package]]
 name = "serdev"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "513d04cda76323fcb98fafc4fdaff0a09c8a319ca957292c419206bad037262d"
+checksum = "9e4fe8a010ca6819b605a68e11a592b787f1b9cda352491c1fc6c1c3b64d1393"
 dependencies = [
  "serde",
  "serdev_derive",
@@ -1818,9 +1818,9 @@ dependencies = [
 
 [[package]]
 name = "serdev_derive"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "914fd91ccaad746b69fa9488bec55503c8b8d320cd525b38f11f823113224ecf"
+checksum = "98a619df9c5d492c6d3ce259fd546e965991582e0b07e4a438cac0df57eb675c"
 dependencies = [
  "proc-macro2",
  "quote",
