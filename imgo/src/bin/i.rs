@@ -154,16 +154,34 @@ fn main() -> anyhow::Result<()> {
         debug!("Use manually chosen images");
         let mut accu = vec![];
         for sel in man_sel {
-            let path = RelAbs::from_path(&workspace, sel)?;
-            let Some(format) = ImageFormat::from_path(sel) else {
-                bail!("The format of {} is not supported", sel.display());
-            };
-            let extra = BaseSeqExt::try_from(sel.as_ref())?;
-            accu.push(Image {
-                path,
-                format,
-                extra,
-            });
+            if sel.is_dir() {
+                debug!(
+                    "Selection {} is a directory, collecting images",
+                    sel.display()
+                );
+                let collected = collect_images(sel, input_formats)
+                    .with_context(|| {
+                        format!(
+                            "Failed to collect images from {}",
+                            sel.display()
+                        )
+                    })?;
+                accu.extend(collected);
+            } else {
+                let path = RelAbs::from_path(&workspace, sel)?;
+                let Some(format) = ImageFormat::from_path(sel) else {
+                    bail!(
+                        "The format of {} is not supported",
+                        sel.display()
+                    );
+                };
+                let extra = BaseSeqExt::try_from(sel.as_ref())?;
+                accu.push(Image {
+                    path,
+                    format,
+                    extra,
+                });
+            }
         }
         accu
     } else {
