@@ -14,8 +14,8 @@ use tracing::instrument;
 use walkdir::DirEntry;
 use walkdir::WalkDir;
 
-use crate::ImageFormat;
 use crate::Image;
+use crate::ImageFormat;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BaseSeqExt {
@@ -114,6 +114,20 @@ impl TryFrom<&Path> for BaseSeqExt {
 }
 
 impl BaseSeqExt {
+    /// Convert back to filename string.
+    #[must_use]
+    pub fn to_filename(&self) -> String {
+        let mut result = self.base.clone();
+        if let Some(seq) = self.seq {
+            result.push('.');
+            result.push_str(&seq.to_string());
+        }
+        if let Some(ext) = &self.ext {
+            result.push_str(ext);
+        }
+        result
+    }
+
     #[must_use]
     pub fn increment_seq(&self) -> Self {
         let new_seq = self.seq.map_or(Some(1), |n| Some(n.get() + 1));
@@ -121,6 +135,15 @@ impl BaseSeqExt {
             base: self.base.clone(),
             seq: new_seq.and_then(NonZeroU64::new),
             ext: self.ext.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn set_ext(&self, ext: &str) -> Self {
+        Self {
+            base: self.base.clone(),
+            seq: self.seq,
+            ext: Some(ext.to_string()),
         }
     }
 }
@@ -222,6 +245,37 @@ impl RelAbs {
                 rel_path: orig_path.to_path_buf(),
             })
         }
+    }
+
+    #[must_use]
+    pub fn original_path(&self) -> PathBuf {
+        match self {
+            Self::Relative {
+                workspace,
+                rel_path,
+            } => workspace.join(rel_path),
+            Self::Absolute { path } => path.clone(),
+        }
+    }
+
+    /// Returns the backup path for this image.
+    /// For relative paths `a/b.png` -> `backup_dir/a/b.png`
+    /// For absolute paths `/mnt/media/a.png` -> `backup_dir/mnt/media/a.png`
+    #[must_use]
+    pub fn backup_path_structure(&self, backup_dir: &Path) -> PathBuf {
+        let rel_path = match self {
+            Self::Relative { rel_path, .. } => rel_path.as_path(),
+            Self::Absolute { path } => {
+                path.strip_prefix("/").unwrap_or(path)
+            }
+        };
+        backup_dir.join(rel_path)
+    }
+
+    /// Returns the parent directory of the original path.
+    #[must_use]
+    pub fn parent_dir(&self) -> Option<PathBuf> {
+        self.original_path().parent().map(Path::to_path_buf)
     }
 }
 

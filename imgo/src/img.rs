@@ -1,6 +1,5 @@
-use std::num::NonZeroUsize;
+use std::num::NonZeroU64;
 use std::path::Path;
-use std::path::PathBuf;
 use std::process::Command;
 
 use crate::BaseSeqExt;
@@ -13,15 +12,15 @@ pub trait Transcoder {
     /// Formats that this transcoder accepts as input.
     fn input_formats(&self) -> &'static [ImageFormat];
     /// Formats that this transcoder can output.
-    fn output_formats(&self) -> ImageFormat;
+    fn output_format(&self) -> ImageFormat;
     /// Default number of parallel jobs.
-    fn default_jobs(&self) -> NonZeroUsize;
+    fn default_jobs(&self) -> NonZeroU64;
     /// Generate the transcoding command.
-    fn transcode_command(&self, transcation: Transcation) -> Command;
+    fn transcode(&self, input: &Path, output: &Path) -> Command;
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
 pub enum ImageFormat {
     PNG,
     JPG,
@@ -67,11 +66,4 @@ pub struct Image {
     pub path: RelAbs,
     pub format: ImageFormat,
     pub extra: BaseSeqExt,
-}
-
-/// Represents the process of transcoding.
-#[derive(Debug)]
-pub struct Transcation {
-    pub input: Image,
-    pub output: Image,
 }

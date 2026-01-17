@@ -1,8 +1,12 @@
+use std::fs::create_dir_all;
+use std::fs::rename;
+use std::iter::repeat;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::bail;
-use anyhow::ensure;
 use imgo::BACKUP_DIR_NAME;
 use imgo::BaseSeqExt;
 use imgo::Image;
@@ -11,9 +15,18 @@ use imgo::RelAbs;
 use imgo::Transcoder;
 use imgo::avif::Avif;
 use imgo::collect_images;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use ino_color::ceprintln;
+use ino_color::fg::BrightBlue;
+use ino_color::fg::Red;
 use ino_color::fg::Yellow;
+use itertools::izip;
+use parking_lot::Mutex;
+use rayon::ThreadPoolBuilder;
+use tempfile::NamedTempFile;
 use tracing::debug;
+use tracing::debug_span;
 
 /// Batch converting pictures between formats.
 #[derive(Debug)]
@@ -78,8 +91,7 @@ struct SharedOpts {
     /// Number of parallel transcoding to run.
     /// The default job count is transcoder dependent.
     #[arg(long, short = 'J')]
-    #[arg(default_value = "1")]
-    jobs: usize,
+    jobs: Option<NonZeroU64>,
 
     /// Manually choose pictures to transcode.
     /// This also disables backup.
@@ -119,6 +131,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let input_formats = transcoder.input_formats();
+    let output_format = transcoder.output_format();
 
     // Try to collect images
     let images = if let Some(man_sel) = &shared_opts.manual_selection {
@@ -147,13 +160,209 @@ fn main() -> anyhow::Result<()> {
             .context("Failed to collect images")?
     };
 
-    dbg!(&images);
-
-    let backup_dir = {
+    // Backup dir
+    let backup_dir = Arc::new({
         let dir = workspace.join(BACKUP_DIR_NAME);
-        ensure!(!dir.exists());
+        if shared_opts.manual_selection.is_none()
+            && !shared_opts.no_backup
+            && !images.is_empty()
+        {
+            std::fs::create_dir_all(&dir)?;
+        }
         dir
+    });
+
+    let no_backup =
+        shared_opts.no_backup || shared_opts.manual_selection.is_some();
+
+    // Execute the transcoding tasks
+    let jobs = shared_opts
+        .jobs
+        .unwrap_or_else(|| transcoder.default_jobs());
+
+    let progress_bar = {
+        let bar = ProgressBar::new(images.len() as u64);
+        let style = ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.blue/gray}] {pos}/{len} ({eta})",
+        )?
+        .progress_chars("#>-");
+        bar.set_style(style);
+        bar
     };
+
+    #[expect(clippy::cast_possible_truncation)]
+    let thread_pool = ThreadPoolBuilder::new()
+        .num_threads(jobs.get() as usize)
+        .build()?;
+
+    // Pre-compute all transcoding tasks before entering thread pool scope
+    // to avoid Sync requirement on transcoder
+    let Some(output_ext) = output_format.exts().first() else {
+        bail!("[BUG] Output format has no ext");
+    };
+
+    let tasks: Vec<_> = images
+        .into_iter()
+        .map(|i| -> anyhow::Result<_> {
+            let temp_output =
+                NamedTempFile::with_suffix(format!(".{output_ext}"))
+                    .context("Failed to create tempfile")?;
+            debug!(
+                "Temporary output path {}",
+                temp_output.path().display()
+            );
+
+            let input_path = i.path.original_path();
+            let cmd =
+                transcoder.transcode(&input_path, temp_output.path());
+
+            Ok((i, input_path, temp_output, cmd))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    thread_pool.scope(|scope| -> anyhow::Result<()> {
+        enum Permit {
+            Go,
+            Cancel,
+        }
+
+        let permit = Arc::new(Mutex::new(Permit::Go));
+
+        for (
+            (image, input_path, temp_output, mut cmd),
+            permit,
+            bar,
+            backup_dir,
+        ) in izip!(
+            tasks,
+            repeat(permit),
+            repeat(progress_bar),
+            repeat(backup_dir)
+        ) {
+            scope.spawn(move |_| {
+                if matches!(*permit.lock(), Permit::Cancel) {
+                    debug!("Transcode jobs cancelled");
+                    return;
+                }
+                let _g = debug_span!("transcoding", ?image).entered();
+
+                ceprintln!(
+                    BrightBlue,
+                    "Transcoding: {}",
+                    input_path.display()
+                );
+
+                let output = match cmd.output() {
+                    Ok(output) => output,
+                    Err(e) => {
+                        ceprintln!(
+                            Red,
+                            "Failed to spawn transcoder. Error: {e}"
+                        );
+                        *permit.lock() = Permit::Cancel;
+                        bar.inc(1);
+                        return;
+                    }
+                };
+
+                if !output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    ceprintln!(
+                        Red,
+                        "Transcoding failed for {}:\nstdout: {}\nstderr: {}",
+                        input_path.display(),
+                        stdout,
+                        stderr
+                    );
+                    *permit.lock() = Permit::Cancel;
+                    bar.inc(1);
+                    return;
+                }
+
+                // Get the destination directory (same as source)
+                let Some(dest_dir) = image.path.parent_dir() else {
+                    ceprintln!(Red, "[BUG] Failed to get parent directory");
+                    bar.inc(1);
+                    return;
+                };
+
+                // Build output filename with new extension, resolving conflicts
+                let mut output_extra =
+                    image.extra.set_ext(&format!(".{output_ext}"));
+                let mut dest_path =
+                    dest_dir.join(output_extra.to_filename());
+
+                // Handle filename conflicts by incrementing seq
+                while dest_path.exists() {
+                    debug!(
+                        r#"Destination "{}" exists, incrementing seq to avoid conflict"#,
+                        dest_path.display()
+                    );
+                    output_extra = output_extra.increment_seq();
+                    dest_path = dest_dir.join(output_extra.to_filename());
+                }
+
+                debug!(
+                    r#"Move output from "{}" to "{}""#,
+                    temp_output.path().display(),
+                    dest_path.display()
+                );
+
+                if let Err(e) =
+                    std::fs::copy(temp_output.path(), &dest_path)
+                {
+                    ceprintln!(
+                        Red,
+                        "Failed to move output to {}: {e}",
+                        dest_path.display()
+                    );
+                    bar.inc(1);
+                    return;
+                }
+
+                // Skip backup if disabled
+                if no_backup {
+                    debug!("Skipping backup");
+                    bar.inc(1);
+                    return;
+                }
+
+                let backup_path = image.path.backup_path_structure(&backup_dir);
+
+                // Create backup directory structure
+                if let Some(backup_parent) = backup_path.parent()
+                    && let Err(e) = create_dir_all(backup_parent)
+                {
+                    ceprintln!(
+                        Red,
+                        "Failed to create backup dir {}: {e}",
+                        backup_parent.display()
+                    );
+                    *permit.lock() = Permit::Cancel;
+                    bar.inc(1);
+                    return;
+                }
+
+                // Move source to backup
+                if let Err(e) = rename(&input_path, &backup_path) {
+                    ceprintln!(
+                        Red,
+                        "Failed to backup {}: {e}",
+                        input_path.display()
+                    );
+                    *permit.lock() = Permit::Cancel;
+                    bar.inc(1);
+                    return;
+                }
+
+                debug!("Backed up to {}", backup_path.display());
+                bar.inc(1);
+            });
+        }
+
+        Ok(())
+    })?;
 
     Ok(())
 }
