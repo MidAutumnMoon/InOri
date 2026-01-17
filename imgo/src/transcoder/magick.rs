@@ -1,6 +1,7 @@
 use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::Command;
+use std::thread::available_parallelism;
 
 use itertools::Itertools;
 use strum::VariantArray;
@@ -52,6 +53,48 @@ impl Transcoder for Despeckle {
         cmd.arg("--");
         cmd.arg(input);
         cmd.args(iterations);
+        cmd.args(["-define", "png:compression-level=1"]);
+        cmd.arg(output);
+        cmd
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(id = "CleanScanTranscoder")]
+pub struct CleanScan {}
+
+impl Transcoder for CleanScan {
+    fn id(&self) -> &'static str {
+        "magick clean-scan"
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn default_jobs(&self) -> NonZeroU64 {
+        let cores = available_parallelism()
+            .expect("Failed to get core numbers")
+            .get();
+        NonZeroU64::new(cores as u64).unwrap()
+    }
+
+    fn input_formats(&self) -> &'static [ImageFormat] {
+        // imagemagick accepts all image formats, neat
+        ImageFormat::VARIANTS
+    }
+
+    fn output_format(&self) -> ImageFormat {
+        ImageFormat::PNG
+    }
+
+    fn transcode(&self, input: &Path, output: &Path) -> Command {
+        let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
+        cmd.arg("-verbose");
+        cmd.arg(input);
+        cmd.args(["-colorspace", "Gray"]);
+        cmd.arg("-strip");
+        cmd.args(["-unsharp", "0x2+1+0.4"]);
+        cmd.args(["-threshold", "55%"]);
+        cmd.args(["-background", "black", "-alpha", "remove"]);
+        cmd.args(["-depth", "1", "-colors", "2"]);
         cmd.args(["-define", "png:compression-level=1"]);
         cmd.arg(output);
         cmd

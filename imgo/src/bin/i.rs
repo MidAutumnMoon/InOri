@@ -16,6 +16,7 @@ use imgo::Transcoder;
 use imgo::avif::Avif;
 use imgo::collect_images;
 use imgo::jxl::Jxl;
+use imgo::magick::CleanScan;
 use imgo::magick::Despeckle;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
@@ -36,6 +37,7 @@ use tracing::debug_span;
 #[command(disable_help_subcommand = true)]
 enum CliOpts {
     /// (Lossy) Encode pictures into AVIF.
+    #[command(visible_alias = "a")]
     Avif {
         #[command(flatten)]
         transcoder: Avif,
@@ -44,6 +46,7 @@ enum CliOpts {
     },
 
     /// (Lossless) Encode pictures into JXL.
+    #[command(visible_alias = "j")]
     Jxl {
         #[command(flatten)]
         transcoder: Jxl,
@@ -52,6 +55,7 @@ enum CliOpts {
     },
 
     /// Despeckle using imagemagick `-despeckle` function.
+    #[command(visible_alias = "d")]
     Despeckle {
         #[command(flatten)]
         transcoder: Despeckle,
@@ -60,13 +64,16 @@ enum CliOpts {
     },
 
     /// Sharpen poorly scanned manga to have crispy dots.
+    #[command(visible_alias = "c")]
     CleanScan {
+        #[command(flatten)]
+        transcoder: CleanScan,
         #[clap(flatten)]
         shared: SharedOpts,
     },
 
     /// Generate shell completion.
-    Complete {
+    GenComplete {
         #[clap(short, long)]
         shell: clap_complete::Shell,
     },
@@ -105,7 +112,7 @@ fn main() -> anyhow::Result<()> {
     // Get transcoder and opts from cliopts.
     let (transcoder, shared_opts): (&dyn Transcoder, &SharedOpts) =
         match &cliopts {
-            CliOpts::Complete { shell } => {
+            CliOpts::GenComplete { shell } => {
                 debug!("Generate shell completion");
                 clap_complete::generate(
                     *shell,
@@ -122,6 +129,9 @@ fn main() -> anyhow::Result<()> {
                 (transcoder as &dyn Transcoder, shared)
             }
             CliOpts::Despeckle { transcoder, shared } => {
+                (transcoder as &dyn Transcoder, shared)
+            }
+            CliOpts::CleanScan { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
             _ => unimplemented!(),
