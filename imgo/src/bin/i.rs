@@ -27,6 +27,7 @@ use ino_color::fg::Yellow;
 use itertools::izip;
 use parking_lot::Mutex;
 use rayon::ThreadPoolBuilder;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 use tracing::debug;
 use tracing::debug_span;
@@ -202,6 +203,7 @@ fn main() -> anyhow::Result<()> {
         )?
         .progress_chars("#>-");
         bar.set_style(style);
+        bar.enable_steady_tick(Duration::from_millis(100));
         bar
     };
 
