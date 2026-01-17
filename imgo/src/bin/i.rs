@@ -281,19 +281,23 @@ fn main() -> anyhow::Result<()> {
                 }
                 let _g = debug_span!("transcoding", ?image).entered();
 
-                ceprintln!(
-                    BrightBlue,
-                    "Transcoding: {}",
-                    input_path.display()
-                );
+                bar.suspend(|| {
+                    ceprintln!(
+                        BrightBlue,
+                        "Transcoding: {}",
+                        input_path.display()
+                    );
+                });
 
                 let output = match cmd.output() {
                     Ok(output) => output,
                     Err(e) => {
-                        ceprintln!(
-                            Red,
-                            "Failed to spawn transcoder. Error: {e}"
-                        );
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Red,
+                                "Failed to spawn transcoder. Error: {e}"
+                            );
+                        });
                         *permit.lock() = Permit::Cancel;
                         bar.inc(1);
                         return;
@@ -303,13 +307,15 @@ fn main() -> anyhow::Result<()> {
                 if !output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    ceprintln!(
-                        Red,
-                        "Transcoding failed for {}:\nstdout: {}\nstderr: {}",
-                        input_path.display(),
-                        stdout,
-                        stderr
-                    );
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Red,
+                            "Transcoding failed for {}:\nstdout: {}\nstderr: {}",
+                            input_path.display(),
+                            stdout,
+                            stderr
+                        );
+                    });
                     *permit.lock() = Permit::Cancel;
                     bar.inc(1);
                     return;
@@ -317,7 +323,9 @@ fn main() -> anyhow::Result<()> {
 
                 // Get the destination directory (same as source)
                 let Some(dest_dir) = image.path.parent_dir() else {
-                    ceprintln!(Red, "[BUG] Failed to get parent directory");
+                    bar.suspend(|| {
+                        ceprintln!(Red, "[BUG] Failed to get parent directory");
+                    });
                     bar.inc(1);
                     return;
                 };
@@ -347,11 +355,13 @@ fn main() -> anyhow::Result<()> {
                 if let Err(e) =
                     std::fs::copy(temp_output.path(), &dest_path)
                 {
-                    ceprintln!(
-                        Red,
-                        "Failed to move output to {}: {e}",
-                        dest_path.display()
-                    );
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Red,
+                            "Failed to move output to {}: {e}",
+                            dest_path.display()
+                        );
+                    });
                     bar.inc(1);
                     return;
                 }
@@ -369,11 +379,13 @@ fn main() -> anyhow::Result<()> {
                 if let Some(backup_parent) = backup_path.parent()
                     && let Err(e) = create_dir_all(backup_parent)
                 {
-                    ceprintln!(
-                        Red,
-                        "Failed to create backup dir {}: {e}",
-                        backup_parent.display()
-                    );
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Red,
+                            "Failed to create backup dir {}: {e}",
+                            backup_parent.display()
+                        );
+                    });
                     *permit.lock() = Permit::Cancel;
                     bar.inc(1);
                     return;
@@ -381,11 +393,13 @@ fn main() -> anyhow::Result<()> {
 
                 // Move source to backup
                 if let Err(e) = rename(&input_path, &backup_path) {
-                    ceprintln!(
-                        Red,
-                        "Failed to backup {}: {e}",
-                        input_path.display()
-                    );
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Red,
+                            "Failed to backup {}: {e}",
+                            input_path.display()
+                        );
+                    });
                     *permit.lock() = Permit::Cancel;
                     bar.inc(1);
                     return;
