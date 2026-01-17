@@ -15,6 +15,7 @@ use imgo::RelAbs;
 use imgo::Transcoder;
 use imgo::avif::Avif;
 use imgo::collect_images;
+use imgo::jxl::Jxl;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
@@ -43,8 +44,8 @@ enum CliOpts {
 
     /// (Lossless) Encode pictures into JXL.
     Jxl {
-        // #[command(flatten)]
-        // transcoder: jxl::Jxl,
+        #[command(flatten)]
+        transcoder: Jxl,
         #[clap(flatten)]
         shared: SharedOpts,
     },
@@ -117,6 +118,9 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(0);
             }
             CliOpts::Avif { transcoder, shared } => {
+                (transcoder as &dyn Transcoder, shared)
+            }
+            CliOpts::Jxl { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
             _ => unimplemented!(),
