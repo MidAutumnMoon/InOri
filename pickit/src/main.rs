@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-mod fs;
 mod pic;
 mod transcoder;
 

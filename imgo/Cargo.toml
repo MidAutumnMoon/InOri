@@ -10,6 +10,12 @@ rust-version.workspace = true
 [lib]
 
 [dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ino_tracing.workspace = true
+strum.workspace = true
+tap.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

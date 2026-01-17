@@ -904,6 +904,14 @@ dependencies = [
 [[package]]
 name = "imgo"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ino_tracing",
+ "strum",
+ "tap",
+ "tracing",
+]
 
 [[package]]
 name = "indenter"
