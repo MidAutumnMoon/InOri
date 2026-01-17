@@ -10,6 +10,11 @@ use tap::Tap;
 use tracing::debug;
 use tracing::debug_span;
 use tracing::instrument;
+use walkdir::DirEntry;
+use walkdir::WalkDir;
+
+use crate::ImageFormat;
+use crate::InputImage;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Filename {
@@ -127,6 +132,47 @@ impl Filename {
     }
 }
 
+/// Recursively collect all images under `toplevel` of `formats`.
+#[instrument]
+#[expect(clippy::missing_errors_doc)]
+pub fn collect_images(
+    toplevel: &Path,
+    formats: &[ImageFormat],
+) -> anyhow::Result<Vec<InputImage>> {
+    ensure!(!formats.is_empty(), "Image formats can't be empty");
+
+    let mut accu = Vec::new();
+
+    let ignore_backup_dir = |e: &DirEntry| {
+        e.path().file_name().and_then(|n| n.to_str())
+            == Some(crate::BACKUP_DIR_NAME)
+    };
+
+    for entry in WalkDir::new(toplevel)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(ignore_backup_dir)
+    {
+        let entry = entry.context("WalkDir error")?;
+        let path = entry.path();
+
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        if let Some(format) = ImageFormat::from_path(&path)
+            && formats.contains(&format)
+        {
+            accu.push(InputImage {
+                src: path.into(),
+                format,
+            });
+        }
+    }
+
+    Ok(accu)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -186,11 +232,5 @@ mod tests {
         assert_eq!(f.base, "124");
         assert_eq!(f.seq, None);
         assert_eq!(f.ext, Some(".png".into()));
-
-        // Number extension is not handled
-        // let f = Filename::from_str("bba.780").unwrap();
-        // assert_eq!(f.base, "bba");
-        // assert_eq!(f.seq, None);
-        // assert_eq!(f.ext, ".780");
     }
 }

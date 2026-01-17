@@ -12,10 +12,15 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+clap_complete = "4.5.65"
+ino_color.workspace = true
 ino_tracing.workspace = true
+parking_lot = "0.12.5"
+rayon.workspace = true
 strum.workspace = true
 tap.workspace = true
 tracing.workspace = true
+walkdir = "2.5.0"
 
 [lints]
 workspace = true
