@@ -197,6 +197,9 @@ pub fn collect_images(
             debug!("Unsupported or invalid image format, ignored");
         }
     }
+    accu.sort_by(|a, b| {
+        a.path.original_path().cmp(&b.path.original_path())
+    });
     Ok(accu)
 }
 

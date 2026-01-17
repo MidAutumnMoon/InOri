@@ -135,7 +135,6 @@ fn main() -> anyhow::Result<()> {
             CliOpts::CleanScan { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
-            _ => unimplemented!(),
         };
 
     ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());

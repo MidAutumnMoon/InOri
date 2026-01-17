@@ -4,7 +4,6 @@ use std::process::Command;
 use std::thread::available_parallelism;
 
 use itertools::Itertools;
-use strum::VariantArray;
 use tap::Pipe;
 
 use crate::ImageFormat;
@@ -32,8 +31,7 @@ impl Transcoder for Despeckle {
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
-        // imagemagick accepts all image formats, neat
-        ImageFormat::VARIANTS
+        &[ImageFormat::PNG, ImageFormat::JPG]
     }
 
     fn output_format(&self) -> ImageFormat {
@@ -68,17 +66,12 @@ impl Transcoder for CleanScan {
         "magick clean-scan"
     }
 
-    #[expect(clippy::unwrap_used)]
     fn default_jobs(&self) -> NonZeroU64 {
-        let cores = available_parallelism()
-            .expect("Failed to get core numbers")
-            .get();
-        NonZeroU64::new(cores as u64).unwrap()
+        eightth_of_total_cores()
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
-        // imagemagick accepts all image formats, neat
-        ImageFormat::VARIANTS
+        &[ImageFormat::PNG, ImageFormat::JPG]
     }
 
     fn output_format(&self) -> ImageFormat {
@@ -99,4 +92,13 @@ impl Transcoder for CleanScan {
         cmd.arg(output);
         cmd
     }
+}
+
+#[inline]
+#[expect(clippy::unwrap_used)]
+fn eightth_of_total_cores() -> NonZeroU64 {
+    let cores = available_parallelism()
+        .expect("Failed to get core numbers")
+        .get();
+    NonZeroU64::new(cores as u64 / 8).unwrap()
 }

@@ -48,6 +48,8 @@ impl Transcoder for Jxl {
         // Following 3 options force cjxl to the lossless algorithm
         // called modular, loosely speaking.
         cjxl.args(["--modular", "1"]);
+        cjxl.args(["--lossless_jpeg", "1"]);
+        cjxl.args(["--distance", "0.0"]);
         // Premultiply alpha
         cjxl.args(["--premultiply", "1"]);
         // Controls the generation of some internal tree thing.
@@ -56,7 +58,7 @@ impl Transcoder for Jxl {
         // Tweak the modular algorithm to save even more spaces.
         cjxl.args(["--modular_nb_prev_channels", "6"]);
         cjxl.args(["--modular_group_size", "2"]);
-        cjxl.args(["--modular_predictor", "13"]);
+        cjxl.args(["--modular_predictor", "15"]);
         // Use all threads
         cjxl.args(["--num_threads", "-1"]);
 
