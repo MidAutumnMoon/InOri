@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::num::NonZeroU64;
 use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::Context;
@@ -14,16 +15,16 @@ use walkdir::DirEntry;
 use walkdir::WalkDir;
 
 use crate::ImageFormat;
-use crate::InputImage;
+use crate::Image;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Filename {
+pub struct BaseSeqExt {
     base: String,
     seq: Option<NonZeroU64>,
     ext: Option<String>,
 }
 
-impl FromStr for Filename {
+impl FromStr for BaseSeqExt {
     type Err = anyhow::Error;
 
     #[instrument]
@@ -99,7 +100,7 @@ impl FromStr for Filename {
     }
 }
 
-impl TryFrom<&Path> for Filename {
+impl TryFrom<&Path> for BaseSeqExt {
     type Error = anyhow::Error;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
@@ -112,7 +113,7 @@ impl TryFrom<&Path> for Filename {
     }
 }
 
-impl Filename {
+impl BaseSeqExt {
     #[must_use]
     pub fn increment_seq(&self) -> Self {
         let new_seq = self.seq.map_or(Some(1), |n| Some(n.get() + 1));
@@ -122,55 +123,106 @@ impl Filename {
             ext: self.ext.clone(),
         }
     }
-
-    pub fn join(&self) -> anyhow::Result<String> {
-        // ensure!(
-        //     self.ext.starts_with('.'),
-        //     "[BUG] Extension must start with a '.'"
-        // );
-        todo!()
-    }
 }
 
-/// Recursively collect all images under `toplevel` of `formats`.
+/// Recursively collect all images under `workspace` of `formats`.
 #[instrument]
 #[expect(clippy::missing_errors_doc)]
 pub fn collect_images(
-    toplevel: &Path,
+    workspace: &Path,
     formats: &[ImageFormat],
-) -> anyhow::Result<Vec<InputImage>> {
+) -> anyhow::Result<Vec<Image>> {
+    debug!("Recursively collect images");
     ensure!(!formats.is_empty(), "Image formats can't be empty");
 
     let mut accu = Vec::new();
 
     let ignore_backup_dir = |e: &DirEntry| {
         e.path().file_name().and_then(|n| n.to_str())
-            == Some(crate::BACKUP_DIR_NAME)
+            != Some(crate::BACKUP_DIR_NAME)
     };
 
-    for entry in WalkDir::new(toplevel)
+    for entry in WalkDir::new(workspace)
         .follow_links(false)
         .into_iter()
         .filter_entry(ignore_backup_dir)
     {
         let entry = entry.context("WalkDir error")?;
         let path = entry.path();
+        let _g = debug_span!("process_entry", ?path).entered();
+
+        ensure!(
+            path.is_absolute(),
+            "[BUG] walkdir did not yield an absolute path"
+        );
 
         if !entry.file_type().is_file() {
+            debug!("Not a file, next");
             continue;
         }
 
         if let Some(format) = ImageFormat::from_path(&path)
             && formats.contains(&format)
         {
-            accu.push(InputImage {
-                src: path.into(),
+            debug!(?format);
+            accu.push(Image {
+                path: RelAbs::from_path(workspace, path)?,
                 format,
+                extra: BaseSeqExt::try_from(path)?.tap(|f| debug!(?f)),
             });
+        } else {
+            debug!("Unsupported or invalid image format, ignored");
         }
     }
-
     Ok(accu)
+}
+
+/// Represents whether a path is relative to `workspace` or absolute.
+#[derive(Debug)]
+pub enum RelAbs {
+    Relative {
+        workspace: PathBuf,
+        rel_path: PathBuf,
+    },
+    Absolute {
+        path: PathBuf,
+    },
+}
+
+impl RelAbs {
+    #[expect(clippy::missing_errors_doc)]
+    #[instrument]
+    pub fn from_path(
+        workspace: &Path,
+        orig_path: &Path,
+    ) -> anyhow::Result<Self> {
+        debug!("Guess whether path is relative or absolute");
+        if orig_path.is_absolute() {
+            debug!("Input path is absolute");
+            #[expect(clippy::option_if_let_else)]
+            if let Ok(rel_path) = orig_path.strip_prefix(workspace) {
+                // workspace=/home path=/home/uv
+                // path stripped => uv
+                debug!("Input path is relative to workspace");
+                Ok(Self::Relative {
+                    workspace: workspace.to_path_buf(),
+                    rel_path: rel_path.to_path_buf(),
+                })
+            } else {
+                debug!("Input path is not relative to workspace");
+                Ok(Self::Absolute {
+                    path: orig_path.to_path_buf(),
+                })
+            }
+        } else {
+            debug!("Input path is relative, use it as-is");
+            // Already relative path
+            Ok(Self::Relative {
+                workspace: workspace.to_path_buf(),
+                rel_path: orig_path.to_path_buf(),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -180,47 +232,47 @@ mod tests {
 
     #[test]
     fn test_filename() {
-        let f = Filename::from_str(".hide");
+        let f = BaseSeqExt::from_str(".hide");
         assert!(f.is_err());
 
-        let f = Filename::from_str("raw");
+        let f = BaseSeqExt::from_str("raw");
         assert!(f.is_err());
 
-        let f = Filename::from_str("example.123.jpg").unwrap();
+        let f = BaseSeqExt::from_str("example.123.jpg").unwrap();
         assert_eq!(f.base, "example");
         assert_eq!(f.seq, Some(NonZeroU64::new(123).unwrap()));
         assert_eq!(f.ext, Some(".jpg".into()));
 
-        let f = Filename::from_str("base.2.png").unwrap();
+        let f = BaseSeqExt::from_str("base.2.png").unwrap();
         assert_eq!(f.base, "base");
         assert_eq!(f.seq, Some(NonZeroU64::new(2).unwrap()));
         assert_eq!(f.ext, Some(".png".into()));
 
-        let f = Filename::from_str("long.3.doc.txt").unwrap();
+        let f = BaseSeqExt::from_str("long.3.doc.txt").unwrap();
         assert_eq!(f.base, "long");
         assert_eq!(f.seq, Some(NonZeroU64::new(3).unwrap()));
         assert_eq!(f.ext, Some(".doc.txt".into()));
 
-        let f = Filename::from_str("abc.1b.2.docx").unwrap();
+        let f = BaseSeqExt::from_str("abc.1b.2.docx").unwrap();
         assert_eq!(f.base, "abc.1b");
         assert_eq!(f.seq, Some(NonZeroU64::new(2).unwrap()));
         assert_eq!(f.ext, Some(".docx".into()));
 
         // Test filename with only base and seq
-        let f = Filename::from_str("a.123").unwrap();
+        let f = BaseSeqExt::from_str("a.123").unwrap();
         assert_eq!(f.base, "a");
         assert_eq!(f.seq, Some(NonZeroU64::new(123).unwrap()));
         assert_eq!(f.ext, None);
 
         // Test basic inc seq
-        let f = Filename::from_str("some.2.yo").unwrap();
+        let f = BaseSeqExt::from_str("some.2.yo").unwrap();
         let f = f.increment_seq();
         assert_eq!(f.seq, Some(NonZeroU64::new(3).unwrap()));
 
         //
         // Test increment None seq
         //
-        let f = Filename::from_str("a.b").unwrap();
+        let f = BaseSeqExt::from_str("a.b").unwrap();
         assert_eq!(f.seq, None);
         let f = f.increment_seq();
         assert_eq!(f.seq, Some(NonZeroU64::new(1).unwrap()));
@@ -228,7 +280,7 @@ mod tests {
         //
         // Test filenames which contain numbers
         //
-        let f = Filename::from_str("124.png").unwrap();
+        let f = BaseSeqExt::from_str("124.png").unwrap();
         assert_eq!(f.base, "124");
         assert_eq!(f.seq, None);
         assert_eq!(f.ext, Some(".png".into()));

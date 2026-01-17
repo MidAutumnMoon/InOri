@@ -3,11 +3,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::BaseSeqExt;
+use crate::RelAbs;
+
 pub trait Transcoder {
+    /// A string id represents this transcoder.
+    fn id(&self) -> &'static str;
+
     /// Formats that this transcoder accepts as input.
     fn input_formats(&self) -> &'static [ImageFormat];
     /// Formats that this transcoder can output.
-    fn output_formats(&self) -> &'static [ImageFormat];
+    fn output_formats(&self) -> ImageFormat;
     /// Default number of parallel jobs.
     fn default_jobs(&self) -> NonZeroUsize;
     /// Generate the transcoding command.
@@ -57,21 +63,15 @@ impl ImageFormat {
 
 /// Represents an input image.
 #[derive(Debug)]
-pub struct InputImage {
-    pub src: PathBuf,
+pub struct Image {
+    pub path: RelAbs,
     pub format: ImageFormat,
-}
-
-/// Represents an output image.
-#[derive(Debug)]
-pub struct OutputImage {
-    dst: PathBuf,
-    format: ImageFormat,
+    pub extra: BaseSeqExt,
 }
 
 /// Represents the process of transcoding.
 #[derive(Debug)]
 pub struct Transcation {
-    input: InputImage,
-    output: OutputImage,
+    pub input: Image,
+    pub output: Image,
 }

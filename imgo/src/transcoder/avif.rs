@@ -33,16 +33,21 @@ impl Default for Avif {
 }
 
 impl Transcoder for Avif {
+    fn id(&self) -> &'static str {
+        "avifenc"
+    }
+
     fn default_jobs(&self) -> NonZeroUsize {
-        todo!()
+        #[expect(clippy::unwrap_used)]
+        NonZeroUsize::new(1).unwrap()
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
-        todo!()
+        &[ImageFormat::PNG, ImageFormat::JPG]
     }
 
-    fn output_formats(&self) -> &'static [ImageFormat] {
-        todo!()
+    fn output_formats(&self) -> ImageFormat {
+        ImageFormat::AVIF
     }
 
     fn transcode_command(&self, transcation: Transcation) -> Command {
