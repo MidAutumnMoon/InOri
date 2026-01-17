@@ -16,6 +16,7 @@ use imgo::Transcoder;
 use imgo::avif::Avif;
 use imgo::collect_images;
 use imgo::jxl::Jxl;
+use imgo::magick::Despeckle;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
@@ -52,14 +53,11 @@ enum CliOpts {
 
     /// Despeckle using imagemagick `-despeckle` function.
     Despeckle {
-        // #[command(flatten)]
-        // transcoder: despeckle::Despeckle,
+        #[command(flatten)]
+        transcoder: Despeckle,
         #[clap(flatten)]
         shared: SharedOpts,
     },
-
-    /// Enhance using imagemagick `-enhance` function.
-    Enhance {},
 
     /// Sharpen poorly scanned manga to have crispy dots.
     CleanScan {
@@ -121,6 +119,9 @@ fn main() -> anyhow::Result<()> {
                 (transcoder as &dyn Transcoder, shared)
             }
             CliOpts::Jxl { transcoder, shared } => {
+                (transcoder as &dyn Transcoder, shared)
+            }
+            CliOpts::Despeckle { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
             _ => unimplemented!(),

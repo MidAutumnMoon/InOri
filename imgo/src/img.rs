@@ -20,7 +20,9 @@ pub trait Transcoder {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(strum::EnumIter)]
+#[derive(strum::VariantArray)]
 pub enum ImageFormat {
     PNG,
     JPG,
