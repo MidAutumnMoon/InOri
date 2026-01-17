@@ -8,7 +8,7 @@ members = [
     "derputils",
     "lny",
     "rpgdemake",
-    "noah", "pickit",
+    "noah", "pickit", "imgo",
 ]
 
 [workspace.package]

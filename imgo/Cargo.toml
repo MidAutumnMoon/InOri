@@ -1,0 +1,15 @@
+[package]
+name = "imgo"
+version = "0.1.0"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+
+[dependencies]
+
+[lints]
+workspace = true
