@@ -330,6 +330,44 @@ fn main() -> anyhow::Result<()> {
                     return;
                 };
 
+                // Backup source BEFORE resolving destination path
+                // This frees up the original filename when source and output have the same extension
+                if !no_backup {
+                    let backup_path = image.path.backup_path_structure(&backup_dir);
+
+                    // Create backup directory structure
+                    if let Some(backup_parent) = backup_path.parent()
+                        && let Err(e) = create_dir_all(backup_parent)
+                    {
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Red,
+                                "Failed to create backup dir {}: {e}",
+                                backup_parent.display()
+                            );
+                        });
+                        *permit.lock() = Permit::Cancel;
+                        bar.inc(1);
+                        return;
+                    }
+
+                    // Move source to backup
+                    if let Err(e) = rename(&input_path, &backup_path) {
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Red,
+                                "Failed to backup {}: {e}",
+                                input_path.display()
+                            );
+                        });
+                        *permit.lock() = Permit::Cancel;
+                        bar.inc(1);
+                        return;
+                    }
+
+                    debug!("Backed up to {}", backup_path.display());
+                }
+
                 // Build output filename with new extension, resolving conflicts
                 let mut output_extra =
                     image.extra.set_ext(&format!(".{output_ext}"));
@@ -347,7 +385,7 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 debug!(
-                    r#"Move output from "{}" to "{}""#,
+                    r#"Copy output from "{}" to "{}""#,
                     temp_output.path().display(),
                     dest_path.display()
                 );
@@ -358,7 +396,7 @@ fn main() -> anyhow::Result<()> {
                     bar.suspend(|| {
                         ceprintln!(
                             Red,
-                            "Failed to move output to {}: {e}",
+                            "Failed to copy output to {}: {e}",
                             dest_path.display()
                         );
                     });
@@ -366,46 +404,6 @@ fn main() -> anyhow::Result<()> {
                     return;
                 }
 
-                // Skip backup if disabled
-                if no_backup {
-                    debug!("Skipping backup");
-                    bar.inc(1);
-                    return;
-                }
-
-                let backup_path = image.path.backup_path_structure(&backup_dir);
-
-                // Create backup directory structure
-                if let Some(backup_parent) = backup_path.parent()
-                    && let Err(e) = create_dir_all(backup_parent)
-                {
-                    bar.suspend(|| {
-                        ceprintln!(
-                            Red,
-                            "Failed to create backup dir {}: {e}",
-                            backup_parent.display()
-                        );
-                    });
-                    *permit.lock() = Permit::Cancel;
-                    bar.inc(1);
-                    return;
-                }
-
-                // Move source to backup
-                if let Err(e) = rename(&input_path, &backup_path) {
-                    bar.suspend(|| {
-                        ceprintln!(
-                            Red,
-                            "Failed to backup {}: {e}",
-                            input_path.display()
-                        );
-                    });
-                    *permit.lock() = Permit::Cancel;
-                    bar.inc(1);
-                    return;
-                }
-
-                debug!("Backed up to {}", backup_path.display());
                 bar.inc(1);
             });
         }
