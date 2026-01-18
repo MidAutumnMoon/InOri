@@ -5,6 +5,8 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rlimit::Resource;
+
 use anyhow::Context;
 use anyhow::bail;
 use imgo::BACKUP_DIR_NAME;
@@ -109,6 +111,11 @@ struct SharedOpts {
 fn main() -> anyhow::Result<()> {
     ino_tracing::init_tracing_subscriber();
     let cliopts = <CliOpts as clap::Parser>::parse();
+
+    // Raise nofile limit to max to avoid "too many open files" errors
+    if let Ok((_, hard)) = Resource::NOFILE.get() {
+        let _ = Resource::NOFILE.set(hard, hard);
+    }
 
     // Get transcoder and opts from cliopts.
     let (transcoder, shared_opts): (&dyn Transcoder, &SharedOpts) =
