@@ -67,7 +67,7 @@ impl Transcoder for CleanScan {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        eightth_of_total_cores()
+        eighth_of_total_cores()
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
@@ -96,9 +96,9 @@ impl Transcoder for CleanScan {
 
 #[inline]
 #[expect(clippy::unwrap_used)]
-fn eightth_of_total_cores() -> NonZeroU64 {
+fn eighth_of_total_cores() -> NonZeroU64 {
     let cores = available_parallelism()
         .expect("Failed to get core numbers")
         .get();
-    NonZeroU64::new(cores as u64 / 8).unwrap()
+    NonZeroU64::new(((cores as u64 * 80) / 100).max(1)).unwrap()
 }
