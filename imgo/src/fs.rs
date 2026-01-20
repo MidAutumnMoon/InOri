@@ -201,8 +201,8 @@ pub fn collect_images(
         let a_path = a.path.original_path();
         let b_path = b.path.original_path();
         natord::compare(
-            &a_path.to_string_lossy(),
             &b_path.to_string_lossy(),
+            &a_path.to_string_lossy(),
         )
     });
     Ok(accu)

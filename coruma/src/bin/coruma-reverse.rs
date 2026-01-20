@@ -141,7 +141,7 @@ impl Iterator for SymlinkAncestor {
                     Err(err) => return Some(Err(err)),
                 };
             // Set self.current to Some,
-            // so that the next iteration will happened
+            // so that the next iteration will happen
             self.current = Some(symlink_target);
         } else {
             // Here, self.current is not set and stays None,
