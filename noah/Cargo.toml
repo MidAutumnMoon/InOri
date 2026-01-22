@@ -16,7 +16,7 @@ color-eyre = { default-features = false, features = [ "track-caller" ], version 
 dix = "1.2.1"
 humantime = "2.1.0"
 ino_color.workspace = true
-nix = { default-features = false, features = [ "fs", "user" ], version = "0.30.1" }
+nix = { default-features = false, features = [ "fs", "user" ], version = "0.31.0" }
 owo-colors = "4.0.0"
 pty-process = { version = "0.5.3", default-features = false }
 regex = "1.8.4"
