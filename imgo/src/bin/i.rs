@@ -102,6 +102,12 @@ struct SharedOpts {
     #[arg(long, short = 'J')]
     jobs: Option<NonZeroU64>,
 
+    /// Do not recurse into subdirectories when collecting images.
+    /// Only images from the workspace or current directory will be processed.
+    #[arg(long, short = 'R')]
+    #[arg(default_value_t = false)]
+    non_recursive: bool,
+
     /// Manually choose pictures to transcode.
     /// This also disables backup.
     // #[arg(last = true)]
@@ -161,17 +167,28 @@ fn main() -> anyhow::Result<()> {
         let mut accu = vec![];
         for sel in man_sel {
             if sel.is_dir() {
+                if shared_opts.non_recursive {
+                    debug!(
+                        "{} is a directory, skipping in non-recursive mode",
+                        sel.display()
+                    );
+                    continue;
+                }
                 debug!(
                     "Selection {} is a directory, collecting images",
                     sel.display()
                 );
-                let collected = collect_images(sel, input_formats)
-                    .with_context(|| {
-                        format!(
-                            "Failed to collect images from {}",
-                            sel.display()
-                        )
-                    })?;
+                let collected = collect_images(
+                    sel,
+                    input_formats,
+                    !shared_opts.non_recursive,
+                )
+                .with_context(|| {
+                    format!(
+                        "Failed to collect images from {}",
+                        sel.display()
+                    )
+                })?;
                 accu.extend(collected);
             } else {
                 let path = RelAbs::from_path(&workspace, sel)?;
@@ -196,8 +213,12 @@ fn main() -> anyhow::Result<()> {
             workspace.display(),
             input_formats
         );
-        collect_images(&workspace, input_formats)
-            .context("Failed to collect images")?
+        collect_images(
+            &workspace,
+            input_formats,
+            !shared_opts.non_recursive,
+        )
+        .context("Failed to collect images")?
     };
 
     // Backup dir

@@ -148,14 +148,16 @@ impl BaseSeqExt {
     }
 }
 
-/// Recursively collect all images under `workspace` of `formats`.
+/// Collect all images under `workspace` of `formats`.
+/// If `recursive` is false, only the immediate children of `workspace` are scanned.
 #[instrument]
 #[expect(clippy::missing_errors_doc)]
 pub fn collect_images(
     workspace: &Path,
     formats: &[ImageFormat],
+    recursive: bool,
 ) -> anyhow::Result<Vec<Image>> {
-    debug!("Recursively collect images");
+    debug!("Collect images (recursive={})", recursive);
     ensure!(!formats.is_empty(), "Image formats can't be empty");
 
     let mut accu = Vec::new();
@@ -165,11 +167,12 @@ pub fn collect_images(
             != Some(crate::BACKUP_DIR_NAME)
     };
 
-    for entry in WalkDir::new(workspace)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(ignore_backup_dir)
-    {
+    let walker = {
+        let w = WalkDir::new(workspace).follow_links(false);
+        if recursive { w } else { w.max_depth(1) }
+    };
+
+    for entry in walker.into_iter().filter_entry(ignore_backup_dir) {
         let entry = entry.context("WalkDir error")?;
         let path = entry.path();
         let _g = debug_span!("process_entry", ?path).entered();
