@@ -104,15 +104,13 @@ impl Transcoder for Avif {
         // Advanced options.
         // This poke into the heart of AOM encoder,
         // which effects the output every so slightly.
-        cmd.args(["-a", "color:sharpness=2"]);
         cmd.args(["-a", "color:deltaq-mode=3"]);
         cmd.args(["-a", "color:enable-chroma-deltaq=1"]);
         cmd.args(["-a", "end-usage=q"]);
         cmd.args(["-a", "enable-qm=1"]);
         cmd.args(["-a", "color:qm-min=0"]);
         cmd.args(["-a", "aq-mode=2"]);
-        cmd.args(["-a", "color:enable-dnl-denoising=0"]);
-        cmd.args(["-a", "color:denoise-noise-level=10"]);
+        cmd.args(["-a", "color:denoise-noise-level=20"]);
         cmd.args(["-a", "tune=ssim"]);
 
         if !self.no_cq {
