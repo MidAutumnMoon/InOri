@@ -3,7 +3,6 @@ use std::path::Path;
 use std::process::Command;
 use std::thread::available_parallelism;
 
-use itertools::Itertools;
 use tap::Pipe;
 
 use crate::ImageFormat;
@@ -11,16 +10,36 @@ use crate::Transcoder;
 
 pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 
+/// Various imagemagick tricks to remove various kinds of noise.
 #[derive(Debug, clap::Args)]
-#[group(id = "DespeckleTranscoder")]
-pub struct Despeckle {
-    /// How many despeckle passes to run on the picture
+#[group(id = "DenoiseTranscoder")]
+pub struct Denoise {
     #[arg(long, short)]
-    #[arg(default_value = "4")]
-    pub iteration: NonZeroU64,
+    #[arg(default_value = "artifact")]
+    pub mode: Mode,
+
+    /// The strength of the denoise. Different mode has different settings.
+    /// Read the doc of imagemagick.
+    #[arg(long, short)]
+    strength: Option<String>,
 }
 
-impl Transcoder for Despeckle {
+#[derive(Clone, Debug)]
+#[derive(Default)]
+#[derive(clap::ValueEnum)]
+pub enum Mode {
+    /// Use `-adaptive-blue` to remove artifacts resulted from JPEG compression.
+    /// The default strength is `2x0.8`.
+    #[default]
+    Artifact,
+
+    ///  Use `-contrast-stretch` to remove fake pencil-style noise
+    /// (black strokes consist of noise pixels).
+    /// The default strength is `5%x0%`.
+    FakePencil,
+}
+
+impl Transcoder for Denoise {
     fn id(&self) -> &'static str {
         "magick despeckle"
     }
@@ -39,18 +58,24 @@ impl Transcoder for Despeckle {
     }
 
     fn transcode(&self, input: &Path, output: &Path) -> Command {
-        #[expect(clippy::cast_possible_truncation)]
-        let iterations = std::iter::repeat_n(
-            "-despeckle",
-            self.iteration.get() as usize,
-        )
-        .collect_vec();
-
         let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
+
         cmd.arg("-verbose");
-        cmd.arg("--");
         cmd.arg(input);
-        cmd.args(iterations);
+
+        match self.mode {
+            Mode::Artifact => {
+                let strength = self.strength.as_deref().unwrap_or("2x0.8");
+                cmd.args(["-adaptive-blur", strength]);
+            }
+            Mode::FakePencil => {
+                let strength = self.strength.as_deref().unwrap_or("5%x0%");
+                cmd.args(["-statistic", "median", "3x3"]);
+                cmd.args(["-contrast-stretch", strength]);
+            }
+        }
+
+        // Images later to be processed by avifenc
         cmd.args(["-define", "png:compression-level=1"]);
         cmd.arg(output);
         cmd

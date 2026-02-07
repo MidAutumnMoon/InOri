@@ -19,7 +19,7 @@ use imgo::avif::Avif;
 use imgo::collect_images;
 use imgo::jxl::Jxl;
 use imgo::magick::CleanScan;
-use imgo::magick::Despeckle;
+use imgo::magick::Denoise;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
@@ -57,11 +57,10 @@ enum CliOpts {
         shared: SharedOpts,
     },
 
-    /// Despeckle using imagemagick `-despeckle` function.
     #[command(visible_alias = "d")]
-    Despeckle {
+    Denoise {
         #[command(flatten)]
-        transcoder: Despeckle,
+        transcoder: Denoise,
         #[clap(flatten)]
         shared: SharedOpts,
     },
@@ -142,7 +141,7 @@ fn main() -> anyhow::Result<()> {
             CliOpts::Jxl { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
-            CliOpts::Despeckle { transcoder, shared } => {
+            CliOpts::Denoise { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
             }
             CliOpts::CleanScan { transcoder, shared } => {
