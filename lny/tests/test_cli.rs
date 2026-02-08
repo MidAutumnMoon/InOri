@@ -4,6 +4,7 @@
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
 use ino_path::PathExt;
+use rand::RngExt;
 use rand::rngs::ThreadRng;
 use tap::Tap;
 
@@ -29,7 +30,6 @@ macro_rules! make_tempdir {
 macro_rules! make_random_str {
     () => { {
         use rand::distr::Alphanumeric;
-        use rand::Rng;
         rand::rng().sample_iter( &Alphanumeric )
             .take( 8 )
             .map( char::from )

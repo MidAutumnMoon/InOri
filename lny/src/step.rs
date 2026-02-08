@@ -16,7 +16,7 @@ use ino_color::fg::Blue;
 use ino_path::PathExt;
 use ino_tap::TapExt;
 use itertools::Itertools;
-use rand::Rng;
+use rand::RngExt;
 use tap::Pipe;
 use tap::Tap;
 use tracing::debug;
@@ -474,7 +474,6 @@ mod test {
 
     macro_rules! make_random_str {
         () => {{
-            use rand::Rng;
             use rand::distr::Alphanumeric;
             rand::rng()
                 .sample_iter(&Alphanumeric)
