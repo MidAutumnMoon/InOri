@@ -50,7 +50,7 @@ impl Transcoder for Denoise {
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
-        &[ImageFormat::PNG, ImageFormat::JPG]
+        &[ImageFormat::PNG, ImageFormat::JPG, ImageFormat::WEBP]
     }
 
     fn output_format(&self) -> ImageFormat {
