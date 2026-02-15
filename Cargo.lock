@@ -86,20 +86,22 @@ dependencies = [
 
 [[package]]
 name = "assert2"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d6c710e60d14b07d8f42d0e702b16120865eea39edb751e75cd6bf401d18f14"
+checksum = "3685c2321ee3b0a3f58fab864137399a020114c490b7f474c3ab8f0050257ba6"
 dependencies = [
  "assert2-macros",
  "diff",
+ "terminal_size",
+ "unicode-width",
  "yansi",
 ]
 
 [[package]]
 name = "assert2-macros"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9008cbbba9e1d655538870b91fd93814bd82e6968f27788fc734375120ac6f57"
+checksum = "e89e52707656819254663542ef750a429401d4d055ad0859b6f7232e60cbf2af"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1235,6 +1237,16 @@ dependencies = [
  "fastrand",
  "getrandom",
  "once_cell",
+ "rustix",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60b8cb979cb11c32ce1603f8137b22262a9d131aaa5c37b5678025f22b8becd0"
+dependencies = [
  "rustix",
  "windows-sys 0.60.2",
 ]
