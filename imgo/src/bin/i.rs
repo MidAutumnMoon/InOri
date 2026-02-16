@@ -105,7 +105,7 @@ struct SharedOpts {
     /// Only images from the workspace or current directory will be processed.
     #[arg(long, short = 'R')]
     #[arg(default_value_t = false)]
-    non_recursive: bool,
+    no_recursive: bool,
 
     /// Manually choose pictures to transcode.
     /// This also disables backup.
@@ -166,7 +166,7 @@ fn main() -> anyhow::Result<()> {
         let mut accu = vec![];
         for sel in man_sel {
             if sel.is_dir() {
-                if shared_opts.non_recursive {
+                if shared_opts.no_recursive {
                     debug!(
                         "{} is a directory, skipping in non-recursive mode",
                         sel.display()
@@ -180,7 +180,7 @@ fn main() -> anyhow::Result<()> {
                 let collected = collect_images(
                     sel,
                     input_formats,
-                    !shared_opts.non_recursive,
+                    !shared_opts.no_recursive,
                 )
                 .with_context(|| {
                     format!(
@@ -215,7 +215,7 @@ fn main() -> anyhow::Result<()> {
         collect_images(
             &workspace,
             input_formats,
-            !shared_opts.non_recursive,
+            !shared_opts.no_recursive,
         )
         .context("Failed to collect images")?
     };
