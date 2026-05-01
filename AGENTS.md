@@ -104,6 +104,7 @@ Run `cargo clippy --all-features` and address all warnings before committing.
 - Workspace-level dependencies are declared in the root `Cargo.toml` under `[workspace.dependencies]`.
 - Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
 - Renovate bot is configured for automated dependency updates with auto-merge for minor/patch/digest changes.
+- When looking for the Cargo registry directory, read from `$CARGO_HOME` (defaults to `~/.cargo` but may differ). Never hardcode `~/.cargo`.
 
 ## Verify Changes
 

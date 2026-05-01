@@ -297,7 +297,7 @@ fn main() -> anyhow::Result<()> {
         ) in izip!(
             tasks,
             repeat(permit),
-            repeat(progress_bar),
+            repeat(progress_bar.clone()),
             repeat(backup_dir)
         ) {
             scope.spawn(move |_| {
@@ -436,6 +436,8 @@ fn main() -> anyhow::Result<()> {
 
         Ok(())
     })?;
+
+    progress_bar.finish();
 
     Ok(())
 }
