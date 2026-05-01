@@ -2,21 +2,21 @@ use std::path::PathBuf;
 
 use tracing::debug;
 
-use anyhow::ensure;
-use anyhow::bail;
 use anyhow::Context;
+use anyhow::bail;
+use anyhow::ensure;
 
-mod key;
 mod finder;
-mod task;
+mod key;
 mod lore;
 mod project;
+mod task;
 
 use project::EngineRev;
 // use project::Project;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
-#[ derive( clap::Parser, Debug ) ]
+#[derive(clap::Parser, Debug)]
 struct CliOpts {
     /// Path to the directory containing the game.
     game_dir: PathBuf,
@@ -31,94 +31,80 @@ struct CliOpts {
 // }
 
 fn main() -> anyhow::Result<()> {
-
     // Initialize tracing
 
     ino_tracing::init_tracing_subscriber();
 
-
     // Parse CLI options
 
-    let cliopts = < CliOpts as clap::Parser >::parse();
+    let cliopts = <CliOpts as clap::Parser>::parse();
 
-    debug!( ?cliopts );
-
+    debug!(?cliopts);
 
     // Increase NOFILE
 
-    debug!( "increase NOFILE rlimit" );
+    debug!("increase NOFILE rlimit");
 
-    rlimit::increase_nofile_limit( u64::MAX )?;
-
+    rlimit::increase_nofile_limit(u64::MAX)?;
 
     // Setup & sanity checks
 
-    debug!( "Probe game engine revision" );
+    debug!("Probe game engine revision");
 
-    let engine_rev = EngineRev::probe_revision( &cliopts.game_dir )
-        .context( "Failed to understand game's engine revision" )?
-    ;
+    let engine_rev = EngineRev::probe_revision(&cliopts.game_dir)
+        .context("Failed to understand game's engine revision")?;
 
-    let system_json = engine_rev.get_data_dir().join( "System.json" );
+    let system_json = engine_rev.get_data_dir().join("System.json");
 
-    let resource_dirs = vec![
-        engine_rev.get_img_dir(),
-        engine_rev.get_audio_dir(),
-    ];
+    let resource_dirs =
+        vec![engine_rev.get_img_dir(), engine_rev.get_audio_dir()];
 
-    debug!( ?system_json, ?resource_dirs );
-
+    debug!(?system_json, ?resource_dirs);
 
     // Get encryption key
 
-    debug!( "try read encryption key" );
+    debug!("try read encryption key");
 
     let enc_key = {
-        ensure!{ system_json.is_file(),
+        ensure! { system_json.is_file(),
             "System.json doesn't exist at \"{}\"",
             system_json.display()
         };
 
-        let key = key::Key::parse_json(
-            &std::fs::read_to_string( system_json )?
-        )?;
+        let key =
+            key::Key::parse_json(&std::fs::read_to_string(system_json)?)?;
 
         match key {
-            Some( k ) => k,
+            Some(k) => k,
             None => bail!(
                 "System.json does not contain encryption key, maybe not encrypted?"
             ),
         }
     };
 
-    debug!( ?enc_key );
-
+    debug!(?enc_key);
 
     // Collect files to decrypt
 
-    debug!( "collect files to decrypt" );
+    debug!("collect files to decrypt");
 
     let files = {
-
         use anyhow::Result as AResult;
 
-        let files: Vec<PathBuf> = resource_dirs.iter()
-            .map( |p| finder::find_all( p ) )
-            .collect::< AResult<Vec<_>> >()?
+        let files: Vec<PathBuf> = resource_dirs
+            .iter()
+            .map(|p| finder::find_all(p))
+            .collect::<AResult<Vec<_>>>()?
             .into_iter()
-            .flatten().collect()
-        ;
+            .flatten()
+            .collect();
 
-        debug!( ?files, "all found files" );
+        debug!(?files, "all found files");
 
         files
     };
 
-    task::TaskRunner::new(
-        &files,
-        Box::leak( Box::new( enc_key ) )
-    )?;
+    task::TaskRunner::new(&files, Box::leak(Box::new(enc_key)))?;
 
     Ok(())
-
 }

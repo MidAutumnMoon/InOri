@@ -4,21 +4,21 @@ use anyhow::ensure;
 use tracing::debug;
 
 /// The revision of RPG Maker engine.
-#[ derive( Debug, Clone ) ]
+#[derive(Debug, Clone)]
 pub enum EngineRev {
     /// MV, the older one
-    MV( PathBuf ),
+    MV(PathBuf),
     /// MV, the newer one
-    MZ( PathBuf ),
+    MZ(PathBuf),
 }
 
 impl EngineRev {
-    #[ tracing::instrument ]
-    pub fn probe_revision<P>( root: &P ) -> anyhow::Result<Self>
+    #[tracing::instrument]
+    pub fn probe_revision<P>(root: &P) -> anyhow::Result<Self>
     where
-        P: ToOwned<Owned = PathBuf> + std::fmt::Debug
+        P: ToOwned<Owned = PathBuf> + std::fmt::Debug,
     {
-        debug!( "Probe engine revision from directory" );
+        debug!("Probe engine revision from directory");
 
         let root = root.to_owned();
 
@@ -31,33 +31,33 @@ impl EngineRev {
             it's not a RPG Maker MV/MZ game, or the files are packed into the exe."
         };
 
-        if root.join( "www" ).try_exists()? {
-            Ok( Self::MV( root ) )
-        } else if root.join( "img" ).try_exists()? {
-            Ok( Self::MZ( root ) )
+        if root.join("www").try_exists()? {
+            Ok(Self::MV(root))
+        } else if root.join("img").try_exists()? {
+            Ok(Self::MZ(root))
         } else {
-            anyhow::bail!( "Can't probe the engine revision from directory" )
+            anyhow::bail!("Can't probe the engine revision from directory")
         }
     }
 
-    pub fn get_img_dir( &self ) -> PathBuf {
+    pub fn get_img_dir(&self) -> PathBuf {
         match self {
-            Self::MV( p ) => p.join( "www" ).join( "img" ),
-            Self::MZ( p ) => p.join( "img" ),
+            Self::MV(p) => p.join("www").join("img"),
+            Self::MZ(p) => p.join("img"),
         }
     }
 
-    pub fn get_audio_dir( &self ) -> PathBuf {
+    pub fn get_audio_dir(&self) -> PathBuf {
         match self {
-            Self::MV( p ) => p.join( "www" ).join( "audio" ),
-            Self::MZ( p ) => p.join( "audio" ),
+            Self::MV(p) => p.join("www").join("audio"),
+            Self::MZ(p) => p.join("audio"),
         }
     }
 
-    pub fn get_data_dir( &self ) -> PathBuf {
+    pub fn get_data_dir(&self) -> PathBuf {
         match self {
-            Self::MV( p ) => p.join( "www" ).join( "data" ),
-            Self::MZ( p ) => p.join( "data" ),
+            Self::MV(p) => p.join("www").join("data"),
+            Self::MZ(p) => p.join("data"),
         }
     }
 }
