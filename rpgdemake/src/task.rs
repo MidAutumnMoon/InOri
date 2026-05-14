@@ -20,10 +20,6 @@ use crate::lore::fix_extension;
 /// over those bytes instead (light mode).
 #[tracing::instrument(skip(key))]
 pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
-    validate_header(path).with_context(|| {
-        format!("header validation failed for {}", path.display())
-    })?;
-
     let target = fix_extension(path).ok_or_else(|| {
         anyhow::anyhow!("unknown extension for {}", path.display())
     })?;
@@ -31,52 +27,40 @@ pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
     let mut content = std::fs::read(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
+    ensure! {
+        content.len() >= RPG_HEADER_LEN + ENCRYPTED_PART_LEN,
+        "Insufficient data to decode"
+    };
+    ensure! {
+        content.get(..RPG_HEADER_LEN).is_some_and(|h| h == RPG_HEADER),
+        "RPG Maker header mismatch"
+    };
+
     // Strip RPG header; the rest is the original file content
     // with its first 16 bytes XOR'd by the key.
-    let mut body = content.split_off(RPG_HEADER_LEN);
+    content.drain(..RPG_HEADER_LEN);
 
     match key {
         Some(k) => {
-            k.value.iter().zip(body.iter_mut()).for_each(|(b, cell)| {
+            for (b, cell) in k.value.iter().zip(content.iter_mut()) {
                 *cell ^= b;
-            });
+            }
         }
         None => {
             // Light mode: stamp the known PNG header over the
             // XOR'd bytes
-            body.get_mut(..ENCRYPTED_PART_LEN)
-                .expect("body is at least ENCRYPTED_PART_LEN bytes")
+            content
+                .get_mut(..ENCRYPTED_PART_LEN)
+                .expect("length validated above")
                 .copy_from_slice(&PNG_HEADER);
         }
     }
 
-    std::fs::write(&target, body).with_context(|| {
+    std::fs::write(&target, content).with_context(|| {
         format!("failed to write {}", target.display())
     })?;
 
     Ok(target)
-}
-
-/// Read file and ensure it has the proper RPG Maker header.
-fn validate_header(file: &Path) -> anyhow::Result<()> {
-    use std::io::ErrorKind as IOError;
-    use std::io::prelude::*;
-
-    let mut file = std::fs::File::open(file)?;
-    let mut buf = [0; RPG_HEADER_LEN + ENCRYPTED_PART_LEN];
-
-    file.read_exact(&mut buf).map_err(|e| match e.kind() {
-        IOError::UnexpectedEof => {
-            anyhow::anyhow!("Insufficient data to decode")
-        }
-        _ => e.into(),
-    })?;
-
-    ensure! { buf[..RPG_HEADER_LEN] == RPG_HEADER,
-        "RPG Maker header mismatch"
-    };
-
-    Ok(())
 }
 
 /// Run decryption over all files in parallel.
