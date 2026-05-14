@@ -1,12 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::ensure;
 
 use crate::key::Key;
-use crate::lore::{
-    ENCRYPTED_PART_LEN, RPG_HEADER, RPG_HEADER_LEN, fix_extension,
-};
+use crate::lore::ENCRYPTED_PART_LEN;
+use crate::lore::RPG_HEADER;
+use crate::lore::RPG_HEADER_LEN;
+use crate::lore::fix_extension;
 
 /// Decrypt a single RPG Maker encrypted file.
 #[tracing::instrument(skip(key))]
@@ -38,7 +40,8 @@ pub fn decrypt_file(path: &Path, key: &Key) -> anyhow::Result<PathBuf> {
 
 /// Read file and ensure it has the proper RPG Maker header.
 fn validate_header(file: &Path) -> anyhow::Result<()> {
-    use std::io::{ErrorKind as IOError, prelude::*};
+    use std::io::ErrorKind as IOError;
+    use std::io::prelude::*;
 
     let mut file = std::fs::File::open(file)?;
     let mut buf = [0; RPG_HEADER_LEN + ENCRYPTED_PART_LEN];
