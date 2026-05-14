@@ -10,6 +10,9 @@ use std::iter::Iterator;
 
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use ino_color::cprint;
+use ino_color::fg;
+use ino_color::style;
 use tap::Pipe;
 
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
@@ -234,23 +237,10 @@ impl Subject {
 
 impl Display for Subject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ino_color::InoColor;
-        use ino_color::fg::Blue;
-        use ino_color::style::Italic;
-
-        let path = self.path().to_string_lossy();
-        let path = path.fg::<Blue>();
-
-        Display::fmt(&path, f)?;
-
-        f.write_str(" ")?;
-
+        write!(f, "{}", self.path().display())?;
         if !matches!(self.kind, SubjectKind::Normal) {
-            let desc = format!("<- {}", self.describe());
-            let desc = desc.style::<Italic>();
-            Display::fmt(&desc, f)?;
+            write!(f, " <- {}", self.describe())?;
         }
-
         Ok(())
     }
 }
@@ -287,7 +277,15 @@ impl Explainer {
                 anything => anything,
             };
 
-            println!("{subject}");
+            cprint!(fg::Blue, "{}", subject.path().display());
+            if !matches!(subject.kind, SubjectKind::Normal) {
+                cprint!(
+                    (fg::Default, style::Italic),
+                    " <- {}",
+                    subject.describe()
+                );
+            }
+            println!();
         }
 
         Ok(())
