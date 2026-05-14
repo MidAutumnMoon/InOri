@@ -22,29 +22,13 @@ struct CliOpts {
     game_dir: PathBuf,
 }
 
-// struct App {}
-//
-// impl App {
-//     fn run_with( cliopts: CliOpts ) -> anyhow::Result<()> {
-//         todo!()
-//     }
-// }
-
 fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-
     ino_tracing::init_tracing_subscriber();
-
-    // Parse CLI options
-
     let cliopts = <CliOpts as clap::Parser>::parse();
 
     debug!(?cliopts);
 
-    // Increase NOFILE
-
     debug!("increase NOFILE rlimit");
-
     rlimit::increase_nofile_limit(u64::MAX)?;
 
     // Setup & sanity checks
