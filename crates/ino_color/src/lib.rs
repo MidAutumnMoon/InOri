@@ -3,51 +3,28 @@
 //! # Basic Usage
 //!
 //! ```rust
-//! // This's the trait that adds coloring methods.
-//! use ino_color::InoColor;
-//!
-//! // These two modules contain predefined colors and styles.
-//! // As a personal preferrence, wildcard import should be avoided,
-//! // even though doing so makes the function call looks funnier.
+//! use ino_color::cprintln;
 //! use ino_color::fg;
+//! use ino_color::bg;
 //! use ino_color::style;
 //!
-//! // The most basic usage
-//! println!(
-//!     "{}", "Hello Fancy".fg::<fg::Yellow>()
-//! );
+//! // Foreground color only
+//! cprintln!(fg::Yellow, "Hello Fancy");
 //!
-//! // It's also chainable!
-//! println!(
-//!     "{}", "Savoy blue".fg::<fg::Blue>().style::<style::Italic>()
-//! );
+//! // Foreground + style
+//! cprintln!((fg::Blue, style::Italic), "Savoy blue");
 //!
-//! // In fact, anything which implements `std::fmt` traits can be colored.
-//! println!( "{:?}", vec![123].fg::<fg::Green>() );
-//! println!( "{:X}", 123.fg::<fg::Green>() );
-//! ```
+//! // Foreground + background + style
+//! cprintln!((fg::Green, bg::Black, style::Bold),
+//!     "Green on black, bold");
 //!
-//! # Convenient Macros
-//!
-//! ```rust
-//! use ino_color::cprintln;
-//! use ino_color::ceprintln;
-//! use ino_color::fg::Blue;
-//! use ino_color::fg::Green;
-//!
-//! // The first parameter is the foreground color,
-//! // and the remainings are idetical to the corresponding
-//! // print macros from std.
-//! cprintln!(Blue, "The message is blue");
-//!
-//! let elems = vec![1, 2, 3, 4];
-//! ceprintln!(Green, "{elems:?}");
+//! // All format traits work as expected
+//! cprintln!(fg::Green, "{:?}", vec![123]);
+//! cprintln!(fg::Green, "{:X}", 123);
 //! ```
 
 pub use has_colors::HasColors;
 pub mod has_colors;
-
-use std::marker::PhantomData;
 
 /// An attribute in the [ANSI SGR](https://w.wiki/DBZ2) list.
 pub trait AnsiSgr {
@@ -72,14 +49,14 @@ macro_rules! lets_colors {
             }
             impl crate::FG for $name {}
         )* }
-        // /// Named 16 background colors.
-        // pub mod bg { $(
-        //     pub struct $name;
-        //     impl crate::AnsiSgr for $name {
-        //         const ATTR: &'static str = stringify!( $bg );
-        //     }
-        //     impl crate::BG for $name {}
-        // )* }
+        /// Named 16 background colors.
+        pub mod bg { $(
+            pub struct $name;
+            impl crate::AnsiSgr for $name {
+                const ATTR: &'static str = stringify!( $bg );
+            }
+            impl crate::BG for $name {}
+        )* }
     }
 }
 lets_colors! {
@@ -115,9 +92,10 @@ macro_rules! lets_styles {
     }
 }
 lets_styles! {
-    // FOOTGUN: Reset (SGR 0) clears all attributes *before* the text,
-    // so `"text".style::<Reset>()` produces `\e[0mtext\e[0m` — almost
-    // certainly not what the caller wants.
+    // Reset (SGR 0) clears all attributes. Using it as a style
+    // in a tuple like `(Blue, Reset)` would produce `\e[34;0m`
+    // which immediately undoes the color — almost certainly not
+    // what the caller wants.
     Reset 0,
     Bold 1,
     Dim 2,
@@ -132,164 +110,18 @@ lets_styles! {
     Overline 53,
 }
 
-enum ShouldColorize<'obj, OBJ> {
-    Yes(&'obj OBJ),
-    No(&'obj OBJ),
-}
-
-/// Add colors to some object. The color and style information
-/// is embedded in its type, cool!
-#[repr(transparent)]
-pub struct Painter<'painter, OBJ, SGR> {
-    object: ShouldColorize<'painter, OBJ>,
-    _phantom: PhantomData<(SGR,)>,
-}
-
-impl<'painter, OBJ, SGR> Painter<'painter, OBJ, SGR>
-where
-    OBJ: 'painter,
-    SGR: AnsiSgr,
-{
-    #[inline]
-    const fn new<const COLOR: bool>(object: &'painter OBJ) -> Self {
-        let object = if COLOR {
-            ShouldColorize::Yes(object)
-        } else {
-            ShouldColorize::No(object)
-        };
-        Self {
-            object,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[inline]
-    const fn should_colorize(&self) -> bool {
-        matches!(self.object, ShouldColorize::Yes(_))
-    }
-
-    #[inline]
-    const fn get_inner(&self) -> &OBJ {
-        use ShouldColorize::{No, Yes};
-        match self.object {
-            Yes(o) | No(o) => o,
-        }
-    }
-}
-
-macro_rules! impl_painter {
-    // $trait : a trait to be implemented, repeated
-    // $(,) : allow trailing comma
-    ( $( $trait:path ),* $(,)? ) => { $(
-        impl<OBJ, SGR> $trait for Painter<'_, OBJ, SGR>
-        where
-            OBJ: $trait,
-            SGR: AnsiSgr
-        {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>)
-                -> std::fmt::Result
-            {
-                // Of course it's the right use case for macro
-                macro_rules! snippet {
-                    () => { <OBJ as $trait>::fmt(self.get_inner(), f)?; }
-                }
-                if self.should_colorize() {
-                    f.write_str("\x1b[")?;
-                    f.write_str(SGR::ATTR)?;
-                    f.write_str("m")?;
-                    snippet!();
-                    f.write_str("\x1b[0m")?;
-                } else {
-                    snippet!();
-                }
-                Ok(())
-            }
-        }
-    )* }
-}
-
-impl_painter! {
-    std::fmt::Display,
-    std::fmt::Debug,
-    std::fmt::UpperHex,
-    std::fmt::LowerHex,
-    std::fmt::Binary,
-    std::fmt::UpperExp,
-    std::fmt::LowerExp,
-    std::fmt::Octal,
-    std::fmt::Pointer,
-}
-
-macro_rules! should_colorize_snippet {
-    () => {{
-        use crate::HasColors;
-        use std::io::stderr;
-        use std::io::stdout;
-        stdout().has_colors() && stderr().has_colors()
-    }};
-    ( $self:ident ) => {
-        if should_colorize_snippet!() {
-            Painter::new::<true>($self)
-        } else {
-            Painter::new::<false>($self)
-        }
-    };
-}
-
-macro_rules! METHOD_NOTE { ( $name:ident ) => {
-    concat!(
-        "\
-            # Note \n\
-            This method will do a [`HasColors`] check behind the scene \
-            on **both** [`std::io::Stdout`] and [`std::io::Stderr`],
-            and only enables color if both checks passed. \
-            \n\n\
-            The check involves reading environment variable and \
-            obtain locks so it can be expensive to doing rapidly. \
-            It's generally recommended to cache the colored string. \
-            \n\n\
-            If the check is undesired, use \
-        ",
-        "[`Self::",
-        stringify!( $name ),
-        "_always`] instead to always enable colors."
-    )
-} }
-
-/// Have methods for coloring things.
+/// Helper: conditionally write a trailing newline.
 ///
-/// # Note
-/// Background coloring is **not yet implemented** because I don't need them, yet.
-pub trait InoColor
-where
-    Self: Sized,
-{
-    #[ doc = METHOD_NOTE!( fg ) ]
-    #[inline]
-    fn fg<F: FG>(&self) -> Painter<'_, Self, F> {
-        should_colorize_snippet!(self)
-    }
-
-    #[ doc = METHOD_NOTE!( style ) ]
-    #[inline]
-    fn style<S: Style>(&self) -> Painter<'_, Self, S> {
-        should_colorize_snippet!(self)
-    }
-
-    /// Similar to [`Self::fg`] but without [`HasColors`] checking.
-    #[inline]
-    fn fg_always<F: FG>(&self) -> Painter<'_, Self, F> {
-        Painter::new::<true>(self)
-    }
-
-    /// Similar to [`Self::style`] but without [`HasColors`] checking.
-    #[inline]
-    fn style_always<S: Style>(&self) -> Painter<'_, Self, S> {
-        Painter::new::<true>(self)
-    }
+/// Called by the print macros; `true` → `writeln!`,
+/// `false` → nothing.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __ino_newline {
+    (true, $lock:ident) => {
+        writeln!($lock).unwrap()
+    };
+    (false, $lock:ident) => {};
 }
-
-impl<T: Sized> InoColor for T {}
 
 /// Create the color printing macros.
 ///
@@ -302,79 +134,191 @@ impl<T: Sized> InoColor for T {}
 /// Ref: <https://github.com/rust-lang/rust/issues/35853>
 macro_rules! create_print_macro {
     // Create a single macro
-    // `$dol` the "escaped" dollar sign
-    ($name:ident, $print_macro:path, $dol:tt) => {
+    // `$dol`          the "escaped" dollar sign
+    // `$print_macro`  the underlying std print macro (for docs)
+    // `$stream`       the stream function for HasColors check
+    // `$newline`      whether to append a trailing newline
+    (
+        $name:ident,
+        $print_macro:path,
+        $stream:path,
+        $newline:tt,
+        $dol:tt
+    ) => {
         #[macro_export]
-        #[clippy::format_args]
         #[doc = concat!(
-            "Print with color, wraps [`",stringify!($print_macro),"!`]",
+            "Print with color, wraps [`",
+            stringify!($print_macro),
+            "!`].",
             "\n\n",
-            "Currently styling is **not** supported, only colors.",
-            "\n\n",
-            "# Allocation\n",
-            "This macro formats the arguments into a `String` first, then colors it. ",
-            "If zero allocation is desired, use the [`InoColor`] trait methods directly ",
-            "(e.g. `\"text\".fg::<fg::Blue>()`).",
-            "\n\n\
-            ## Usage\n\
-            ```rust\n\
-            use ino_color::", stringify!($name), "; \n\
-            use ino_color::fg::Yellow; \n\
-            ", stringify!($name), "!(Yellow, \"Hello, {:?}!\", \"World\");\n\
-            ```"
+            "## Syntax\n",
+            "- `",
+            stringify!($name),
+            "!(FG, ..)` — foreground only\n",
+            "- `",
+            stringify!($name),
+            "!((FG, STYLE), ..)` — foreground + style\n",
+            "- `",
+            stringify!($name),
+            "!((FG, BG, STYLE), ..)`",
+            " — foreground + background + style\n",
+            "\n",
+            "Color/style is only emitted when the target ",
+            "stream supports it (see [`HasColors`]).\n\n",
+            "## Example\n",
+            "```rust\n",
+            "use ino_color::",
+            stringify!($name),
+            ";\n",
+            "use ino_color::fg::Yellow;\n",
+            "use ino_color::style::Italic;\n",
+            stringify!($name),
+            "!(Yellow, \"Hello\");\n",
+            stringify!($name),
+            "!((Yellow, Italic), \"Hello\");\n",
+            "```\n",
         )]
         macro_rules! $name {
+            // fg only
             (
-                $dol color:path,
+                $dol fg:path,
                 $dol ($dol param:tt)*
             ) => {{
-                use $crate::InoColor;
-                $print_macro!("{}",
-                    ::std::format!($dol ($dol param)*)
-                        .fg::<$dol color>()
-                );
+                use $crate::AnsiSgr;
+                use $crate::HasColors;
+                use std::io::Write;
+                let stream = $stream();
+                let should_color = stream.has_colors();
+                let mut lock = stream.lock();
+                if should_color {
+                    write!(
+                        lock,
+                        "\x1b[{}m",
+                        <$dol fg as AnsiSgr>::ATTR
+                    )
+                    .unwrap();
+                }
+                write!(lock, $dol ($dol param)*).unwrap();
+                if should_color {
+                    write!(lock, "\x1b[0m").unwrap();
+                }
+                $crate::__ino_newline!($newline, lock);
+            }};
+
+            // fg + style
+            (
+                ($dol fg:path, $dol style:path),
+                $dol ($dol param:tt)*
+            ) => {{
+                use $crate::AnsiSgr;
+                use $crate::HasColors;
+                use std::io::Write;
+                let stream = $stream();
+                let should_color = stream.has_colors();
+                let mut lock = stream.lock();
+                if should_color {
+                    write!(
+                        lock,
+                        "\x1b[{};{}m",
+                        <$dol fg as AnsiSgr>::ATTR,
+                        <$dol style as AnsiSgr>::ATTR
+                    )
+                    .unwrap();
+                }
+                write!(lock, $dol ($dol param)*).unwrap();
+                if should_color {
+                    write!(lock, "\x1b[0m").unwrap();
+                }
+                $crate::__ino_newline!($newline, lock);
+            }};
+
+            // fg + bg + style
+            (
+                ($dol fg:path, $dol bg:path, $dol style:path),
+                $dol ($dol param:tt)*
+            ) => {{
+                use $crate::AnsiSgr;
+                use $crate::HasColors;
+                use std::io::Write;
+                let stream = $stream();
+                let should_color = stream.has_colors();
+                let mut lock = stream.lock();
+                if should_color {
+                    write!(
+                        lock,
+                        "\x1b[{};{};{}m",
+                        <$dol fg as AnsiSgr>::ATTR,
+                        <$dol bg as AnsiSgr>::ATTR,
+                        <$dol style as AnsiSgr>::ATTR
+                    )
+                    .unwrap();
+                }
+                write!(lock, $dol ($dol param)*).unwrap();
+                if should_color {
+                    write!(lock, "\x1b[0m").unwrap();
+                }
+                $crate::__ino_newline!($newline, lock);
             }};
         }
     };
     // Repetition to create each named print macro
-    ($(($name:ident, $print_macro:path)),* $(,)?) => {
+    (
+        $( ($name:ident, $print_macro:path, $stream:path, $newline:tt) ),*
+        $(,)?
+    ) => {
         // pass `$`
-        $(create_print_macro!($name, $print_macro, $);)*
+        $(create_print_macro!(
+            $name,
+            $print_macro,
+            $stream,
+            $newline,
+            $
+        );)*
     };
 }
 
 create_print_macro! {
-    // (cprint, std::print),
-    // (ceprint, std::eprint),
-    (cprintln, std::println),
-    (ceprintln, std::eprintln),
+    (cprint, std::print, std::io::stdout, false),
+    (cprintln, std::println, std::io::stdout, true),
+    (ceprint, std::eprint, std::io::stderr, false),
+    (ceprintln, std::eprintln, std::io::stderr, true),
 }
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
-
     use super::*;
     use fg::*;
     use style::*;
 
     #[test]
-    fn print_something_to_see_theres_no_automated_tests() {
-        println!("{:?}", "wooo".fg::<Blue>());
-        println!("{}", "uh".fg::<Yellow>().style::<Italic>());
-        println!("{:x}", 123.fg::<Green>());
-        let num = 1;
-        println!("{}", format!("hello {num}").fg::<Cyan>());
+    fn fg_only() {
+        cprintln!(Blue, "hello");
+        cprintln!(Yellow, "hello {}", "world");
     }
 
     #[test]
-    fn test_macro() {
-        let num = 2;
-        let msg = "yello";
-        let hi = "hi";
-        cprintln!(BrightBlue, "hello {num} {msg:?} {}", hi);
+    fn fg_and_style() {
+        cprintln!((Blue, Italic), "hello");
+        cprintln!((Yellow, Bold), "hello {}", "world");
+    }
 
-        let p = Path::new("/sys");
-        cprintln!(BrightGreen, "{:?}", p.display());
+    #[test]
+    fn fg_bg_style() {
+        cprintln!((Blue, bg::Red, Italic), "hello");
+        cprintln!((Yellow, bg::Magenta, Bold), "hello {}", "world");
+    }
+
+    #[test]
+    fn all_four_macros() {
+        cprint!(Green, "no newline ");
+        cprintln!(Green, "with newline");
+        ceprint!(Cyan, "no newline ");
+        ceprintln!(Cyan, "with newline");
+    }
+
+    #[test]
+    fn format_traits() {
+        cprintln!(Green, "{:?}", vec![123]);
+        cprintln!(Green, "{:X}", 123);
     }
 }
