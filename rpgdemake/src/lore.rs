@@ -108,9 +108,12 @@ impl EncryptedAsset {
     }
 }
 
-/// How to decrypt an encrypted asset.
+/// A fully-resolved decryption action.
+///
+/// Unlike the CLI `Mode` (which is just a user selection),
+/// an `Action` carries all data needed to decrypt.
 #[derive(Debug)]
-pub enum DecryptMethod {
+pub enum DecryptAction {
     /// Stamp the known PNG header — only valid for PNG assets.
     Light,
     /// XOR with the encryption key — valid for all asset kinds.

@@ -12,12 +12,12 @@ mod key;
 mod lore;
 mod task;
 
-use lore::DecryptMethod;
+use lore::DecryptAction;
 use lore::EncryptedAsset;
 
 /// Decrypt mode.
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
-enum DecryptMode {
+enum Mode {
     /// Decrypt PNG images only, without needing the encryption key.
     Light,
     /// Decrypt all assets using the encryption key from System.json.
@@ -36,7 +36,7 @@ struct CliOpts {
     /// by restoring the known PNG header. "full" reads the encryption
     /// key from System.json and decrypts all asset types (PNG, OGG, M4A).
     #[arg(long, value_enum, default_value = "light")]
-    mode: DecryptMode,
+    mode: Mode,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ fn main() -> anyhow::Result<()> {
     // Build decrypt method
 
     let method = match cliopts.mode {
-        DecryptMode::Full => {
+        Mode::Full => {
             let system_json = find_system_json(root)
                 .context("Failed to locate System.json")?
                 .ok_or_else(|| {
@@ -88,9 +88,9 @@ fn main() -> anyhow::Result<()> {
                     )
                 })?;
 
-            DecryptMethod::Full(key)
+            DecryptAction::Full(key)
         }
-        DecryptMode::Light => DecryptMethod::Light,
+        Mode::Light => DecryptAction::Light,
     };
 
     debug!(?method);
@@ -102,12 +102,12 @@ fn main() -> anyhow::Result<()> {
 
 /// Find encrypted assets under `toplevel` according to `mode`.
 ///
-/// - `DecryptMode::Light`: only encrypted PNG files (`.rpgmvp` / `.png_`).
-/// - `DecryptMode::Full`: all encrypted RPG Maker asset types.
+/// - `Mode::Light`: only encrypted PNG files (`.rpgmvp` / `.png_`).
+/// - `Mode::Full`: all encrypted RPG Maker asset types.
 #[tracing::instrument]
 fn find(
     toplevel: &Path,
-    mode: DecryptMode,
+    mode: Mode,
 ) -> anyhow::Result<Vec<EncryptedAsset>> {
     let assets = walkdir::WalkDir::new(toplevel)
         .into_iter()
@@ -116,7 +116,7 @@ fn find(
         .filter_map(|entry| {
             let asset = EncryptedAsset::new(entry.path().to_owned())?;
             match mode {
-                DecryptMode::Light if !asset.is_png() => None,
+                Mode::Light if !asset.is_png() => None,
                 _ => Some(asset),
             }
         })

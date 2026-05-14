@@ -3,7 +3,7 @@ use anyhow::ensure;
 use ino_color::ceprintln;
 use ino_color::fg;
 
-use crate::lore::DecryptMethod;
+use crate::lore::DecryptAction;
 use crate::lore::ENCRYPTED_PART_LEN;
 use crate::lore::EncryptedAsset;
 use crate::lore::PNG_HEADER;
@@ -12,16 +12,16 @@ use crate::lore::RPG_HEADER_LEN;
 
 /// Decrypt a single RPG Maker encrypted file.
 ///
-/// - `DecryptMethod::Light`: stamps the known PNG header over the
+/// - `DecryptAction::Light`: stamps the known PNG header over the
 ///   encrypted bytes. Only valid for PNG assets.
-/// - `DecryptMethod::Full`: XORs the first 16 bytes after the RPG
+/// - `DecryptAction::Full`: XORs the first 16 bytes after the RPG
 ///   header with the key. Valid for all asset kinds.
 #[tracing::instrument(skip_all)]
 pub fn decrypt(
     asset: &EncryptedAsset,
-    method: &DecryptMethod,
+    method: &DecryptAction,
 ) -> anyhow::Result<()> {
-    if matches!(method, DecryptMethod::Light) && !asset.is_png() {
+    if matches!(method, DecryptAction::Light) && !asset.is_png() {
         anyhow::bail!(
             "light mode only supports PNG, got {:?}",
             asset.kind()
@@ -48,12 +48,12 @@ pub fn decrypt(
     content.drain(..RPG_HEADER_LEN);
 
     match method {
-        DecryptMethod::Full(key) => {
+        DecryptAction::Full(key) => {
             for (b, cell) in key.value.iter().zip(content.iter_mut()) {
                 *cell ^= b;
             }
         }
-        DecryptMethod::Light => {
+        DecryptAction::Light => {
             // Stamp the known PNG header over the XOR'd bytes
             content
                 .get_mut(..ENCRYPTED_PART_LEN)
@@ -73,7 +73,7 @@ pub fn decrypt(
 #[tracing::instrument(skip_all)]
 pub fn run(
     assets: &[EncryptedAsset],
-    method: &DecryptMethod,
+    method: &DecryptAction,
 ) -> anyhow::Result<()> {
     use rayon::prelude::*;
 
