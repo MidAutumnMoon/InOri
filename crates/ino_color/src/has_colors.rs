@@ -2,6 +2,10 @@
 //!
 //! This implements <https://force-color.org/> and
 //! <https://bixense.com/clicolors>.
+//!
+//! Environment variables are read **once** at first use and cached.
+//! Runtime changes to `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`,
+//! or `CLICOLOR` after that point will not be reflected.
 
 #[allow(clippy::wildcard_imports)]
 use std::io::*;

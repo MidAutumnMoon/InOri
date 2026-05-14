@@ -40,8 +40,10 @@ cprintln!(fg::Blue, "The message is blue");
 ### Pros
 
 - Good at scratching itch.
-- Low amount of allocations.
-- Follows the [_Standard for ANSI Colors in Terminals_](https://bixense.com/clicolors/) by default.
+- Low amount of allocations with the [`InoColor`] trait methods (zero-alloc).
+  The `cprintln!`/`ceprintln!` convenience macros allocate a `String` per call;
+  use the trait methods directly if that matters.
+- Follows the [_Standard for ANSI Colors in Terminals_](https://bixense.com/clicolors/) and [`FORCE_COLOR`](https://force-color.org/) by default.
 - Doesn't pollute the LSP completion with dozens of methods named after colors.
 
 ### Cons

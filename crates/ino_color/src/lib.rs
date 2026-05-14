@@ -115,6 +115,9 @@ macro_rules! lets_styles {
     }
 }
 lets_styles! {
+    // FOOTGUN: Reset (SGR 0) clears all attributes *before* the text,
+    // so `"text".style::<Reset>()` produces `\e[0mtext\e[0m` — almost
+    // certainly not what the caller wants.
     Reset 0,
     Bold 1,
     Dim 2,
@@ -306,7 +309,13 @@ macro_rules! create_print_macro {
         #[doc = concat!(
             "Print with color, wraps [`",stringify!($print_macro),"!`]",
             "\n\n",
-            "Currently styling is **not** supported, only colors.\n\n\
+            "Currently styling is **not** supported, only colors.",
+            "\n\n",
+            "# Allocation\n",
+            "This macro formats the arguments into a `String` first, then colors it. ",
+            "If zero allocation is desired, use the [`InoColor`] trait methods directly ",
+            "(e.g. `\"text\".fg::<fg::Blue>()`).",
+            "\n\n\
             ## Usage\n\
             ```rust\n\
             use ino_color::", stringify!($name), "; \n\
