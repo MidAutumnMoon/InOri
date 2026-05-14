@@ -15,7 +15,7 @@ mod task;
 use lore::EncryptedKind;
 
 /// Decrypt mode.
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
 enum DecryptMode {
     /// Decrypt PNG images only, without needing the encryption key.
     Light,
