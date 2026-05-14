@@ -11,8 +11,16 @@ mod key;
 mod lore;
 mod task;
 
-use lore::DecryptMode;
 use lore::EncryptedKind;
+
+/// Decrypt mode.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum DecryptMode {
+    /// Decrypt PNG images only, without needing the encryption key.
+    Light,
+    /// Decrypt all assets using the encryption key from System.json.
+    Full,
+}
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -22,10 +30,10 @@ struct CliOpts {
 
     /// Decryption mode.
     ///
-    /// "full" reads the encryption key from System.json and decrypts
-    /// all asset types (PNG, OGG, M4A). "light" skips the key and
-    /// only decrypts PNG images by restoring the known PNG header.
-    #[arg(long, value_enum, default_value = "full")]
+    /// "light" (default) skips the key and only decrypts PNG images
+    /// by restoring the known PNG header. "full" reads the encryption
+    /// key from System.json and decrypts all asset types (PNG, OGG, M4A).
+    #[arg(long, value_enum, default_value = "light")]
     mode: DecryptMode,
 }
 

@@ -25,15 +25,6 @@ pub const PNG_HEADER: [u8; ENCRYPTED_PART_LEN] = [
     0x49, 0x48, 0x44, 0x52, // "IHDR"
 ];
 
-/// Decrypt mode.
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DecryptMode {
-    /// Decrypt all assets using the encryption key from System.json.
-    Full,
-    /// Decrypt PNG images only, without needing the encryption key.
-    Light,
-}
-
 /// Kind of encrypted RPG Maker asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptedKind {
