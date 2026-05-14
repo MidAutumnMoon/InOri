@@ -116,24 +116,20 @@ impl Iterator for SymlinkAncestor {
             .pipe(Some);
         }
 
-        // Step 2. Guard against limitation
-
-        if self.symlink_followed + 1 > MAX_SYMLINK_FOLLOWS {
-            return anyhow::anyhow!(
-                "Exceeded the maximum symlink follows allowed"
-            )
-            .pipe(Err)
-            .pipe(Some);
-        }
-
-        self.symlink_followed += 1;
-
-        trace!("Read symlink metadata");
-
-        // Step 3. Prepare for next iteration
+        // Step 2. Prepare for next iteration
 
         // is_symlink() does not traverse symlink
         if current.is_symlink() {
+            // Guard: only count actual symlink follows
+            if self.symlink_followed >= MAX_SYMLINK_FOLLOWS {
+                return anyhow::anyhow!(
+                    "Exceeded the maximum symlink follows allowed"
+                )
+                .pipe(Err)
+                .pipe(Some);
+            }
+            self.symlink_followed += 1;
+
             debug!("Found new symlink");
             let errmsg = || {
                 format!(r#"Error reading symlink "{}""#, current.display())
@@ -143,9 +139,27 @@ impl Iterator for SymlinkAncestor {
                     Ok(it) => it,
                     Err(err) => return Some(Err(err)),
                 };
+            // Resolve relative targets against the symlink's
+            // parent directory. Without this, read_link() returns
+            // the raw target (e.g. "../bin/foo") which would be
+            // resolved against CWD on the next iteration —
+            // silently following the wrong path.
+            // This also ensures all stored paths are absolute,
+            // so loop detection via HashSet comparison works
+            // correctly (relative paths that resolve to the same
+            // file would otherwise be distinct PathBufs).
+            let next = if symlink_target.is_relative() {
+                current
+                    .parent()
+                    .map(|dir| dir.join(&symlink_target))
+                    .map(|p| path_clean::PathClean::clean(&p))
+                    .unwrap_or(symlink_target)
+            } else {
+                symlink_target
+            };
             // Set self.current to Some,
             // so that the next iteration will happen
-            self.current = Some(symlink_target);
+            self.current = Some(next);
         } else {
             // Here, self.current is not set and stays None,
             // which skips next iteration
@@ -208,6 +222,10 @@ impl Subject {
     }
 
     fn fix_relative(self, base: &Path) -> anyhow::Result<Self> {
+        // Note: `base` is assumed to be an absolute directory.
+        // This holds because SymlinkAncestor resolves relative
+        // symlink targets against their parent directory,
+        // so paths in the ancestors vec are always absolute.
         if !matches!(self.kind, SubjectKind::Relative) {
             return Ok(self);
         }
