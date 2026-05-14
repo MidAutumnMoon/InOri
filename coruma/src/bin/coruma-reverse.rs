@@ -18,6 +18,64 @@ fn main() -> AnyResult<()> {
     <App as clap::Parser>::parse().run()
 }
 
+/// A `PathBuf` guaranteed to be absolute and cleaned
+/// (no `.` or `..` segments).
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct AbsolutePath(PathBuf);
+
+impl AbsolutePath {
+    /// Resolve a possibly-relative path to absolute.
+    /// Relative paths are resolved against CWD.
+    /// The result is cleaned via `PathClean`.
+    fn resolve(path: &Path) -> AnyResult<Self> {
+        let absolute = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            std::env::current_dir()
+                .context("Unable to determine current directory")?
+                .join(path)
+        };
+        Ok(Self(path_clean::PathClean::clean(&absolute)))
+    }
+
+    /// Resolve a symlink target relative to this path's
+    /// parent directory.
+    ///
+    /// If `target` is absolute, it is wrapped and cleaned.
+    /// If relative, it is joined with this path's parent
+    /// directory and cleaned, producing an absolute path.
+    fn resolve_target(&self, target: &Path) -> Self {
+        let resolved = if target.is_relative() {
+            let parent_dir =
+                self.0.parent().expect("symlink path always has a parent");
+            path_clean::PathClean::clean(&parent_dir.join(target))
+        } else {
+            path_clean::PathClean::clean(target)
+        };
+        Self(resolved)
+    }
+
+    fn is_symlink(&self) -> bool {
+        self.0.is_symlink()
+    }
+
+    fn read_link(&self) -> std::io::Result<PathBuf> {
+        self.0.read_link()
+    }
+}
+
+impl AsRef<Path> for AbsolutePath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AbsolutePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.display())
+    }
+}
+
 /// Find executable in $PATH, and print each ancestor in its
 /// symlink chain.
 #[derive(clap::Parser)]
@@ -34,20 +92,18 @@ impl App {
     #[tracing::instrument]
     fn run(&self) -> anyhow::Result<()> {
         let starter = if self.program.contains('/') {
-            PathBuf::from(&self.program)
+            AbsolutePath::resolve(Path::new(&self.program))?
         } else {
             let errmsg = || {
                 anyhow::anyhow!(r#"Program "{}" not found"#, &self.program)
             };
-            coruma::lookup_executable_in_path(&self.program)
-                .first()
-                .ok_or_else(errmsg)?
-                .to_owned()
+            let hits = coruma::lookup_executable_in_path(&self.program);
+            AbsolutePath::resolve(hits.first().ok_or_else(errmsg)?)?
         };
 
         debug!(?starter);
 
-        let ancestors = SymlinkAncestor::new(&starter)
+        let ancestors = SymlinkAncestor::new(starter)
             .collect::<Result<Vec<_>, _>>()
             .context("Unable to walk through symlink")?;
 
@@ -59,15 +115,15 @@ impl App {
 
 #[derive(Debug)]
 struct SymlinkAncestor {
-    current: Option<PathBuf>,
-    visited_paths: HashSet<PathBuf>,
+    current: Option<AbsolutePath>,
+    visited_paths: HashSet<AbsolutePath>,
     symlink_followed: u64,
 }
 
 impl SymlinkAncestor {
-    fn new(starter: &Path) -> Self {
+    fn new(starter: AbsolutePath) -> Self {
         Self {
-            current: Some(starter.into()),
+            current: Some(starter),
             visited_paths: HashSet::default(),
             symlink_followed: 0,
         }
@@ -75,22 +131,19 @@ impl SymlinkAncestor {
 }
 
 impl Iterator for SymlinkAncestor {
-    type Item = anyhow::Result<PathBuf>;
+    type Item = anyhow::Result<AbsolutePath>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let _s = tracing::debug_span!("symlink_iter_next").entered();
 
-        // N.B. self.current became None after take()
-        // it stays None as long as not set again
         let current = self.current.take()?;
-        debug!(?current);
+        debug!(path = %current);
 
         // Check for symlink loop
         if self.visited_paths.contains(&current) {
             debug!("Already visited this path");
             return Some(Err(anyhow::anyhow!(
-                r#"Symlink loop detected, path: "{}""#,
-                current.display()
+                r#"Symlink loop detected, path: \"{current}\""#,
             )));
         }
 
@@ -104,33 +157,13 @@ impl Iterator for SymlinkAncestor {
             self.symlink_followed += 1;
 
             debug!("Found new symlink");
-            let errmsg = || {
-                format!(r#"Error reading symlink "{}""#, current.display())
+            let errmsg =
+                || format!(r#"Error reading symlink \"{current}\""#);
+            let target = match current.read_link().with_context(errmsg) {
+                Ok(it) => it,
+                Err(err) => return Some(Err(err)),
             };
-            let symlink_target =
-                match current.read_link().with_context(errmsg) {
-                    Ok(it) => it,
-                    Err(err) => return Some(Err(err)),
-                };
-            // Resolve relative targets against the symlink's
-            // parent directory. Without this, read_link()
-            // returns the raw target (e.g. "../bin/foo") which
-            // would be resolved against CWD on the next
-            // iteration — silently following the wrong path.
-            // This also ensures all stored paths are absolute,
-            // so loop detection via HashSet comparison works
-            // correctly (relative paths that resolve to the
-            // same file would otherwise be distinct PathBufs).
-            let next = if symlink_target.is_relative() {
-                current
-                    .parent()
-                    .map(|dir| dir.join(&symlink_target))
-                    .map(|p| path_clean::PathClean::clean(&p))
-                    .unwrap_or(symlink_target)
-            } else {
-                symlink_target
-            };
-            self.current = Some(next);
+            self.current = Some(current.resolve_target(&target));
         } else {
             trace!("Not a symlink, the end of symlink chain is reached");
         }
@@ -148,17 +181,16 @@ enum SubjectKind {
     NixStore,
     Normal,
     PerUserProfile,
-    Relative,
 }
 
 #[derive(Debug)]
 struct Subject {
     kind: SubjectKind,
-    path: PathBuf,
+    path: AbsolutePath,
 }
 
 impl Subject {
-    fn new_guess(path: &Path) -> Self {
+    fn new(path: AbsolutePath) -> Self {
         #[allow(clippy::enum_glob_use)]
         use SubjectKind::*;
 
@@ -169,31 +201,12 @@ impl Subject {
             ("/run/booted-system", BootedSystem),
         ];
 
-        let kind = if path.is_absolute() {
-            CHECKLIST
-                .iter()
-                .find(|(prefix, _)| path.starts_with(prefix))
-                .map_or(Normal, |(_, kind)| *kind)
-        } else {
-            Relative
-        };
+        let kind = CHECKLIST
+            .iter()
+            .find(|(prefix, _)| path.as_ref().starts_with(prefix))
+            .map_or(Normal, |(_, kind)| *kind);
 
-        Self {
-            kind,
-            path: path.to_owned(),
-        }
-    }
-
-    fn fix_relative(self, base: &Path) -> Self {
-        // Note: `base` is assumed to be an absolute directory.
-        // This holds because SymlinkAncestor resolves relative
-        // symlink targets against their parent directory,
-        // so paths in the ancestors vec are always absolute.
-        if !matches!(self.kind, SubjectKind::Relative) {
-            return self;
-        }
-        let cleaned = path_clean::PathClean::clean(&base.join(&self.path));
-        Self::new_guess(&cleaned)
+        Self { kind, path }
     }
 
     fn describe(&self) -> &'static str {
@@ -205,37 +218,18 @@ impl Subject {
             NixStore => "Path in nix store",
             Normal => "Ordinary path",
             PerUserProfile => "Per user profile",
-            Relative => "Relative path",
         }
     }
 }
 
 #[tracing::instrument]
-fn explain_paths(paths: &[PathBuf]) -> anyhow::Result<()> {
-    for (index, it) in paths.iter().enumerate() {
+fn explain_paths(paths: &[AbsolutePath]) -> anyhow::Result<()> {
+    for it in paths {
         trace!(?it);
 
-        let subject = match Subject::new_guess(it) {
-            // Try to fix up relative paths.
-            it @ Subject {
-                kind: SubjectKind::Relative,
-                ..
-            } => {
-                debug!("Fixup relative path");
-                let dirname = index
-                    .checked_sub(1)
-                    .and_then(|idx| paths.get(idx))
-                    .and_then(|prev| prev.parent());
-                if let Some(dirname) = dirname {
-                    it.fix_relative(dirname)
-                } else {
-                    it
-                }
-            }
-            anything => anything,
-        };
+        let subject = Subject::new(it.clone());
 
-        cprint!(fg::Blue, "{}", subject.path.display());
+        cprint!(fg::Blue, "{}", subject.path);
         if !matches!(subject.kind, SubjectKind::Normal) {
             cprint!(
                 (fg::Default, style::Italic),
