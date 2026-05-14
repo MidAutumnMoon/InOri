@@ -1,6 +1,7 @@
 //! Check whether ANSI color should be enabled.
 //!
-//! This implements <https://bixense.com/clicolors>.
+//! This implements <https://force-color.org/> and
+//! <https://bixense.com/clicolors>.
 
 #[allow(clippy::wildcard_imports)]
 use std::io::*;
@@ -12,6 +13,7 @@ pub trait HasColors: IsTerminal {
 
 struct EnvSet {
     no_color: bool,
+    force_color: bool,
     clicolor_force: bool,
     /// `None` = not set, `Some(true)` = `1`, `Some(false)` = `0`.
     clicolor: Option<bool>,
@@ -21,6 +23,10 @@ static ENV_SET: LazyLock<EnvSet> = LazyLock::new(|| {
     EnvSet {
         // NO_COLOR is presence-based per its own spec.
         no_color: std::env::var_os("NO_COLOR").is_some(),
+        // FORCE_COLOR: present and non-empty → force color.
+        // Per <https://force-color.org/>.
+        force_color: std::env::var_os("FORCE_COLOR")
+            .is_some_and(|v| !v.is_empty()),
         clicolor_force: std::env::var("CLICOLOR_FORCE")
             .is_ok_and(|v| v != "0"),
         clicolor: std::env::var("CLICOLOR").ok().and_then(|v| {
@@ -40,6 +46,11 @@ macro_rules! impl_has_color {
         impl HasColors for $target {
             #[ inline ]
             fn has_colors( &self ) -> bool {
+                // Priority: FORCE_COLOR > NO_COLOR > CLICOLOR_FORCE > CLICOLOR > default (tty).
+                // FORCE_COLOR overrides everything per force-color.org.
+                if ENV_SET.force_color {
+                    return true
+                }
                 // NO_COLOR set, don't output any color.
                 if ENV_SET.no_color {
                     return false
