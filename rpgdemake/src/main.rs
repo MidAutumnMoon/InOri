@@ -12,7 +12,8 @@ mod key;
 mod lore;
 mod task;
 
-use lore::EncryptedKind;
+use lore::DecryptMethod;
+use lore::EncryptedAsset;
 
 /// Decrypt mode.
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
@@ -61,13 +62,13 @@ fn main() -> anyhow::Result<()> {
 
     debug!(?cliopts.mode, "collect files to decrypt");
 
-    let files = find(root, cliopts.mode)?;
+    let assets = find(root, cliopts.mode)?;
 
-    debug!(?files, "found files");
+    debug!(?assets, "found files");
 
-    // Get encryption key (full mode only)
+    // Build decrypt method
 
-    let enc_key = match cliopts.mode {
+    let method = match cliopts.mode {
         DecryptMode::Full => {
             let system_json = find_system_json(root)
                 .context("Failed to locate System.json")?
@@ -87,19 +88,19 @@ fn main() -> anyhow::Result<()> {
                     )
                 })?;
 
-            Some(key)
+            DecryptMethod::Full(key)
         }
-        DecryptMode::Light => None,
+        DecryptMode::Light => DecryptMethod::Light,
     };
 
-    debug!(?enc_key);
+    debug!(?method);
 
-    task::run(&files, enc_key.as_ref())?;
+    task::run(&assets, &method)?;
 
     Ok(())
 }
 
-/// Find encrypted files under `toplevel` according to `mode`.
+/// Find encrypted assets under `toplevel` according to `mode`.
 ///
 /// - `DecryptMode::Light`: only encrypted PNG files (`.rpgmvp` / `.png_`).
 /// - `DecryptMode::Full`: all encrypted RPG Maker asset types.
@@ -107,23 +108,21 @@ fn main() -> anyhow::Result<()> {
 fn find(
     toplevel: &Path,
     mode: DecryptMode,
-) -> anyhow::Result<Vec<PathBuf>> {
-    let files = walkdir::WalkDir::new(toplevel)
+) -> anyhow::Result<Vec<EncryptedAsset>> {
+    let assets = walkdir::WalkDir::new(toplevel)
         .into_iter()
         .filter_map(std::result::Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .filter_map(|entry| {
-            let path = entry.path();
-            let ext = path.extension()?.to_str()?;
-            let kind = EncryptedKind::from_ext(ext)?;
+            let asset = EncryptedAsset::new(entry.path().to_owned())?;
             match mode {
-                DecryptMode::Light if !kind.is_png() => None,
-                _ => Some(path.to_owned()),
+                DecryptMode::Light if !asset.is_png() => None,
+                _ => Some(asset),
             }
         })
         .collect();
 
-    Ok(files)
+    Ok(assets)
 }
 
 /// Locate `System.json` anywhere under `root`.

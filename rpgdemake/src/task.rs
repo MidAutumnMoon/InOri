@@ -1,31 +1,38 @@
-use std::path::Path;
-use std::path::PathBuf;
-
 use anyhow::Context;
 use anyhow::ensure;
 use ino_color::ceprintln;
 use ino_color::fg;
 
-use crate::key::Key;
+use crate::lore::DecryptMethod;
 use crate::lore::ENCRYPTED_PART_LEN;
+use crate::lore::EncryptedAsset;
 use crate::lore::PNG_HEADER;
 use crate::lore::RPG_HEADER;
 use crate::lore::RPG_HEADER_LEN;
-use crate::lore::fix_extension;
 
 /// Decrypt a single RPG Maker encrypted file.
 ///
-/// If `key` is `Some`, XORs the first 16 bytes after the RPG header
-/// with the key (full mode). If `None`, stamps the known PNG header
-/// over those bytes instead (light mode).
-#[tracing::instrument(skip(key))]
-pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
-    let target = fix_extension(path).ok_or_else(|| {
-        anyhow::anyhow!("unknown extension for {}", path.display())
-    })?;
+/// - `DecryptMethod::Light`: stamps the known PNG header over the
+///   encrypted bytes. Only valid for PNG assets.
+/// - `DecryptMethod::Full`: XORs the first 16 bytes after the RPG
+///   header with the key. Valid for all asset kinds.
+#[tracing::instrument(skip_all)]
+pub fn decrypt(
+    asset: &EncryptedAsset,
+    method: &DecryptMethod,
+) -> anyhow::Result<()> {
+    if matches!(method, DecryptMethod::Light) && !asset.is_png() {
+        anyhow::bail!(
+            "light mode only supports PNG, got {:?}",
+            asset.kind()
+        );
+    }
 
-    let mut content = std::fs::read(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let target = asset.decrypted_path();
+
+    let mut content = std::fs::read(asset.path()).with_context(|| {
+        format!("failed to read {}", asset.path().display())
+    })?;
 
     ensure! {
         content.len() >= RPG_HEADER_LEN + ENCRYPTED_PART_LEN,
@@ -40,15 +47,14 @@ pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
     // with its first 16 bytes XOR'd by the key.
     content.drain(..RPG_HEADER_LEN);
 
-    match key {
-        Some(k) => {
-            for (b, cell) in k.value.iter().zip(content.iter_mut()) {
+    match method {
+        DecryptMethod::Full(key) => {
+            for (b, cell) in key.value.iter().zip(content.iter_mut()) {
                 *cell ^= b;
             }
         }
-        None => {
-            // Light mode: stamp the known PNG header over the
-            // XOR'd bytes
+        DecryptMethod::Light => {
+            // Stamp the known PNG header over the XOR'd bytes
             content
                 .get_mut(..ENCRYPTED_PART_LEN)
                 .expect("length validated above")
@@ -60,26 +66,29 @@ pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
         format!("failed to write {}", target.display())
     })?;
 
-    Ok(target)
+    Ok(())
 }
 
-/// Run decryption over all files in parallel.
+/// Run decryption over all assets in parallel.
 #[tracing::instrument(skip_all)]
-pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
+pub fn run(
+    assets: &[EncryptedAsset],
+    method: &DecryptMethod,
+) -> anyhow::Result<()> {
     use rayon::prelude::*;
 
-    let errors: Vec<_> = paths
+    let errors: Vec<_> = assets
         .par_iter()
         .enumerate()
-        .filter_map(|(idx, path)| {
+        .filter_map(|(idx, asset)| {
             let idx = idx + 1;
-            match decrypt(path, key) {
-                Ok(target) => {
+            match decrypt(asset, method) {
+                Ok(()) => {
                     ceprintln!(
                         fg::Blue,
                         "{idx}/{}: (ok) {}",
-                        paths.len(),
-                        target.display()
+                        assets.len(),
+                        asset.decrypted_path().display()
                     );
                     None
                 }
@@ -87,8 +96,8 @@ pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
                     ceprintln!(
                         fg::Red,
                         "{idx}/{}: (err) {}: {e:#}",
-                        paths.len(),
-                        path.display()
+                        assets.len(),
+                        asset.path().display()
                     );
                     Some(e)
                 }
@@ -102,7 +111,7 @@ pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
         anyhow::bail!(
             "{} of {} file(s) failed to decrypt",
             errors.len(),
-            paths.len()
+            assets.len()
         )
     }
 }

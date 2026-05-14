@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::key::Key;
+
 pub const RPG_HEADER_LEN: usize = 16;
 
 /// Length of the encrypted portion of the file.
@@ -27,14 +29,14 @@ pub const PNG_HEADER: [u8; ENCRYPTED_PART_LEN] = [
 
 /// Kind of encrypted RPG Maker asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncryptedKind {
+pub enum AssetKind {
     Png,
     Ogg,
     M4a,
 }
 
-impl EncryptedKind {
-    /// Parse an encrypted file extension into an `EncryptedKind`.
+impl AssetKind {
+    /// Parse an encrypted file extension into an `AssetKind`.
     ///
     /// MV extensions: `.rpgmvp`, `.rpgmvo`, `.rpgmvm`
     /// MZ extensions: `.png_`, `.ogg_`, `.m4a_`
@@ -62,13 +64,55 @@ impl EncryptedKind {
     }
 }
 
-/// Replace the encrypted extension with the decrypted one.
-pub fn fix_extension(origin: &Path) -> Option<PathBuf> {
-    use std::ffi::OsStr;
-    let ext = origin.extension().and_then(OsStr::to_str)?;
-    let mut path = origin.to_owned();
-    let _ = path.set_extension(
-        EncryptedKind::from_ext(ext)?.decrypted_extension(),
-    );
-    Some(path)
+/// An encrypted RPG Maker asset: a file path paired with its kind.
+#[derive(Debug)]
+pub struct EncryptedAsset {
+    path: PathBuf,
+    kind: AssetKind,
+}
+
+impl EncryptedAsset {
+    /// Create from a path by inspecting its extension.
+    ///
+    /// Returns `None` if the extension isn't a recognized
+    /// RPG Maker encrypted extension.
+    pub fn new(path: PathBuf) -> Option<Self> {
+        use std::ffi::OsStr;
+
+        let ext = path.extension().and_then(OsStr::to_str)?;
+        let kind = AssetKind::from_ext(ext)?;
+        Some(Self { path, kind })
+    }
+
+    /// The encrypted file path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The asset kind (PNG, OGG, M4A).
+    pub fn kind(&self) -> AssetKind {
+        self.kind
+    }
+
+    /// Compute the decrypted output path
+    /// (same path with the extension replaced).
+    pub fn decrypted_path(&self) -> PathBuf {
+        let mut out = self.path.clone();
+        let _ = out.set_extension(self.kind.decrypted_extension());
+        out
+    }
+
+    /// Whether this is a PNG asset.
+    pub fn is_png(&self) -> bool {
+        self.kind.is_png()
+    }
+}
+
+/// How to decrypt an encrypted asset.
+#[derive(Debug)]
+pub enum DecryptMethod {
+    /// Stamp the known PNG header — only valid for PNG assets.
+    Light,
+    /// XOR with the encryption key — valid for all asset kinds.
+    Full(Key),
 }
