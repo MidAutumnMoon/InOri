@@ -1,3 +1,4 @@
+use anyhow::Context;
 use anyhow::ensure;
 
 use tracing::debug;
@@ -34,7 +35,8 @@ impl Key {
 
         debug!("try find encryption key in JSON");
 
-        let fields: Value = serde_json::from_str(json)?;
+        let fields: Value = serde_json::from_str(json)
+            .context("Unable to parse JSON, maybe the System.json itself is encrypted or contains BOM?")?;
 
         let Some(Value::String(key)) = fields.get("encryptionKey") else {
             return Ok(None);
