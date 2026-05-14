@@ -75,10 +75,7 @@ CI runs `cargo test --all-features` on every push and PR (see `.github/workflows
 
 ### Linting
 
-The workspace enforces strict Clippy lints (pedantic + nursery), with the following allowances:
-
-- `cognitive_complexity`, `literal_string_with_formatting_args`, `missing_const_for_fn`, `too_many_lines` — allowed
-- `unwrap_used`, `panic`, `indexing_slicing`, `unreachable`, `undocumented_unsafe_blocks`, `unwrap_in_result` — warned
+The workspace enforces strict Clippy lints (pedantic + nursery).
 
 Run `cargo clippy --all-features` and address all warnings before committing.
 

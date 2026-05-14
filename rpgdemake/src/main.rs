@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
         files
     };
 
-    task::TaskRunner::new(&files, Box::leak(Box::new(enc_key)))?;
+    task::TaskRunner::new_run(&files, Box::leak(Box::new(enc_key)))?;
 
     Ok(())
 }

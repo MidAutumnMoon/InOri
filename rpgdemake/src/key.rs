@@ -78,6 +78,7 @@ impl Key {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
 
     const JSON: &str = include_str!("../tests/fixture/System.json");

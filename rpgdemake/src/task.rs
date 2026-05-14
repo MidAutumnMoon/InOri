@@ -212,7 +212,7 @@ pub struct TaskRunner;
 
 impl TaskRunner {
     #[tracing::instrument(skip_all)]
-    pub fn new(
+    pub fn new_run(
         paths: &[PathBuf],
         key: &'static Key,
     ) -> anyhow::Result<()> {
@@ -221,7 +221,7 @@ impl TaskRunner {
         paths
             .into_par_iter()
             .map(|path| Task::<Create>::new(path, key))
-            .map(|tk| Task::<Validate>::try_from(tk))
+            .map(Task::<Validate>::try_from)
             .map(|tk| tk.and_then(Task::<Decrypt>::try_from))
             .map(|tk| tk.and_then(Task::<Write>::try_from))
             .map(|tk| tk.and_then(Task::<Done>::try_from))
