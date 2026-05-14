@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::path::PathBuf;
 
 use tracing::debug;
@@ -6,7 +7,6 @@ use anyhow::Context;
 use anyhow::bail;
 use anyhow::ensure;
 
-mod finder;
 mod key;
 mod lore;
 mod project;
@@ -14,6 +14,8 @@ mod task;
 
 use lore::DecryptMode;
 use project::EngineRev;
+
+use crate::lore::map_encrypted_extension;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -57,7 +59,7 @@ fn run_light(engine_rev: &EngineRev) -> anyhow::Result<()> {
 
     debug!(?img_dir, "light mode: scanning for encrypted PNGs");
 
-    let files = finder::find(&img_dir, DecryptMode::Light)?;
+    let files = find(&img_dir, DecryptMode::Light)?;
 
     debug!(?files, "light mode: found files");
 
@@ -106,7 +108,7 @@ fn run_full(engine_rev: &EngineRev) -> anyhow::Result<()> {
 
         let files: Vec<PathBuf> = resource_dirs
             .iter()
-            .map(|p| finder::find(p, DecryptMode::Full))
+            .map(|p| find(p, DecryptMode::Full))
             .collect::<AResult<Vec<_>>>()?
             .into_iter()
             .flatten()
@@ -120,4 +122,41 @@ fn run_full(engine_rev: &EngineRev) -> anyhow::Result<()> {
     task::run(&files, &enc_key)?;
 
     Ok(())
+}
+
+/// Find encrypted files under `toplevel` according to `mode`.
+///
+/// - `DecryptMode::Light`: only encrypted PNG files (`.rpgmvp` / `.png_`).
+/// - `DecryptMode::Full`: all encrypted RPG Maker asset types.
+#[tracing::instrument]
+fn find(
+    toplevel: &Path,
+    mode: DecryptMode,
+) -> anyhow::Result<Vec<PathBuf>> {
+    use itertools::Itertools;
+    use rayon::prelude::*;
+
+    let files = walkdir::WalkDir::new(toplevel)
+        .into_iter()
+        .process_results(|iter| {
+            iter.par_bridge()
+                .map(|entry| entry.path().to_owned())
+                .filter(|path| path.is_file())
+                .filter_map(|path| {
+                    let ext = path.extension()?.to_str()?;
+                    match mode {
+                        DecryptMode::Light => match ext {
+                            "rpgmvp" | "png_" => Some(path),
+                            _ => None,
+                        },
+                        DecryptMode::Full => {
+                            map_encrypted_extension(ext)?;
+                            Some(path)
+                        }
+                    }
+                })
+                .collect()
+        })?;
+
+    Ok(files)
 }
