@@ -45,7 +45,7 @@ pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
             // Light mode: stamp the known PNG header over the
             // XOR'd bytes
             body.get_mut(..ENCRYPTED_PART_LEN)
-                .expect("body is longer than ENCRYPTED_PART_LEN")
+                .expect("body is at least ENCRYPTED_PART_LEN bytes")
                 .copy_from_slice(&PNG_HEADER);
         }
     }
@@ -84,23 +84,41 @@ fn validate_header(file: &Path) -> anyhow::Result<()> {
 pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
     use rayon::prelude::*;
 
-    paths.par_iter().enumerate().for_each(|(idx, path)| {
-        let idx = idx + 1;
-        match decrypt(path, key) {
-            Ok(target) => ceprintln!(
-                fg::Blue,
-                "{idx}/{}: (ok) {}",
-                paths.len(),
-                target.display()
-            ),
-            Err(e) => ceprintln!(
-                fg::Red,
-                "{idx}/{}: (err) {}: {e:#}",
-                paths.len(),
-                path.display()
-            ),
-        }
-    });
+    let errors: Vec<_> = paths
+        .par_iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            let idx = idx + 1;
+            match decrypt(path, key) {
+                Ok(target) => {
+                    ceprintln!(
+                        fg::Blue,
+                        "{idx}/{}: (ok) {}",
+                        paths.len(),
+                        target.display()
+                    );
+                    None
+                }
+                Err(e) => {
+                    ceprintln!(
+                        fg::Red,
+                        "{idx}/{}: (err) {}: {e:#}",
+                        paths.len(),
+                        path.display()
+                    );
+                    Some(e)
+                }
+            }
+        })
+        .collect();
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "{} of {} file(s) failed to decrypt",
+            errors.len(),
+            paths.len()
+        )
+    }
 }
