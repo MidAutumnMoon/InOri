@@ -238,7 +238,7 @@ macro_rules! METHOD_NOTE { ( $name:ident ) => {
         "\
             # Note \n\
             This method will do a [`HasColors`] check behind the scene \
-            on **both** [`std::io::Stdin`] and [`std::io::Stdout`], \
+            on **both** [`std::io::Stdout`] and [`std::io::Stderr`],
             and only enables color if both checks passed. \
             \n\n\
             The check involves reading environment variable and \

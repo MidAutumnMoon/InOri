@@ -13,19 +13,23 @@ pub trait HasColors: IsTerminal {
 struct EnvSet {
     no_color: bool,
     clicolor_force: bool,
-    clicolor: bool,
+    /// `None` = not set, `Some(true)` = `1`, `Some(false)` = `0`.
+    clicolor: Option<bool>,
 }
 
 static ENV_SET: LazyLock<EnvSet> = LazyLock::new(|| {
-    macro_rules! ck {
-        ( $n:literal ) => {
-            std::env::var_os($n).is_some()
-        };
-    }
     EnvSet {
-        no_color: ck!("NO_COLOR"),
-        clicolor_force: ck!("CLICOLOR_FORCE"),
-        clicolor: ck!("CLICOLOR"),
+        // NO_COLOR is presence-based per its own spec.
+        no_color: std::env::var_os("NO_COLOR").is_some(),
+        clicolor_force: std::env::var("CLICOLOR_FORCE")
+            .is_ok_and(|v| v != "0"),
+        clicolor: std::env::var("CLICOLOR").ok().and_then(|v| {
+            match v.as_str() {
+                "1" => Some(true),
+                "0" => Some(false),
+                _ => None,
+            }
+        }),
     }
 });
 
@@ -40,16 +44,16 @@ macro_rules! impl_has_color {
                 if ENV_SET.no_color {
                     return false
                 }
-                // CLICOLOR_FORCE set, output color anyway.
+                // CLICOLOR_FORCE set (non-zero), output color anyway.
                 if ENV_SET.clicolor_force {
                     return true
                 }
-                // CLICOLOR set, output color only if it's terminal
-                if ENV_SET.clicolor {
-                    return self.is_terminal()
+                // CLICOLOR=0 disables; CLICOLOR=1 or unset defaults to tty.
+                match ENV_SET.clicolor {
+                    Some(true) => self.is_terminal(),
+                    Some(false) => false,
+                    None => self.is_terminal(),
                 }
-                // No related envvar set, output color if it's terminal
-                return self.is_terminal()
             }
         }
     )* }
