@@ -30,8 +30,6 @@ pub fn decrypt(
         );
     }
 
-    let target = asset.decrypted_path();
-
     let mut content = std::fs::read(asset.path()).with_context(|| {
         format!("failed to read {}", asset.path().display())
     })?;
@@ -63,6 +61,8 @@ pub fn decrypt(
                 .copy_from_slice(&PNG_HEADER);
         }
     }
+
+    let target = asset.decrypted_path();
 
     std::fs::write(&target, content).with_context(|| {
         format!("failed to write {}", target.display())
