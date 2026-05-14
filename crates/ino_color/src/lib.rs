@@ -264,35 +264,21 @@ macro_rules! create_print_macro {
     ) => {
         #[macro_export]
         #[doc = concat!(
-            "Print with color, wraps [`",
-            stringify!($print_macro),
-            "!`].",
+            "Print with color, wraps [`", stringify!($print_macro), "!`].",
             "\n\n",
             "## Syntax\n",
-            "- `",
-            stringify!($name),
-            "!(FG, ..)` — foreground only\n",
-            "- `",
-            stringify!($name),
-            "!((FG, STYLE), ..)` — foreground + style\n",
-            "- `",
-            stringify!($name),
-            "!((FG, BG, STYLE), ..)`",
-            " — foreground + background + style\n",
+            "- `", stringify!($name), "!(FG, ..)` — foreground only\n",
+            "- `", stringify!($name), "!((FG, STYLE), ..)` — foreground + style\n",
+            "- `", stringify!($name), "!((FG, BG, STYLE), ..)`", " — foreground + background + style\n",
             "\n",
-            "Color/style is only emitted when the target ",
-            "stream supports it (see [`HasColors`]).\n\n",
+            "Color/style is only emitted when the target stream supports it (see [`HasColors`]).\n\n",
             "## Example\n",
             "```rust\n",
-            "use ino_color::",
-            stringify!($name),
-            ";\n",
+            "use ino_color::", stringify!($name), ";\n",
             "use ino_color::fg::Yellow;\n",
             "use ino_color::style::Italic;\n",
-            stringify!($name),
-            "!(Yellow, \"Hello\");\n",
-            stringify!($name),
-            "!((Yellow, Italic), \"Hello\");\n",
+            stringify!($name), "!(Yellow, \"Hello\");\n",
+            stringify!($name), "!((Yellow, Italic), \"Hello\");\n",
             "```\n",
         )]
         macro_rules! $name {
@@ -329,7 +315,7 @@ macro_rules! create_print_macro {
     };
     // Repetition to create each named print macro
     (
-        $( ($name:ident, $print_macro:path, $stream:path, $newline:tt) ),*
+        $(($name:ident, $print_macro:path, $stream:path, $newline:tt)),*
         $(,)?
     ) => {
         $(create_print_macro!(
