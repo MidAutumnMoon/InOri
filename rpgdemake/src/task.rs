@@ -1,5 +1,7 @@
 use anyhow::Context;
 use anyhow::ensure;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use ino_color::ceprintln;
 use ino_color::fg;
 
@@ -77,37 +79,44 @@ pub fn run(
 ) -> anyhow::Result<()> {
     use rayon::prelude::*;
 
+    let pb = ProgressBar::new(assets.len() as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.blue} {pos}/{len} [{wide_bar:.cyan/blue}] {msg}",
+        )
+        .map_err(|e| anyhow::anyhow!("invalid progress template: {e}"))?
+        .progress_chars("█▓░"),
+    );
+
     let errors: Vec<_> = assets
         .par_iter()
-        .enumerate()
-        .filter_map(|(idx, asset)| {
-            let idx = idx + 1;
-            match decrypt(asset, method) {
-                Ok(()) => {
-                    ceprintln!(
-                        fg::Blue,
-                        "{idx}/{}: (ok) {}",
-                        assets.len(),
-                        asset.decrypted_path().display()
-                    );
-                    None
-                }
-                Err(e) => {
+        .filter_map(|asset| match decrypt(asset, method) {
+            Ok(()) => {
+                pb.inc(1);
+                pb.set_message(
+                    asset.decrypted_path().display().to_string(),
+                );
+                None
+            }
+            Err(e) => {
+                pb.inc(1);
+                pb.suspend(|| {
                     ceprintln!(
                         fg::Red,
-                        "{idx}/{}: (err) {}: {e:#}",
-                        assets.len(),
+                        "(err) {}: {e:#}",
                         asset.path().display()
                     );
-                    Some(e)
-                }
+                });
+                Some(e)
             }
         })
         .collect();
 
     if errors.is_empty() {
+        pb.finish_with_message("done");
         Ok(())
     } else {
+        pb.finish_and_clear();
         anyhow::bail!(
             "{} of {} file(s) failed to decrypt",
             errors.len(),
