@@ -42,23 +42,19 @@ fn main() -> anyhow::Result<()> {
     let game_dir = GameDir::probe(cliopts.game_dir)
         .context("Failed to understand game's engine revision")?;
 
-    run(&game_dir, cliopts.mode)
-}
-
-fn run(game_dir: &GameDir, mode: DecryptMode) -> anyhow::Result<()> {
     let root = game_dir.root();
 
     // Collect encrypted files
 
-    debug!(?mode, "collect files to decrypt");
+    debug!(?cliopts.mode, "collect files to decrypt");
 
-    let files = find(root, mode)?;
+    let files = find(root, cliopts.mode)?;
 
     debug!(?files, "found files");
 
     // Get encryption key (full mode only)
 
-    let enc_key = match mode {
+    let enc_key = match cliopts.mode {
         DecryptMode::Full => {
             let system_json = find_system_json(root)
                 .context("Failed to locate System.json")?;
