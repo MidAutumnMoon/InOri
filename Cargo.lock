@@ -267,7 +267,6 @@ dependencies = [
  "ino_path",
  "ino_tracing",
  "path-clean",
- "tap",
  "tracing",
 ]
 
