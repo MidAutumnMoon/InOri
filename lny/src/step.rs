@@ -11,7 +11,7 @@ use anyhow::Context;
 use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
-use ino_color::InoColor;
+use ino_color::ceprintln;
 use ino_color::fg::Blue;
 use ino_path::PathExt;
 use ino_tap::TapExt;
@@ -35,7 +35,7 @@ impl StepQueue {
         new_blueprint: Blueprint,
         old_blueprint: Blueprint,
     ) -> AnyResult<Self> {
-        eprintln!("{}", "Actualize blueprint".fg::<Blue>());
+        ceprintln!(Blue, "Actualize blueprint");
         debug!("actualize blueprint into steps");
         trace!(?new_blueprint, ?old_blueprint);
 

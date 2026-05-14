@@ -9,7 +9,7 @@ use anyhow::Context;
 use anyhow::Result as AnyResult;
 use tracing::debug;
 
-use ino_color::InoColor;
+use ino_color::ceprintln;
 use ino_color::fg::Blue;
 use ino_color::fg::Yellow;
 use ino_tap::TapExt;
@@ -41,7 +41,7 @@ struct App;
 impl App {
     #[tracing::instrument(name = "app_run_with", skip_all)]
     fn run_with(cliopts: CliOpts) -> AnyResult<()> {
-        eprintln!("{}", "Prepareing blueprints".fg::<Blue>());
+        ceprintln!(Blue, "Prepareing blueprints");
 
         let new_blueprint = cliopts
             .new_blueprint
@@ -58,10 +58,9 @@ impl App {
             .tap_trace();
 
         if new_blueprint.is_none() && old_blueprint.is_none() {
-            eprintln!(
-                "{}",
+            ceprintln!(
+                Yellow,
                 "No new nor old blueprint given, nothing to do"
-                    .fg::<Yellow>()
             );
             return Ok(());
         }
@@ -74,7 +73,7 @@ impl App {
         let step_queue = StepQueue::new(new_blueprint, old_blueprint)
             .context("Error happened while executing the blueprint")?;
 
-        eprintln!("{}", "Check collision".fg::<Blue>());
+        ceprintln!(Blue, "Check collision");
 
         // TODO: use new type for checked steps?
         // TODO: structural error for reporting
@@ -82,7 +81,7 @@ impl App {
             step.dry_execute()?;
         }
 
-        eprintln!("{}", "Execute blueprint".fg::<Blue>());
+        ceprintln!(Blue, "Execute blueprint");
 
         for step in step_queue {
             step.execute()?;
@@ -95,7 +94,7 @@ impl App {
 fn main() -> AnyResult<()> {
     ino_tracing::init_tracing_subscriber();
 
-    eprintln!("{}", "Strech hands".fg::<Blue>());
+    ceprintln!(Blue, "Strech hands");
 
     let cliopt = {
         debug!("Parse cliopts");
