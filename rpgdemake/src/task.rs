@@ -12,8 +12,12 @@ use crate::lore::RPG_HEADER_LEN;
 use crate::lore::fix_extension;
 
 /// Decrypt a single RPG Maker encrypted file.
+///
+/// If `key` is `Some`, XORs the first 16 bytes after the RPG header
+/// with the key (full mode). If `None`, stamps the known PNG header
+/// over those bytes instead (light mode).
 #[tracing::instrument(skip(key))]
-pub fn decrypt_file(path: &Path, key: &Key) -> anyhow::Result<PathBuf> {
+pub fn decrypt(path: &Path, key: Option<&Key>) -> anyhow::Result<PathBuf> {
     validate_header(path).with_context(|| {
         format!("header validation failed for {}", path.display())
     })?;
@@ -28,9 +32,21 @@ pub fn decrypt_file(path: &Path, key: &Key) -> anyhow::Result<PathBuf> {
     // Strip RPG header; the rest is the original file content
     // with its first 16 bytes XOR'd by the key.
     let mut body = content.split_off(RPG_HEADER_LEN);
-    key.value.iter().zip(body.iter_mut()).for_each(|(b, cell)| {
-        *cell ^= b;
-    });
+
+    match key {
+        Some(k) => {
+            k.value.iter().zip(body.iter_mut()).for_each(|(b, cell)| {
+                *cell ^= b;
+            });
+        }
+        None => {
+            // Light mode: stamp the known PNG header over the
+            // XOR'd bytes
+            body.get_mut(..ENCRYPTED_PART_LEN)
+                .expect("body is longer than ENCRYPTED_PART_LEN")
+                .copy_from_slice(&PNG_HEADER);
+        }
+    }
 
     std::fs::write(&target, body).with_context(|| {
         format!("failed to write {}", target.display())
@@ -61,64 +77,14 @@ fn validate_header(file: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Decrypt a PNG file in light mode (no key needed).
-///
-/// Simply stamps the known PNG header over the XOR'd bytes,
-/// since the first 16 bytes of any PNG are deterministic.
-#[tracing::instrument]
-pub fn decrypt_light(path: &Path) -> anyhow::Result<PathBuf> {
-    validate_header(path).with_context(|| {
-        format!("header validation failed for {}", path.display())
-    })?;
-
-    let target = fix_extension(path).ok_or_else(|| {
-        anyhow::anyhow!("unknown extension for {}", path.display())
-    })?;
-
-    let mut content = std::fs::read(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let mut body = content.split_off(RPG_HEADER_LEN);
-
-    // Stamp the known PNG header over the XOR'd bytes
-    body.get_mut(..ENCRYPTED_PART_LEN)
-        .expect("body is longer than ENCRYPTED_PART_LEN")
-        .copy_from_slice(&PNG_HEADER);
-
-    std::fs::write(&target, body).with_context(|| {
-        format!("failed to write {}", target.display())
-    })?;
-
-    Ok(target)
-}
-
-/// Run light-mode decryption over all PNG files in parallel.
-#[tracing::instrument(skip_all)]
-pub fn run_light(paths: &[PathBuf]) -> anyhow::Result<()> {
-    use rayon::prelude::*;
-
-    paths.par_iter().enumerate().for_each(|(idx, path)| {
-        let idx = idx + 1;
-        let message = match decrypt_light(path) {
-            Ok(target) => format!("(ok) {}", target.display()),
-            Err(e) => {
-                format!("(err) {}: {e:#}", path.display())
-            }
-        };
-        println!("{idx}/{}: {message}", paths.len());
-    });
-
-    Ok(())
-}
-
 /// Run decryption over all files in parallel.
 #[tracing::instrument(skip_all)]
-pub fn run(paths: &[PathBuf], key: &Key) -> anyhow::Result<()> {
+pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
     use rayon::prelude::*;
 
     paths.par_iter().enumerate().for_each(|(idx, path)| {
         let idx = idx + 1;
-        let message = match decrypt_file(path, key) {
+        let message = match decrypt(path, key) {
             Ok(target) => format!("(ok) {}", target.display()),
             Err(e) => {
                 format!("(err) {}: {e:#}", path.display())
