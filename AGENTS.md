@@ -5,9 +5,6 @@
 InOri is a Rust workspace containing CLI tools and shared utility crates, authored by MidAutumnMoon and licensed under GPL-3.0-or-later.
 
 - **Repository**: <https://github.com/MidAutumnMoon/InOri>
-- **Rust edition**: 2024
-- **Minimum Rust version**: 1.90.0
-- **Workspace resolver**: 2
 
 ## Communication
 
@@ -34,32 +31,27 @@ InOri is a Rust workspace containing CLI tools and shared utility crates, author
 
 | Crate | Description |
 |---|---|
-| `coruma` | Comma replacement and symlink reverse-tracing (`coruma-reverse`) |
-| `derputils` | Miscellaneous utilities (QR code generation, clipboard, UUIDv7) |
-| `imgo` | Image batch processing and transcoding (AVIF, JXL, ImageMagick) |
-| `lny` | Symlink manager driven by JSON blueprints with Minijinja templates |
+| `coruma` | Comma replacement and symlink reverse-tracing |
+| `derputils` | Miscellaneous utilities (QR code, clipboard, UUIDv7) |
+| `imgo` | Image batch processing and transcoding |
+| `lny` | Symlink manager driven by JSON blueprints with templates |
 | `rpgdemake` | Batch decryption of RPG Maker MV/MZ encrypted assets |
 
 ### Shared Library Crates (`crates/`)
 
 | Crate | Description |
 |---|---|
-| `ino_color` | Terminal coloring with type-level color/style selection (16-color ANSI) |
+| `ino_color` | Terminal coloring with type-level color/style selection |
 | `ino_iter` | Iterator extension traits |
-| `ino_path` | Path utilities (executable detection, etc.) built on `rustix` |
+| `ino_path` | Path utilities (executable detection, etc.) |
 | `ino_tap` | `tap` extension traits with `tracing` integration |
 | `ino_tracing` | Opinionated `tracing-subscriber` initialization |
 
 ## Build & Test
 
 ```sh
-# Build the entire workspace
 cargo build --all-features
-
-# Run all tests
 cargo test --all-features
-
-# Check without building
 cargo check --all-features
 ```
 
@@ -69,15 +61,11 @@ CI runs `cargo test --all-features` on every push and PR (see `.github/workflows
 
 ### Style & Formatting
 
-- `rustfmt` is configured in `rustfmt.toml`: max width 75, no derive merging.
-- `.editorconfig`: 4-space indent, trailing whitespace trimmed.
-- Run `cargo fmt` before committing.
+- `rustfmt` and `.editorconfig` are configured — run `cargo fmt` before committing.
 
 ### Linting
 
-The workspace enforces strict Clippy lints (pedantic + nursery).
-
-Run `cargo clippy --all-features` and address all warnings before committing.
+- Strict Clippy lints are configured in the workspace `Cargo.toml`. Run `cargo clippy --all-features` and address all warnings before committing.
 
 ### Error Handling
 
@@ -88,19 +76,17 @@ Run `cargo clippy --all-features` and address all warnings before committing.
 ### Logging
 
 - Use the `tracing` crate for all logging.
-- Initialize the subscriber via `ino_tracing::init_tracing_subscriber()` at the start of `main()`.
-- Use `#[tracing::instrument]` on significant functions.
+- Initialize the subscriber via `ino_tracing` at the start of `main()`.
 
 ### CLI Structure
 
 - All CLI tools use `clap` with derive macros.
-- Define a `CliOpts` struct deriving `clap::Parser` with `#[arg(...)]` annotations.
 
 ### Dependency Management
 
 - Workspace-level dependencies are declared in the root `Cargo.toml` under `[workspace.dependencies]`.
 - Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
-- Renovate bot is configured for automated dependency updates with auto-merge for minor/patch/digest changes.
+- Renovate bot is configured for automated dependency updates.
 - When looking for the Cargo registry directory, read from `$CARGO_HOME` (defaults to `~/.cargo` but may differ). Never hardcode `~/.cargo`.
 
 ## Verify Changes
