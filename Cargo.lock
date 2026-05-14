@@ -1076,6 +1076,7 @@ dependencies = [
  "clap",
  "dir-diff",
  "hex",
+ "ino_color",
  "ino_tracing",
  "itertools",
  "rayon",

@@ -12,6 +12,7 @@ repository.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 hex = "0.4.3"
+ino_color.workspace = true
 ino_tracing.workspace = true
 itertools = "0"
 rayon.workspace = true

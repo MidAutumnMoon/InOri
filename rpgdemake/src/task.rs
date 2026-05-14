@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use anyhow::ensure;
+use ino_color::ceprintln;
+use ino_color::fg;
 
 use crate::key::Key;
 use crate::lore::ENCRYPTED_PART_LEN;
@@ -84,13 +86,20 @@ pub fn run(paths: &[PathBuf], key: Option<&Key>) -> anyhow::Result<()> {
 
     paths.par_iter().enumerate().for_each(|(idx, path)| {
         let idx = idx + 1;
-        let message = match decrypt(path, key) {
-            Ok(target) => format!("(ok) {}", target.display()),
-            Err(e) => {
-                format!("(err) {}: {e:#}", path.display())
-            }
-        };
-        println!("{idx}/{}: {message}", paths.len());
+        match decrypt(path, key) {
+            Ok(target) => ceprintln!(
+                fg::Blue,
+                "{idx}/{}: (ok) {}",
+                paths.len(),
+                target.display()
+            ),
+            Err(e) => ceprintln!(
+                fg::Red,
+                "{idx}/{}: (err) {}: {e:#}",
+                paths.len(),
+                path.display()
+            ),
+        }
     });
 
     Ok(())
