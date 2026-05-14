@@ -110,6 +110,8 @@ fn find(
     use itertools::Itertools;
     use rayon::prelude::*;
 
+    // FOOTGUN: par_bridge + rayon produces non-deterministic order,
+    // so the idx/N output lines may appear out of sequence.
     let files = walkdir::WalkDir::new(toplevel)
         .into_iter()
         .process_results(|iter| {
@@ -131,6 +133,9 @@ fn find(
 }
 
 /// Locate `System.json` anywhere under `root`.
+///
+/// FOOTGUN: returns the *first* match, which may not be the game's
+/// System.json if other files share that name (e.g. bundled plugins).
 #[tracing::instrument]
 fn find_system_json(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for entry in walkdir::WalkDir::new(root) {
