@@ -23,9 +23,7 @@
 //! cprintln!(fg::Green, "{:X}", 123);
 //! ```
 
-use std::io::{
-    IsTerminal, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock,
-};
+use std::io::IsTerminal;
 use std::sync::LazyLock;
 
 /// Check whether ANSI color should be enabled.
@@ -36,6 +34,9 @@ use std::sync::LazyLock;
 /// Environment variables are read **once** at first use and cached.
 /// Runtime changes to `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`,
 /// or `CLICOLOR` after that point will not be reflected.
+///
+/// This trait has a blanket impl for all [`IsTerminal`] types;
+/// it cannot be implemented manually.
 pub trait HasColors: IsTerminal {
     fn has_colors(&self) -> bool;
 }
@@ -58,57 +59,40 @@ static ENV_SET: LazyLock<EnvSet> = LazyLock::new(|| {
             .is_some_and(|v| !v.is_empty()),
         clicolor_force: std::env::var("CLICOLOR_FORCE")
             .is_ok_and(|v| v != "0"),
-        clicolor: std::env::var("CLICOLOR").ok().and_then(|v| {
-            match v.as_str() {
-                "1" => Some(true),
-                "0" => Some(false),
-                _ => None,
-            }
-        }),
+        clicolor: match std::env::var("CLICOLOR").as_deref() {
+            Ok("1") => Some(true),
+            Ok("0") => Some(false),
+            _ => None,
+        },
     }
 });
 
-macro_rules! impl_has_color {
-    ( $( $target:ty ),* $(,)? ) => { $(
-        impl HasColors for $target {
-            #[inline]
-            fn has_colors(&self) -> bool {
-                // Priority: FORCE_COLOR > NO_COLOR > CLICOLOR_FORCE > CLICOLOR > default (tty).
-                // FORCE_COLOR overrides everything per force-color.org.
-                if ENV_SET.force_color {
-                    return true;
-                }
-                // NO_COLOR set, don't output any color.
-                if ENV_SET.no_color {
-                    return false;
-                }
-                // CLICOLOR_FORCE set (non-zero), output color anyway.
-                if ENV_SET.clicolor_force {
-                    return true;
-                }
-                // CLICOLOR=0 disables; CLICOLOR=1 or unset defaults to tty.
-                match ENV_SET.clicolor {
-                    Some(true) => self.is_terminal(),
-                    Some(false) => false,
-                    None => self.is_terminal(),
-                }
-            }
+impl<T: IsTerminal> HasColors for T {
+    #[inline]
+    fn has_colors(&self) -> bool {
+        // Priority: FORCE_COLOR > NO_COLOR > CLICOLOR_FORCE
+        // > CLICOLOR > default (tty).
+        // FORCE_COLOR overrides everything per force-color.org.
+        if ENV_SET.force_color {
+            return true;
         }
-    )* };
-}
-
-impl_has_color! {
-    std::fs::File,
-    std::os::fd::OwnedFd,
-    std::os::fd::BorrowedFd<'_>,
-    Stdin, StdinLock<'_>,
-    Stdout, StdoutLock<'_>,
-    Stderr, StderrLock<'_>,
+        if ENV_SET.no_color {
+            return false;
+        }
+        if ENV_SET.clicolor_force {
+            return true;
+        }
+        // CLICOLOR=0 disables; CLICOLOR=1 or unset → tty.
+        match ENV_SET.clicolor {
+            Some(false) => false,
+            _ => self.is_terminal(),
+        }
+    }
 }
 
 /// An attribute in the [ANSI SGR](https://w.wiki/DBZ2) list.
 pub trait AnsiSgr {
-    const ATTR: &'static str;
+    const ATTR: u8;
 }
 
 /// The corresponding attribute is for *foreground color*.
@@ -122,33 +106,38 @@ pub trait Style: AnsiSgr {}
 macro_rules! lets_colors {
     ( $( $name:ident $fg:literal $bg:literal ),* $(,)? ) => {
         /// Named 16 foreground colors.
-        pub mod fg { $(
+        pub mod fg {
+            $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
-                const ATTR: &'static str = stringify!( $fg );
+                const ATTR: u8 = $fg;
             }
             impl crate::FG for $name {}
-        )* }
+            )*
+        }
         /// Named 16 background colors.
-        pub mod bg { $(
+        pub mod bg {
+            $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
-                const ATTR: &'static str = stringify!( $bg );
+                const ATTR: u8 = $bg;
             }
             impl crate::BG for $name {}
-        )* }
-    }
+            )*
+        }
+    };
 }
+
 lets_colors! {
-    Default   39 49,
-    Black   30 40,
-    Red     31 41,
-    Green   32 42,
-    Yellow  33 43,
-    Blue    34 44,
-    Magenta 35 45,
-    Cyan    36 46,
-    White   37 47,
+    Default       39  49,
+    Black         30  40,
+    Red           31  41,
+    Green         32  42,
+    Yellow        33  43,
+    Blue          34  44,
+    Magenta       35  45,
+    Cyan          36  46,
+    White         37  47,
     BrightBlack   90 100,
     BrightRed     91 101,
     BrightGreen   92 102,
@@ -162,15 +151,18 @@ lets_colors! {
 macro_rules! lets_styles {
     ( $( $name:ident $attr:literal ),* $(,)? ) => {
         /// Commonly used style attributes.
-        pub mod style { $(
+        pub mod style {
+            $(
             pub struct $name;
             impl crate::AnsiSgr for $name {
-                const ATTR: &'static str = stringify!( $attr );
+                const ATTR: u8 = $attr;
             }
             impl crate::Style for $name {}
-        )* }
-    }
+            )*
+        }
+    };
 }
+
 lets_styles! {
     // Reset (SGR 0) clears all attributes. Using it as a style
     // in a tuple like `(Blue, Reset)` would produce `\e[34;0m`
@@ -182,7 +174,6 @@ lets_styles! {
     Italic 3,
     Underline 4,
     Blink 5,
-    // Rapid_blink 6,
     Invert 7,
     Hide 8,
     Strike 9,
@@ -190,17 +181,63 @@ lets_styles! {
     Overline 53,
 }
 
-/// Helper: conditionally write a trailing newline.
-///
-/// Called by the print macros; `true` → `writeln!`,
-/// `false` → nothing.
+/// Write the ANSI SGR prefix for 1–3 attributes.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! __ino_newline {
-    (true, $lock:ident) => {
-        writeln!($lock).unwrap()
+macro_rules! __ino_sgr {
+    ($lock:ident, $fg:path) => {
+        write!($lock, "\x1b[{}m", <$fg as $crate::AnsiSgr>::ATTR).unwrap()
     };
-    (false, $lock:ident) => {};
+    ($lock:ident, $fg:path, $sty:path) => {
+        write!(
+            $lock,
+            "\x1b[{};{}m",
+            <$fg as $crate::AnsiSgr>::ATTR,
+            <$sty as $crate::AnsiSgr>::ATTR
+        )
+        .unwrap()
+    };
+    ($lock:ident, $fg:path, $bg:path, $sty:path) => {
+        write!(
+            $lock,
+            "\x1b[{};{};{}m",
+            <$fg as $crate::AnsiSgr>::ATTR,
+            <$bg as $crate::AnsiSgr>::ATTR,
+            <$sty as $crate::AnsiSgr>::ATTR
+        )
+        .unwrap()
+    };
+}
+
+/// Core color-print logic.
+///
+/// Called by the print macros with the stream, newline flag,
+/// SGR attributes, and format arguments.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __ino_print {
+    (
+        $stream:expr,
+        $newline:tt,
+        ($($attr:path),+),
+        $($param:tt)*
+    ) => {{
+        use $crate::HasColors;
+        use std::io::Write;
+        let stream = $stream;
+        let should_color = stream.has_colors();
+        let mut lock = stream.lock();
+        if should_color {
+            $crate::__ino_sgr!(lock, $($attr),+);
+        }
+        write!(lock, $($param)*).unwrap();
+        if should_color {
+            write!(lock, "\x1b[0m").unwrap();
+        }
+        if $newline {
+            writeln!(lock).unwrap();
+        }
+    }};
 }
 
 /// Create the color printing macros.
@@ -227,104 +264,67 @@ macro_rules! create_print_macro {
     ) => {
         #[macro_export]
         #[doc = concat!(
-            "Print with color, wraps [`", stringify!($print_macro), "!`].",
+            "Print with color, wraps [`",
+            stringify!($print_macro),
+            "!`].",
             "\n\n",
             "## Syntax\n",
-            "- `", stringify!($name), "!(FG, ..)` — foreground only\n",
-            "- `", stringify!($name), "!((FG, STYLE), ..)` — foreground + style\n",
-            "- `", stringify!($name), "!((FG, BG, STYLE), ..)`", " — foreground + background + style\n",
+            "- `",
+            stringify!($name),
+            "!(FG, ..)` — foreground only\n",
+            "- `",
+            stringify!($name),
+            "!((FG, STYLE), ..)` — foreground + style\n",
+            "- `",
+            stringify!($name),
+            "!((FG, BG, STYLE), ..)`",
+            " — foreground + background + style\n",
             "\n",
-            "Color/style is only emitted when the target stream supports it (see [`HasColors`]).\n\n",
+            "Color/style is only emitted when the target ",
+            "stream supports it (see [`HasColors`]).\n\n",
             "## Example\n",
             "```rust\n",
-            "use ino_color::", stringify!($name), ";\n",
+            "use ino_color::",
+            stringify!($name),
+            ";\n",
             "use ino_color::fg::Yellow;\n",
             "use ino_color::style::Italic;\n",
-            stringify!($name), "!(Yellow, \"Hello\");\n",
-            stringify!($name), "!((Yellow, Italic), \"Hello\");\n",
+            stringify!($name),
+            "!(Yellow, \"Hello\");\n",
+            stringify!($name),
+            "!((Yellow, Italic), \"Hello\");\n",
             "```\n",
         )]
         macro_rules! $name {
-            // fg only
             (
                 $dol fg:path,
                 $dol ($dol param:tt)*
-            ) => {{
-                use $crate::AnsiSgr;
-                use $crate::HasColors;
-                use std::io::Write;
-                let stream = $stream();
-                let should_color = stream.has_colors();
-                let mut lock = stream.lock();
-                if should_color {
-                    write!(
-                        lock,
-                        "\x1b[{}m",
-                        <$dol fg as AnsiSgr>::ATTR
-                    )
-                    .unwrap();
-                }
-                write!(lock, $dol ($dol param)*).unwrap();
-                if should_color {
-                    write!(lock, "\x1b[0m").unwrap();
-                }
-                $crate::__ino_newline!($newline, lock);
-            }};
-
-            // fg + style
+            ) => {
+                $crate::__ino_print!(
+                    $stream(), $newline, ($dol fg),
+                    $dol ($dol param)*
+                )
+            };
             (
-                ($dol fg:path, $dol style:path),
+                ($dol fg:path, $dol sty:path),
                 $dol ($dol param:tt)*
-            ) => {{
-                use $crate::AnsiSgr;
-                use $crate::HasColors;
-                use std::io::Write;
-                let stream = $stream();
-                let should_color = stream.has_colors();
-                let mut lock = stream.lock();
-                if should_color {
-                    write!(
-                        lock,
-                        "\x1b[{};{}m",
-                        <$dol fg as AnsiSgr>::ATTR,
-                        <$dol style as AnsiSgr>::ATTR
-                    )
-                    .unwrap();
-                }
-                write!(lock, $dol ($dol param)*).unwrap();
-                if should_color {
-                    write!(lock, "\x1b[0m").unwrap();
-                }
-                $crate::__ino_newline!($newline, lock);
-            }};
-
-            // fg + bg + style
+            ) => {
+                $crate::__ino_print!(
+                    $stream(), $newline,
+                    ($dol fg, $dol sty),
+                    $dol ($dol param)*
+                )
+            };
             (
-                ($dol fg:path, $dol bg:path, $dol style:path),
+                ($dol fg:path, $dol bg:path, $dol sty:path),
                 $dol ($dol param:tt)*
-            ) => {{
-                use $crate::AnsiSgr;
-                use $crate::HasColors;
-                use std::io::Write;
-                let stream = $stream();
-                let should_color = stream.has_colors();
-                let mut lock = stream.lock();
-                if should_color {
-                    write!(
-                        lock,
-                        "\x1b[{};{};{}m",
-                        <$dol fg as AnsiSgr>::ATTR,
-                        <$dol bg as AnsiSgr>::ATTR,
-                        <$dol style as AnsiSgr>::ATTR
-                    )
-                    .unwrap();
-                }
-                write!(lock, $dol ($dol param)*).unwrap();
-                if should_color {
-                    write!(lock, "\x1b[0m").unwrap();
-                }
-                $crate::__ino_newline!($newline, lock);
-            }};
+            ) => {
+                $crate::__ino_print!(
+                    $stream(), $newline,
+                    ($dol fg, $dol bg, $dol sty),
+                    $dol ($dol param)*
+                )
+            };
         }
     };
     // Repetition to create each named print macro
@@ -332,7 +332,6 @@ macro_rules! create_print_macro {
         $( ($name:ident, $print_macro:path, $stream:path, $newline:tt) ),*
         $(,)?
     ) => {
-        // pass `$`
         $(create_print_macro!(
             $name,
             $print_macro,
