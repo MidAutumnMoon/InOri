@@ -5,15 +5,14 @@ use tracing::debug;
 
 use anyhow::Context;
 use anyhow::bail;
+use anyhow::ensure;
 
 mod key;
 mod lore;
-mod project;
 mod task;
 
 use lore::DecryptMode;
 use lore::EncryptedKind;
-use project::GameDir;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -39,10 +38,16 @@ fn main() -> anyhow::Result<()> {
     debug!("increase NOFILE rlimit");
     rlimit::increase_nofile_limit(u64::MAX)?;
 
-    let game_dir = GameDir::probe(cliopts.game_dir)
-        .context("Failed to understand game's engine revision")?;
+    let root = &cliopts.game_dir;
 
-    let root = game_dir.root();
+    ensure! { root.is_dir(),
+        "{} is not a directory", root.display()
+    };
+    ensure! { root.join("locales").try_exists()?,
+        "Game folder doesn't contain necessary files to be recognized \
+        as a RPG Maker game. Maybe the directory is wrong, \
+        it's not a RPG Maker MV/MZ game, or the files are packed into the exe."
+    };
 
     // Collect encrypted files
 
