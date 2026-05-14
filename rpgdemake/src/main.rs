@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use tap::Pipe;
 use tracing::debug;
 
 use anyhow::Context;
@@ -69,18 +70,16 @@ fn main() -> anyhow::Result<()> {
 
     let enc_key = match cliopts.mode {
         DecryptMode::Full => {
-            let system_json = find_system_json(root)
-                .context("Failed to locate System.json")?;
-
-            let Some(system_json) = system_json else {
+            let Some(system_json) = find_system_json(root)
+                .context("Failed to locate System.json")?
+            else {
                 bail!("System.json not found in game directory")
             };
 
-            debug!(?system_json, "try read encryption key");
+            debug!(?system_json, "read encryption key from System.json");
 
-            let key = key::Key::parse_json(&std::fs::read_to_string(
-                system_json,
-            )?)?;
+            let key = std::fs::read_to_string(system_json)?
+                .pipe_as_ref(key::Key::parse_json)?;
 
             match key {
                 Some(k) => Some(k),

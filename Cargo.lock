@@ -1081,6 +1081,7 @@ dependencies = [
  "rayon",
  "rlimit",
  "serde_json",
+ "tap",
  "tracing",
  "walkdir",
 ]

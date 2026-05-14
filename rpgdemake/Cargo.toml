@@ -17,6 +17,7 @@ itertools = "0"
 rayon.workspace = true
 rlimit = "0"
 serde_json.workspace = true
+tap.workspace = true
 tracing.workspace = true
 walkdir = "2"
 
