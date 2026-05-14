@@ -5,8 +5,8 @@ use tap::Pipe;
 use tracing::debug;
 
 use anyhow::Context;
-use anyhow::bail;
 use anyhow::ensure;
+use clap::Parser;
 
 mod key;
 mod lore;
@@ -40,11 +40,10 @@ struct CliOpts {
 
 fn main() -> anyhow::Result<()> {
     ino_tracing::init_tracing_subscriber();
-    let cliopts = <CliOpts as clap::Parser>::parse();
+    let cliopts = CliOpts::parse();
 
     debug!(?cliopts);
 
-    debug!("increase NOFILE rlimit");
     rlimit::increase_nofile_limit(u64::MAX)?;
 
     let root = &cliopts.game_dir;
@@ -70,23 +69,25 @@ fn main() -> anyhow::Result<()> {
 
     let enc_key = match cliopts.mode {
         DecryptMode::Full => {
-            let Some(system_json) = find_system_json(root)
+            let system_json = find_system_json(root)
                 .context("Failed to locate System.json")?
-            else {
-                bail!("System.json not found in game directory")
-            };
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "System.json not found in game directory"
+                    )
+                })?;
 
             debug!(?system_json, "read encryption key from System.json");
 
             let key = std::fs::read_to_string(system_json)?
-                .pipe_as_ref(key::Key::parse_json)?;
+                .pipe_as_ref(key::Key::parse_json)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "System.json does not contain encryption key, maybe assets are not encrypted?"
+                    )
+                })?;
 
-            match key {
-                Some(k) => Some(k),
-                None => bail!(
-                    "System.json does not contain encryption key, maybe not encrypted?"
-                ),
-            }
+            Some(key)
         }
         DecryptMode::Light => None,
     };
@@ -107,27 +108,20 @@ fn find(
     toplevel: &Path,
     mode: DecryptMode,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    use itertools::Itertools;
-    use rayon::prelude::*;
-
-    // FOOTGUN: par_bridge + rayon produces non-deterministic order,
-    // so the idx/N output lines may appear out of sequence.
     let files = walkdir::WalkDir::new(toplevel)
         .into_iter()
-        .process_results(|iter| {
-            iter.par_bridge()
-                .map(|entry| entry.path().to_owned())
-                .filter(|path| path.is_file())
-                .filter_map(|path| {
-                    let ext = path.extension()?.to_str()?;
-                    let kind = EncryptedKind::from_ext(ext)?;
-                    match mode {
-                        DecryptMode::Light if !kind.is_png() => None,
-                        _ => Some(path),
-                    }
-                })
-                .collect()
-        })?;
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| {
+            let path = entry.path();
+            let ext = path.extension()?.to_str()?;
+            let kind = EncryptedKind::from_ext(ext)?;
+            match mode {
+                DecryptMode::Light if !kind.is_png() => None,
+                _ => Some(path.to_owned()),
+            }
+        })
+        .collect();
 
     Ok(files)
 }
