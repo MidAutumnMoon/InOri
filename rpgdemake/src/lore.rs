@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 pub const RPG_HEADER_LEN: usize = 16;
 
 pub const RPG_HEADER: [u8; RPG_HEADER_LEN] = [
@@ -10,3 +12,23 @@ pub const RPG_HEADER: [u8; RPG_HEADER_LEN] = [
 
 /// Length of the encrypted portion of the file.
 pub const ENCRYPTED_PART_LEN: usize = 16;
+
+/// Map known extensions of encrypted RPG Maker files
+/// to their normal counterparts.
+pub fn map_encrypted_extension(input: &str) -> Option<&'static str> {
+    match input {
+        "rpgmvp" | "png_" => Some("png"),
+        "rpgmvo" | "ogg_" => Some("ogg"),
+        "rpgmvm" | "m4a_" => Some("m4a"),
+        _ => None,
+    }
+}
+
+/// Replace the encrypted extension with the decrypted one.
+pub fn fix_extension(origin: &Path) -> Option<PathBuf> {
+    use std::ffi::OsStr;
+    let ext = origin.extension().and_then(OsStr::to_str)?;
+    let mut path = origin.to_owned();
+    let _ = path.set_extension(map_encrypted_extension(ext)?);
+    Some(path)
+}

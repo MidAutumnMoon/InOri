@@ -4,7 +4,7 @@ use walkdir::WalkDir;
 
 use rayon::prelude::*;
 
-use crate::task::Validate;
+use crate::lore::map_encrypted_extension;
 
 #[tracing::instrument]
 pub fn find_all(toplevel: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -17,7 +17,8 @@ pub fn find_all(toplevel: &Path) -> anyhow::Result<Vec<PathBuf>> {
                 .filter(|path| path.is_file())
                 .filter_map(|path| {
                     let ext = path.extension()?.to_str()?;
-                    Validate::map_extension(ext).and(Some(path))
+                    map_encrypted_extension(ext)?;
+                    Some(path)
                 })
                 .collect()
         })?;
