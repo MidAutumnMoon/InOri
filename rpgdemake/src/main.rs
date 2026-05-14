@@ -13,9 +13,8 @@ mod project;
 mod task;
 
 use lore::DecryptMode;
+use lore::EncryptedKind;
 use project::EngineRev;
-
-use crate::lore::map_encrypted_extension;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -144,15 +143,10 @@ fn find(
                 .filter(|path| path.is_file())
                 .filter_map(|path| {
                     let ext = path.extension()?.to_str()?;
+                    let kind = EncryptedKind::from_ext(ext)?;
                     match mode {
-                        DecryptMode::Light => match ext {
-                            "rpgmvp" | "png_" => Some(path),
-                            _ => None,
-                        },
-                        DecryptMode::Full => {
-                            map_encrypted_extension(ext)?;
-                            Some(path)
-                        }
+                        DecryptMode::Light if !kind.is_png() => None,
+                        _ => Some(path),
                     }
                 })
                 .collect()

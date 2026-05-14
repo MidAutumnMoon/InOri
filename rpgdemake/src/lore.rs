@@ -34,14 +34,40 @@ pub enum DecryptMode {
     Light,
 }
 
-/// Map known extensions of encrypted RPG Maker files
-/// to their normal counterparts.
-pub fn map_encrypted_extension(input: &str) -> Option<&'static str> {
-    match input {
-        "rpgmvp" | "png_" => Some("png"),
-        "rpgmvo" | "ogg_" => Some("ogg"),
-        "rpgmvm" | "m4a_" => Some("m4a"),
-        _ => None,
+/// Kind of encrypted RPG Maker asset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptedKind {
+    Png,
+    Ogg,
+    M4a,
+}
+
+impl EncryptedKind {
+    /// Parse an encrypted file extension into an `EncryptedKind`.
+    ///
+    /// MV extensions: `.rpgmvp`, `.rpgmvo`, `.rpgmvm`
+    /// MZ extensions: `.png_`, `.ogg_`, `.m4a_`
+    pub fn from_ext(ext: &str) -> Option<Self> {
+        match ext {
+            "rpgmvp" | "png_" => Some(Self::Png),
+            "rpgmvo" | "ogg_" => Some(Self::Ogg),
+            "rpgmvm" | "m4a_" => Some(Self::M4a),
+            _ => None,
+        }
+    }
+
+    /// The decrypted file extension for this kind.
+    pub fn decrypted_extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Ogg => "ogg",
+            Self::M4a => "m4a",
+        }
+    }
+
+    /// Whether this kind is PNG.
+    pub fn is_png(self) -> bool {
+        self == Self::Png
     }
 }
 
@@ -50,6 +76,8 @@ pub fn fix_extension(origin: &Path) -> Option<PathBuf> {
     use std::ffi::OsStr;
     let ext = origin.extension().and_then(OsStr::to_str)?;
     let mut path = origin.to_owned();
-    let _ = path.set_extension(map_encrypted_extension(ext)?);
+    let _ = path.set_extension(
+        EncryptedKind::from_ext(ext)?.decrypted_extension(),
+    );
     Some(path)
 }
