@@ -2,12 +2,12 @@
 //!
 //! This implements <https://bixense.com/clicolors>.
 
-#[ allow( clippy::wildcard_imports ) ]
+#[allow(clippy::wildcard_imports)]
 use std::io::*;
 use std::sync::LazyLock;
 
 pub trait HasColors: IsTerminal {
-    fn has_colors( &self ) -> bool;
+    fn has_colors(&self) -> bool;
 }
 
 struct EnvSet {
@@ -16,16 +16,18 @@ struct EnvSet {
     clicolor: bool,
 }
 
-static ENV_SET: LazyLock<EnvSet> = LazyLock::new( || {
+static ENV_SET: LazyLock<EnvSet> = LazyLock::new(|| {
     macro_rules! ck {
-        ( $n:literal ) => { std::env::var_os( $n ).is_some() }
+        ( $n:literal ) => {
+            std::env::var_os($n).is_some()
+        };
     }
     EnvSet {
-        no_color: ck!( "NO_COLOR" ),
-        clicolor_force: ck!( "CLICOLOR_FORCE" ),
-        clicolor: ck!( "CLICOLOR" ),
+        no_color: ck!("NO_COLOR"),
+        clicolor_force: ck!("CLICOLOR_FORCE"),
+        clicolor: ck!("CLICOLOR"),
     }
-} );
+});
 
 macro_rules! impl_has_color {
     // $target : type, repeated

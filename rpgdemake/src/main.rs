@@ -13,13 +13,30 @@ mod project;
 mod task;
 
 use project::EngineRev;
-// use project::Project;
+
+/// Decrypt mode.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum DecryptMode {
+    /// Decrypt all assets using the encryption key from System.json.
+    Full,
+    /// Decrypt PNG images only, without needing the encryption key.
+    /// Restores the PNG header by exploiting the fixed PNG signature.
+    Light,
+}
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
 struct CliOpts {
     /// Path to the directory containing the game.
     game_dir: PathBuf,
+
+    /// Decryption mode.
+    ///
+    /// "full" reads the encryption key from System.json and decrypts
+    /// all asset types (PNG, OGG, M4A). "light" skips the key and
+    /// only decrypts PNG images by restoring the known PNG header.
+    #[arg(long, value_enum, default_value = "full")]
+    mode: DecryptMode,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -38,6 +55,27 @@ fn main() -> anyhow::Result<()> {
     let engine_rev = EngineRev::probe_revision(&cliopts.game_dir)
         .context("Failed to understand game's engine revision")?;
 
+    match cliopts.mode {
+        DecryptMode::Light => run_light(&engine_rev),
+        DecryptMode::Full => run_full(&engine_rev),
+    }
+}
+
+fn run_light(engine_rev: &EngineRev) -> anyhow::Result<()> {
+    let img_dir = engine_rev.get_img_dir();
+
+    debug!(?img_dir, "light mode: scanning for encrypted PNGs");
+
+    let files = finder::find_png(&img_dir)?;
+
+    debug!(?files, "light mode: found files");
+
+    task::run_light(&files)?;
+
+    Ok(())
+}
+
+fn run_full(engine_rev: &EngineRev) -> anyhow::Result<()> {
     let system_json = engine_rev.get_data_dir().join("System.json");
 
     let resource_dirs =

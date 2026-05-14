@@ -14,6 +14,16 @@ pub const RPG_HEADER: [u8; RPG_HEADER_LEN] = [
 /// Length of the encrypted portion of the file.
 pub const ENCRYPTED_PART_LEN: usize = 16;
 
+/// The first 16 bytes of every valid PNG file:
+///   8-byte PNG signature + 4-byte IHDR chunk length (always 13) + "IHDR" tag.
+///
+/// Used by light mode to restore the header without the encryption key.
+pub const PNG_HEADER: [u8; ENCRYPTED_PART_LEN] = [
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+    0x00, 0x00, 0x00, 0x0D, // IHDR chunk length (always 13)
+    0x49, 0x48, 0x44, 0x52, // "IHDR"
+];
+
 /// Map known extensions of encrypted RPG Maker files
 /// to their normal counterparts.
 pub fn map_encrypted_extension(input: &str) -> Option<&'static str> {

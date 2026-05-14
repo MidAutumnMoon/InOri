@@ -79,6 +79,15 @@ impl Layout {
                 dir.child(child).write_binary(&data).unwrap()
             });
     }
+
+    /// Set up only the PNG expected output (for light mode tests).
+    fn setup_expected_png_only(&self) {
+        let dir = self.base_dir();
+        let data = std::fs::read(fixture("Clouds.png")).unwrap();
+        dir.child("img/pictures/Clouds.png")
+            .write_binary(&data)
+            .unwrap();
+    }
 }
 
 fn run_main_program(dir: &Path) {
@@ -87,6 +96,19 @@ fn run_main_program(dir: &Path) {
     let mut program = std::process::Command::new(exe_path);
     program.env("RUST_LOG", "debug");
     program.arg(dir);
+
+    let status = program.spawn().unwrap().wait().unwrap();
+
+    assert!(status.success());
+}
+
+fn run_main_program_light(dir: &Path) {
+    let exe_path = std::env!("CARGO_BIN_EXE_rpgdemake");
+
+    let mut program = std::process::Command::new(exe_path);
+    program.env("RUST_LOG", "debug");
+    program.arg(dir);
+    program.arg("--mode").arg("light");
 
     let status = program.spawn().unwrap().wait().unwrap();
 
@@ -139,6 +161,58 @@ fn test_mz_layout() {
     expected_layout.setup_system_json();
     expected_layout.setup_layout();
     expected_layout.setup_expected();
+
+    assert! {
+        ! dir_diff::is_different(
+            tmpdir.path(), expected_tmpdir.path()
+        ).unwrap()
+    };
+}
+
+#[test]
+fn test_mv_light_layout() {
+    let tmpdir = assert_fs::TempDir::new().unwrap();
+
+    let layout = Layout::new(Version::MV, tmpdir.child("."));
+
+    // Light mode doesn't need System.json
+    layout.setup_layout();
+
+    run_main_program_light(tmpdir.path());
+
+    // Expected: only PNG is decrypted, audio left as-is
+    let expected_tmpdir = assert_fs::TempDir::new().unwrap();
+
+    let expected_layout =
+        Layout::new(Version::MV, expected_tmpdir.child("."));
+
+    expected_layout.setup_layout();
+    expected_layout.setup_expected_png_only();
+
+    assert! {
+        ! dir_diff::is_different(
+            tmpdir.path(), expected_tmpdir.path()
+        ).unwrap()
+    };
+}
+
+#[test]
+fn test_mz_light_layout() {
+    let tmpdir = assert_fs::TempDir::new().unwrap();
+
+    let layout = Layout::new(Version::MZ, tmpdir.child("."));
+
+    layout.setup_layout();
+
+    run_main_program_light(tmpdir.path());
+
+    let expected_tmpdir = assert_fs::TempDir::new().unwrap();
+
+    let expected_layout =
+        Layout::new(Version::MZ, expected_tmpdir.child("."));
+
+    expected_layout.setup_layout();
+    expected_layout.setup_expected_png_only();
 
     assert! {
         ! dir_diff::is_different(
