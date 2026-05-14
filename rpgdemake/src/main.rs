@@ -41,11 +41,11 @@ struct CliOpts {
 
 fn main() -> anyhow::Result<()> {
     ino_tracing::init_tracing_subscriber();
+    rlimit::increase_nofile_limit(u64::MAX)?;
+
     let cliopts = CliOpts::parse();
 
     debug!(?cliopts);
-
-    rlimit::increase_nofile_limit(u64::MAX)?;
 
     let root = &cliopts.game_dir;
 
