@@ -1,7 +1,5 @@
-use anyhow::bail;
 use anyhow::ensure;
 
-use itertools::Itertools;
 use tracing::debug;
 
 /// Length of encryption key.
@@ -9,72 +7,42 @@ use tracing::debug;
 /// the key length should equal to the length of the encrypted part.
 pub const KEY_LEN: usize = crate::lore::ENCRYPTED_PART_LEN;
 
-/// Text of hex of encryption key.
-/// Each byte of key is stored as a hex ( 187 -> "bb" ),
-/// so the total
-pub const RAW_KEY_LEN: usize = 2 * KEY_LEN;
-
 /// The per-project key used to encrypt assets.
 #[derive(Debug, Clone)]
 pub struct Key {
     pub value: [u8; KEY_LEN],
 }
 
-impl TryFrom<&str> for Key {
-    type Error = anyhow::Error;
-
-    fn try_from(raw_key: &str) -> anyhow::Result<Self> {
-        debug!("parse encryption key from str");
-
-        ensure! { raw_key.len() == RAW_KEY_LEN,
-            "String \"{raw_key}\" is not a valid encryption key. \
+impl Key {
+    /// Decode a hex-encoded encryption key string.
+    fn from_hex(raw_key: &str) -> anyhow::Result<Self> {
+        ensure! { raw_key.len() == 2 * KEY_LEN,
+            "\"{raw_key}\" is not a valid encryption key. \
             Maybe it's fake, obfuscated or broken.",
         };
 
-        debug!("decode hex values");
-
-        let key = raw_key
-            .chars()
-            .chunks(2)
-            .into_iter()
-            .map(|ck| ck.map(|c| c as u8).collect_vec())
-            .map(hex::decode)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect_vec();
-
-        let Ok(value) = key.try_into() else {
-            anyhow::bail!("Failed to convert key")
-        };
+        let value = hex::decode(raw_key)?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("key length mismatch"))?;
 
         Ok(Self { value })
     }
-}
 
-impl Key {
     #[tracing::instrument(skip_all)]
     pub fn parse_json(json: &str) -> anyhow::Result<Option<Self>> {
-        use serde_json::{Value, from_str};
+        use serde_json::Value;
 
         debug!("try find encryption key in JSON");
 
-        let fields: Value = from_str(json)?;
+        let fields: Value = serde_json::from_str(json)?;
 
-        let key = match fields.get("encryptionKey") {
-            Some(v) => match v {
-                Value::String(s) => s,
-                _ => bail! {
-                    "Found encryption key, \
-                    but it can't be parsed into string"
-                },
-            },
-            None => return Ok(None),
+        let Some(Value::String(key)) = fields.get("encryptionKey") else {
+            return Ok(None);
         };
 
         debug!(key, "found key");
 
-        Ok(Some(Self::try_from(key.as_ref())?))
+        Ok(Some(Self::from_hex(key)?))
     }
 }
 
@@ -82,43 +50,35 @@ impl Key {
 #[expect(clippy::unwrap_used)]
 mod tests {
 
+    use super::*;
     const JSON: &str = include_str!("../tests/fixture/System.json");
-
     const EMPTY_JSON: &str = "{}";
-
     const KEY_STR: &str = "bb145893824d809dcab45febae756d2b";
-
     const KEY_STR_INVALID: &str = "wow";
-
     const EXPECTED_KEY: &[u8] = &[
         187, 20, 88, 147, 130, 77, 128, 157, 202, 180, 95, 235, 174, 117,
         109, 43,
     ];
 
-    use super::*;
-
     #[test]
-    fn str() {
-        let key = Key::try_from(KEY_STR).unwrap();
+    fn from_hex() {
+        let key = Key::from_hex(KEY_STR).unwrap();
         assert_eq!(key.value, EXPECTED_KEY);
     }
 
     #[test]
-    fn str_invalid() {
-        let key = Key::try_from(KEY_STR_INVALID);
-        assert!(key.is_err());
+    fn from_hex_invalid() {
+        assert!(Key::from_hex(KEY_STR_INVALID).is_err());
     }
 
     #[test]
-    fn json() {
-        let key = Key::parse_json(JSON).unwrap();
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().value, EXPECTED_KEY);
+    fn parse_json() {
+        let key = Key::parse_json(JSON).unwrap().unwrap();
+        assert_eq!(key.value, EXPECTED_KEY);
     }
 
     #[test]
-    fn json_no_key() {
-        let key = Key::parse_json(EMPTY_JSON).unwrap();
-        assert!(key.is_none());
+    fn parse_json_no_key() {
+        assert!(Key::parse_json(EMPTY_JSON).unwrap().is_none());
     }
 }
