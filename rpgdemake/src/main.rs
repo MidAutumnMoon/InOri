@@ -12,17 +12,8 @@ mod lore;
 mod project;
 mod task;
 
+use lore::DecryptMode;
 use project::EngineRev;
-
-/// Decrypt mode.
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-enum DecryptMode {
-    /// Decrypt all assets using the encryption key from System.json.
-    Full,
-    /// Decrypt PNG images only, without needing the encryption key.
-    /// Restores the PNG header by exploiting the fixed PNG signature.
-    Light,
-}
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -66,7 +57,7 @@ fn run_light(engine_rev: &EngineRev) -> anyhow::Result<()> {
 
     debug!(?img_dir, "light mode: scanning for encrypted PNGs");
 
-    let files = finder::find_png(&img_dir)?;
+    let files = finder::find(&img_dir, DecryptMode::Light)?;
 
     debug!(?files, "light mode: found files");
 
@@ -115,7 +106,7 @@ fn run_full(engine_rev: &EngineRev) -> anyhow::Result<()> {
 
         let files: Vec<PathBuf> = resource_dirs
             .iter()
-            .map(|p| finder::find_all(p))
+            .map(|p| finder::find(p, DecryptMode::Full))
             .collect::<AResult<Vec<_>>>()?
             .into_iter()
             .flatten()

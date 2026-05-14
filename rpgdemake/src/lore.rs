@@ -11,6 +11,15 @@ pub const RPG_HEADER: [u8; RPG_HEADER_LEN] = [
     0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
+/// Decrypt mode.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecryptMode {
+    /// Decrypt all assets using the encryption key from System.json.
+    Full,
+    /// Decrypt PNG images only, without needing the encryption key.
+    Light,
+}
+
 /// Length of the encrypted portion of the file.
 pub const ENCRYPTED_PART_LEN: usize = 16;
 
