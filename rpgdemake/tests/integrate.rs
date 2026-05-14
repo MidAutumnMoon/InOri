@@ -90,25 +90,13 @@ impl Layout {
     }
 }
 
-fn run_main_program(dir: &Path) {
+fn run_main_program(dir: &Path, mode: &str) {
     let exe_path = std::env!("CARGO_BIN_EXE_rpgdemake");
 
     let mut program = std::process::Command::new(exe_path);
     program.env("RUST_LOG", "debug");
     program.arg(dir);
-
-    let status = program.spawn().unwrap().wait().unwrap();
-
-    assert!(status.success());
-}
-
-fn run_main_program_light(dir: &Path) {
-    let exe_path = std::env!("CARGO_BIN_EXE_rpgdemake");
-
-    let mut program = std::process::Command::new(exe_path);
-    program.env("RUST_LOG", "debug");
-    program.arg(dir);
-    program.arg("--mode").arg("light");
+    program.arg("--mode").arg(mode);
 
     let status = program.spawn().unwrap().wait().unwrap();
 
@@ -124,7 +112,7 @@ fn test_mv_layout() {
     layout.setup_system_json();
     layout.setup_layout();
 
-    run_main_program(tmpdir.path());
+    run_main_program(tmpdir.path(), "full");
 
     let expected_tmpdir = assert_fs::TempDir::new().unwrap();
 
@@ -151,7 +139,7 @@ fn test_mz_layout() {
     layout.setup_system_json();
     layout.setup_layout();
 
-    run_main_program(tmpdir.path());
+    run_main_program(tmpdir.path(), "full");
 
     let expected_tmpdir = assert_fs::TempDir::new().unwrap();
 
@@ -178,7 +166,7 @@ fn test_mv_light_layout() {
     // Light mode doesn't need System.json
     layout.setup_layout();
 
-    run_main_program_light(tmpdir.path());
+    run_main_program(tmpdir.path(), "light");
 
     // Expected: only PNG is decrypted, audio left as-is
     let expected_tmpdir = assert_fs::TempDir::new().unwrap();
@@ -204,7 +192,7 @@ fn test_mz_light_layout() {
 
     layout.setup_layout();
 
-    run_main_program_light(tmpdir.path());
+    run_main_program(tmpdir.path(), "light");
 
     let expected_tmpdir = assert_fs::TempDir::new().unwrap();
 

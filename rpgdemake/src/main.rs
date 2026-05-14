@@ -5,7 +5,6 @@ use tracing::debug;
 
 use anyhow::Context;
 use anyhow::bail;
-use anyhow::ensure;
 
 mod key;
 mod lore;
@@ -14,7 +13,7 @@ mod task;
 
 use lore::DecryptMode;
 use lore::EncryptedKind;
-use project::EngineRev;
+use project::GameDir;
 
 /// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
 #[derive(clap::Parser, Debug)]
@@ -40,57 +39,35 @@ fn main() -> anyhow::Result<()> {
     debug!("increase NOFILE rlimit");
     rlimit::increase_nofile_limit(u64::MAX)?;
 
-    // Setup & sanity checks
-
-    debug!("Probe game engine revision");
-
-    let engine_rev = EngineRev::probe_revision(&cliopts.game_dir)
+    let game_dir = GameDir::probe(cliopts.game_dir)
         .context("Failed to understand game's engine revision")?;
 
-    run(&engine_rev, cliopts.mode)
+    run(&game_dir, cliopts.mode)
 }
 
-fn run(engine_rev: &EngineRev, mode: DecryptMode) -> anyhow::Result<()> {
-    let resource_dirs = match mode {
-        DecryptMode::Light => vec![engine_rev.get_img_dir()],
-        DecryptMode::Full => {
-            vec![engine_rev.get_img_dir(), engine_rev.get_audio_dir()]
-        }
-    };
+fn run(game_dir: &GameDir, mode: DecryptMode) -> anyhow::Result<()> {
+    let root = game_dir.root();
 
-    // Collect files to decrypt
+    // Collect encrypted files
 
-    debug!(?mode, ?resource_dirs, "collect files to decrypt");
+    debug!(?mode, "collect files to decrypt");
 
-    let files = {
-        use anyhow::Result as AResult;
+    let files = find(root, mode)?;
 
-        let files: Vec<PathBuf> = resource_dirs
-            .iter()
-            .map(|p| find(p, mode))
-            .collect::<AResult<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-
-        debug!(?files, "found files");
-
-        files
-    };
+    debug!(?files, "found files");
 
     // Get encryption key (full mode only)
 
     let enc_key = match mode {
         DecryptMode::Full => {
-            let system_json =
-                engine_rev.get_data_dir().join("System.json");
+            let system_json = find_system_json(root)
+                .context("Failed to locate System.json")?;
+
+            let Some(system_json) = system_json else {
+                bail!("System.json not found in game directory")
+            };
 
             debug!(?system_json, "try read encryption key");
-
-            ensure! { system_json.is_file(),
-                "System.json doesn't exist at \"{}\"",
-                system_json.display()
-            };
 
             let key = key::Key::parse_json(&std::fs::read_to_string(
                 system_json,
@@ -143,4 +120,18 @@ fn find(
         })?;
 
     Ok(files)
+}
+
+/// Locate `System.json` anywhere under `root`.
+#[tracing::instrument]
+fn find_system_json(root: &Path) -> anyhow::Result<Option<PathBuf>> {
+    for entry in walkdir::WalkDir::new(root) {
+        let entry = entry?;
+        if entry.file_type().is_file()
+            && entry.file_name() == "System.json"
+        {
+            return Ok(Some(entry.path().to_owned()));
+        }
+    }
+    Ok(None)
 }
