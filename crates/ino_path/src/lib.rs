@@ -68,7 +68,6 @@ mod test {
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
 
-    #[macro_export]
     macro_rules! make_tempdir {
         () => {{ TempDir::new().expect("Failed to setup tempdir") }};
     }
