@@ -43,7 +43,11 @@ impl PathExt for Path {
 
     #[inline]
     fn is_dir_no_traverse(&self) -> IoResult<bool> {
-        self.symlink_metadata().map(|m| m.is_dir())
+        match self.symlink_metadata() {
+            Ok(m) => Ok(m.is_dir()),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     #[inline]
