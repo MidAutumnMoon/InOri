@@ -56,6 +56,7 @@ fn run(cliopts: &CliOpts) -> anyhow::Result<()> {
         } => {
             use std::io::{read_to_string, stdin};
             debug!("data source is stdin");
+            // Blocks until EOF, so the user can type a message and press Ctrl-D.
             read_to_string(stdin().lock())
                 .context("Unable to read from stdin")?
         }
@@ -80,8 +81,8 @@ fn run(cliopts: &CliOpts) -> anyhow::Result<()> {
 
     debug!("saving Qr Code to tempfile");
 
-    // Lack the motivation to deal with
-    // file collision or clean up at all.
+    // Temp files are intentionally not cleaned up.
+    // Files use UUIDv7 names, so collisions are not a concern.
     let svg_path = {
         // Using UUIDv7 to make files nicely sorted
         let filename = format!("quraa:{}.svg", uuid::Uuid::now_v7());
@@ -94,10 +95,16 @@ fn run(cliopts: &CliOpts) -> anyhow::Result<()> {
 
     debug!("showing generated Qr Code");
 
-    std::process::Command::new("open")
+    let status = std::process::Command::new("xdg-open")
         .arg(&svg_path)
-        .output()
-        .context("Unable to execute command \"open\"")?;
+        .status()
+        .context("Unable to execute xdg-open")?;
+
+    if !status.success() {
+        bail!("xdg-open exited with {status}");
+    }
+
+    eprintln!("QR code opened: {}", svg_path.display());
 
     Ok(())
 }
