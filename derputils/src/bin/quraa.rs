@@ -18,48 +18,22 @@ struct CliOpts {
 fn run(cliopts: &CliOpts) -> anyhow::Result<()> {
     debug!("read data for Qr Code");
 
-    let data: String = match cliopts {
-        CliOpts {
-            clipboard: true,
-            stdin: true,
-        } => {
-            // Prevented by setting exclusive on arguments
-            #[allow(clippy::unreachable)]
-            {
-                unreachable!()
-            }
-        }
-
-        CliOpts {
-            clipboard: false,
-            stdin: false,
-        } => {
-            bail!(
-                "Wrong command line options. \
-                    Run with --help to see usage."
-            )
-        }
-
-        CliOpts {
-            clipboard: true,
-            stdin: false,
-        } => {
-            debug!("data source is clipboard");
-            let mut cb = arboard::Clipboard::new()
-                .context("Unable to handle clipboard")?;
-            cb.get_text().context("Unable to read from clipboard")?
-        }
-
-        CliOpts {
-            clipboard: false,
-            stdin: true,
-        } => {
-            use std::io::{read_to_string, stdin};
-            debug!("data source is stdin");
-            // Blocks until EOF, so the user can type a message and press Ctrl-D.
-            read_to_string(stdin().lock())
-                .context("Unable to read from stdin")?
-        }
+    let data = if cliopts.clipboard {
+        debug!("data source is clipboard");
+        let mut cb = arboard::Clipboard::new()
+            .context("Unable to handle clipboard")?;
+        cb.get_text().context("Unable to read from clipboard")?
+    } else if cliopts.stdin {
+        use std::io::{read_to_string, stdin};
+        debug!("data source is stdin");
+        // Blocks until EOF, so the user can type a message and press Ctrl-D.
+        read_to_string(stdin().lock())
+            .context("Unable to read from stdin")?
+    } else {
+        bail!(
+            "Wrong command line options. \
+                Run with --help to see usage."
+        )
     };
 
     debug!(?data);
