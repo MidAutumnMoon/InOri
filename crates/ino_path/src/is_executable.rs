@@ -26,6 +26,9 @@ where
     fn is_executable(&self) -> std::io::Result<bool>;
 }
 
+#[cfg(not(unix))]
+compile_error!("`IsExecutable` is only implemented for unix targets");
+
 #[cfg(unix)]
 mod unix {
 
