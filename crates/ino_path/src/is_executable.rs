@@ -20,10 +20,10 @@ where
 {
     /// Check whether the file pointed by given path is an executable.
     ///
-    /// # Errors
-    ///
-    /// See [`std::io::Error`]
-    fn is_executable(&self) -> std::io::Result<bool>;
+    /// Returns `false` if the path doesn't exist, isn't accessible,
+    /// or any other error occurs — following the same convention as
+    /// [`Path::exists`] and [`Path::is_dir`].
+    fn is_executable(&self) -> bool;
 }
 
 #[cfg(not(unix))]
@@ -37,25 +37,13 @@ mod unix {
 
     impl IsExecutable for Path {
         #[inline]
-        fn is_executable(&self) -> std::io::Result<bool> {
-            let ret = {
-                use rustix::fs::Access;
-                use rustix::fs::AtFlags;
-                use rustix::fs::CWD;
-                use rustix::fs::accessat;
-                accessat(CWD, self, Access::EXEC_OK, AtFlags::empty())
-            };
-            match ret {
-                Err(err) => {
-                    use std::io::ErrorKind;
-                    if matches!(err.kind(), ErrorKind::PermissionDenied) {
-                        Ok(false)
-                    } else {
-                        Err(err.into())
-                    }
-                }
-                Ok(()) => Ok(true),
-            }
+        fn is_executable(&self) -> bool {
+            use rustix::fs::Access;
+            use rustix::fs::AtFlags;
+            use rustix::fs::CWD;
+            use rustix::fs::accessat;
+
+            accessat(CWD, self, Access::EXEC_OK, AtFlags::empty()).is_ok()
         }
     }
 
@@ -63,31 +51,18 @@ mod unix {
     use assert2::assert;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn unix_test() {
         use std::path::PathBuf;
         use tap::Pipe;
 
         let binsh = Path::new("/bin/sh");
-        assert! {
-            binsh.is_executable()
-                .inspect_err( |err| println!( "{err:?}" ) )
-                .unwrap()
-        };
+        assert!(binsh.is_executable());
 
         // Unix directory is also executable
         let root = Path::new("/");
-        assert! {
-            root.is_executable()
-                .inspect_err( |err| println!( "{err:?}" ) )
-                .unwrap()
-        };
+        assert!(root.is_executable());
 
         let manifest = env!("CARGO_MANIFEST_PATH").pipe(PathBuf::from);
-        assert! {
-            !manifest.is_executable()
-                .inspect_err( |err| println!( "{err:?}" ) )
-                .unwrap()
-        };
+        assert!(!manifest.is_executable());
     }
 }

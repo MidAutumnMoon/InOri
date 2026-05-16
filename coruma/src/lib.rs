@@ -24,7 +24,7 @@ pub fn lookup_executable_in_path(program: &str) -> Vec<PathBuf> {
         let full_path = dir.join(program);
         trace!(?full_path);
 
-        if matches!(full_path.is_executable(), Ok(true)) {
+        if full_path.is_executable() {
             debug!(?full_path, "Found executable");
             accu.push(full_path);
         }
