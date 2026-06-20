@@ -25,6 +25,7 @@ rust-version = "1.90.0"
 anyhow = "1"
 assert_fs = "1"
 clap = { version = "4", features = [ "derive", "cargo", "env" ] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 itertools = "0"
 rayon = "1"
 rustix = { version = "1", features = [ "all-apis" ] }

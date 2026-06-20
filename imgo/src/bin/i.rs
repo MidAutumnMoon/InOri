@@ -9,6 +9,7 @@ use rlimit::Resource;
 
 use anyhow::Context;
 use anyhow::bail;
+use anyhow::ensure;
 use imgo::BACKUP_DIR_NAME;
 use imgo::BaseSeqExt;
 use imgo::Image;
@@ -20,6 +21,7 @@ use imgo::collect_images;
 use imgo::jxl::Jxl;
 use imgo::magick::CleanScan;
 use imgo::magick::Denoise;
+use imgo::scramble_image;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
@@ -74,6 +76,16 @@ enum CliOpts {
         shared: SharedOpts,
     },
 
+    /// 番茄图: scramble/descramble images via a Gilbert-curve pixel
+    /// permutation. Output is always PNG (lossless).
+    #[command(visible_alias = "t")]
+    Tomato {
+        #[command(flatten)]
+        tomato: TomatoOpts,
+        #[clap(flatten)]
+        shared: SharedOpts,
+    },
+
     /// Generate shell completion.
     GenComplete {
         #[clap(short, long)]
@@ -113,6 +125,42 @@ struct SharedOpts {
     manual_selection: Option<Vec<PathBuf>>,
 }
 
+/// Options for the `tomato` subcommand.
+#[derive(clap::Args, Debug)]
+struct TomatoOpts {
+    /// Scramble (obfuscate) the image. Exactly one of `--encrypt` /
+    /// `--decrypt` must be given.
+    #[arg(long)]
+    encrypt: bool,
+
+    /// Descramble (restore) the image. Exactly one of `--encrypt` /
+    /// `--decrypt` must be given.
+    #[arg(long)]
+    decrypt: bool,
+
+    /// Key controlling the offset along the Gilbert curve.
+    /// The same key is required to reverse scrambling.
+    #[arg(long, default_value_t = 1.0)]
+    key: f64,
+}
+
+impl TomatoOpts {
+    /// Resolves the encrypt/decrypt pair, erroring if not exactly one
+    /// is set.
+    fn mode(&self) -> anyhow::Result<bool> {
+        match (self.encrypt, self.decrypt) {
+            (true, false) => Ok(true),
+            (false, true) => Ok(false),
+            (false, false) => {
+                bail!("Exactly one of --encrypt / --decrypt is required")
+            }
+            (true, true) => {
+                bail!("--encrypt and --decrypt are mutually exclusive")
+            }
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     ino_tracing::init_tracing_subscriber();
     let cliopts = <CliOpts as clap::Parser>::parse();
@@ -134,6 +182,10 @@ fn main() -> anyhow::Result<()> {
                     &mut std::io::stdout(),
                 );
                 std::process::exit(0);
+            }
+            CliOpts::Tomato { tomato, shared } => {
+                let mode = tomato.mode()?;
+                return run_tomato(tomato.key, mode, shared);
             }
             CliOpts::Avif { transcoder, shared } => {
                 (transcoder as &dyn Transcoder, shared)
@@ -427,6 +479,277 @@ fn main() -> anyhow::Result<()> {
                         );
                     });
                     bar.inc(1);
+                    return;
+                }
+
+                bar.inc(1);
+            });
+        }
+
+        Ok(())
+    })?;
+
+    progress_bar.finish();
+
+    Ok(())
+}
+
+/// Image formats the `tomato` subcommand can decode (via the `image`
+/// crate). AVIF/JXL are excluded because the `image` crate isn't built
+/// with those decoders here.
+const TOMATO_INPUT_FORMATS: [ImageFormat; 4] = [
+    ImageFormat::PNG,
+    ImageFormat::JPG,
+    ImageFormat::WEBP,
+    ImageFormat::GIF,
+];
+
+/// Output extension for the tomato subcommand (always lossless PNG).
+const TOMATO_OUTPUT_EXT: &str = "png";
+
+/// Runs the 番茄图 scramble/descramble pipeline.
+///
+/// `encrypt == true` scrambles, `false` descrambles. Output is always
+/// PNG so the permutation survives lossless round-trips.
+fn run_tomato(
+    key: f64,
+    encrypt: bool,
+    shared: &SharedOpts,
+) -> anyhow::Result<()> {
+    let action = if encrypt {
+        "Scrambling"
+    } else {
+        "Descrambling"
+    };
+    ceprintln!(Yellow, "[Tomato: {action}, key={key}]");
+
+    let workspace = {
+        let pwd = std::env::current_dir()?;
+        shared.workspace.as_ref().map_or(pwd, Clone::clone)
+    };
+
+    // Collect images (same discovery logic as the transcoder path).
+    let images = if let Some(man_sel) = &shared.manual_selection {
+        debug!("Use manually chosen images");
+        let mut accu = vec![];
+        for sel in man_sel {
+            if sel.is_dir() {
+                if shared.no_recursive {
+                    continue;
+                }
+                let collected = collect_images(
+                    sel,
+                    &TOMATO_INPUT_FORMATS,
+                    !shared.no_recursive,
+                )
+                .with_context(|| {
+                    format!(
+                        "Failed to collect images from {}",
+                        sel.display()
+                    )
+                })?;
+                accu.extend(collected);
+            } else {
+                let path = RelAbs::from_path(&workspace, sel)?;
+                let Some(format) = ImageFormat::from_path(sel) else {
+                    bail!(
+                        "The format of {} is not supported",
+                        sel.display()
+                    );
+                };
+                ensure!(
+                    TOMATO_INPUT_FORMATS.contains(&format),
+                    "Tomato can't decode {} (supported: PNG/JPG/WEBP/GIF)",
+                    sel.display()
+                );
+                let extra = BaseSeqExt::try_from(sel.as_ref())?;
+                accu.push(Image {
+                    path,
+                    format,
+                    extra,
+                });
+            }
+        }
+        accu
+    } else {
+        collect_images(
+            &workspace,
+            &TOMATO_INPUT_FORMATS,
+            !shared.no_recursive,
+        )
+        .context("Failed to collect images")?
+    };
+
+    if images.is_empty() {
+        ceprintln!(Yellow, "No images to process.");
+        return Ok(());
+    }
+
+    let no_backup = shared.no_backup || shared.manual_selection.is_some();
+
+    let backup_dir = Arc::new({
+        let dir = workspace.join(BACKUP_DIR_NAME);
+        if !no_backup {
+            std::fs::create_dir_all(&dir)?;
+        }
+        dir
+    });
+
+    let jobs = shared.jobs.unwrap_or_else(|| {
+        NonZeroU64::new(
+            std::thread::available_parallelism()
+                .map_or(1, |n| n.get() as u64),
+        )
+        .unwrap_or(NonZeroU64::MIN)
+    });
+
+    let progress_bar = {
+        let bar = ProgressBar::new(images.len() as u64);
+        let style = ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.blue/gray}] {pos}/{len} ({eta})",
+        )?
+        .progress_chars("#>-");
+        bar.set_style(style);
+        bar.enable_steady_tick(Duration::from_millis(100));
+        bar
+    };
+
+    #[expect(clippy::cast_possible_truncation)]
+    let thread_pool = ThreadPoolBuilder::new()
+        .num_threads(jobs.get() as usize)
+        .build()?;
+
+    thread_pool.scope(|scope| -> anyhow::Result<()> {
+        for (image, bar, backup_dir) in izip!(
+            images,
+            repeat(progress_bar.clone()),
+            repeat(backup_dir),
+        ) {
+            scope.spawn(move |_| {
+                let _g = debug_span!("tomato", ?image).entered();
+                let input_path = image.path.original_path();
+
+                bar.suspend(|| {
+                    ceprintln!(
+                        BrightBlue,
+                        "{action}: {}",
+                        input_path.display()
+                    );
+                });
+
+                let report_err = |bar: &ProgressBar, msg: String| {
+                    bar.suspend(|| ceprintln!(Red, "{msg}"));
+                    bar.inc(1);
+                };
+
+                // Decode -> RGBA8 -> scramble -> encode PNG into a temp file.
+                let temp_output = match NamedTempFile::with_suffix(
+                    format!(".{TOMATO_OUTPUT_EXT}"),
+                ) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        report_err(
+                            &bar,
+                            format!(
+                                "Failed to create tempfile for {}: {e}",
+                                input_path.display()
+                            ),
+                        );
+                        return;
+                    }
+                };
+
+                let mut rgba = match image::open(&input_path) {
+                    Ok(img) => img.to_rgba8(),
+                    Err(e) => {
+                        report_err(
+                            &bar,
+                            format!(
+                                "Failed to decode {}: {e}",
+                                input_path.display()
+                            ),
+                        );
+                        return;
+                    }
+                };
+
+                scramble_image(&mut rgba, key, encrypt);
+
+                if let Err(e) = rgba.save(temp_output.path()) {
+                    report_err(
+                        &bar,
+                        format!(
+                            "Failed to encode PNG for {}: {e}",
+                            input_path.display()
+                        ),
+                    );
+                    return;
+                }
+
+                // Resolve destination dir + filename (PNG), backing up
+                // the source first when not disabled.
+                let Some(dest_dir) = image.path.parent_dir() else {
+                    report_err(
+                        &bar,
+                        format!(
+                            "[BUG] Failed to get parent directory for {}",
+                            input_path.display()
+                        ),
+                    );
+                    return;
+                };
+
+                if !no_backup {
+                    let backup_path =
+                        image.path.backup_path_structure(&backup_dir);
+                    if let Some(backup_parent) = backup_path.parent()
+                        && let Err(e) = create_dir_all(backup_parent)
+                    {
+                        report_err(
+                            &bar,
+                            format!(
+                                "Failed to create backup dir {}: {e}",
+                                backup_parent.display()
+                            ),
+                        );
+                        return;
+                    }
+                    if let Err(e) = rename(&input_path, &backup_path) {
+                        report_err(
+                            &bar,
+                            format!(
+                                "Failed to backup {}: {e}",
+                                input_path.display()
+                            ),
+                        );
+                        return;
+                    }
+                    debug!("Backed up to {}", backup_path.display());
+                }
+
+                let mut output_extra =
+                    image.extra.set_ext(&format!(".{TOMATO_OUTPUT_EXT}"));
+                let mut dest_path =
+                    dest_dir.join(output_extra.to_filename());
+                while dest_path.exists() {
+                    debug!(
+                        r#"Destination "{}" exists, incrementing seq"#,
+                        dest_path.display()
+                    );
+                    output_extra = output_extra.increment_seq();
+                    dest_path = dest_dir.join(output_extra.to_filename());
+                }
+
+                if let Err(e) =
+                    std::fs::copy(temp_output.path(), &dest_path)
+                {
+                    report_err(
+                        &bar,
+                        format!(
+                            "Failed to copy output to {}: {e}",
+                            dest_path.display()
+                        ),
+                    );
                     return;
                 }
 
