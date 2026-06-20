@@ -5,11 +5,7 @@ use assert_fs::TempDir;
 use assert_fs::prelude::*;
 use ino_path::PathExt;
 use rand::RngExt;
-use rand::rngs::ThreadRng;
 use tap::Tap;
-
-use std::process::Command;
-use std::sync::LazyLock;
 
 const VERSION: usize = 1;
 
