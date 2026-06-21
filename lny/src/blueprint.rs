@@ -161,7 +161,9 @@ mod test {
         let res = Blueprint::deserialize(der);
         assert!(res.is_err());
         assert!(
-            res.err().unwrap().to_string().contains("self-referential")
+            res.expect_err("it should error")
+                .to_string()
+                .contains("self-referential")
         );
     }
 }
