@@ -149,13 +149,25 @@ fn generate2d(
     }
 }
 
-/// Scrambles or descrambles a 32-bit-per-pixel image (RGBA) in place.
+/// Scrambles or descrambles a 32-bit-per-pixel image (RGBA8) in place.
 ///
 /// `encrypt == true` scrambles; `encrypt == false` reverses it. The
 /// `key` controls the offset along the Gilbert curve; the same key is
 /// required for a successful round-trip.
 ///
 /// `pixels` must be `width * height * 4` bytes long, RGBA8.
+///
+/// # Offset and Java interop
+///
+/// The offset is `round((√5 − 1)/2 · N · key)`, then taken **modulo
+/// `pixel_count`**. The Java reference does *not* take the modulo, so it
+/// throws `ArrayIndexOutOfBoundsException` once `key ≳ 1/φ ≈ 1.618`.
+/// This implementation is more robust and round-trips correctly for any
+/// non-negative finite key, but for byte-identical interop with the
+/// Java tool keep `key < 1/φ`.
+///
+/// Note also that two keys that are congruent modulo `1/φ` produce the
+/// same scramble (e.g. `key=2.0` ≡ `key≈0.382` on the same image).
 pub fn scramble_rgba(
     pixels: &mut [u8],
     width: u32,

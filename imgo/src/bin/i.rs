@@ -521,7 +521,15 @@ fn run_tomato(
     } else {
         "Descrambling"
     };
+    ensure!(
+        key.is_finite() && key >= 0.0,
+        "--key must be finite and non-negative (got {key})"
+    );
     ceprintln!(Yellow, "[Tomato: {action}, key={key}]");
+    ceprintln!(
+        Yellow,
+        "Note: metadata (EXIF/ICC) is stripped; GIF uses first frame only."
+    );
 
     let workspace = {
         let pwd = std::env::current_dir()?;
@@ -637,6 +645,17 @@ fn run_tomato(
                     );
                 });
 
+                // GIF: `image::open` loads only the first frame.
+                if image.format == ImageFormat::GIF {
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Yellow,
+                            "{}: GIF, only first frame processed",
+                            input_path.display()
+                        );
+                    });
+                }
+
                 let report_err = |bar: &ProgressBar, msg: String| {
                     bar.suspend(|| ceprintln!(Red, "{msg}"));
                     bar.inc(1);
@@ -660,7 +679,23 @@ fn run_tomato(
                 };
 
                 let mut rgba = match image::open(&input_path) {
-                    Ok(img) => img.to_rgba8(),
+                    Ok(img) => {
+                        // Warn about lossy downconversion for >8-bit
+                        // inputs: the algorithm is lossless, but the
+                        // RGBA8 pipeline truncates deep pixels.
+                        let bpp = img.color().bits_per_pixel();
+                        if bpp > 32 {
+                            bar.suspend(|| {
+                                ceprintln!(
+                                    Yellow,
+                                    "{}: {bpp}-bit input, \
+                                     downconverting to 8-bit (lossy)",
+                                    input_path.display()
+                                );
+                            });
+                        }
+                        img.to_rgba8()
+                    }
                     Err(e) => {
                         report_err(
                             &bar,
