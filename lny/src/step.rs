@@ -404,81 +404,52 @@ impl Step {
         Ok(())
     }
 
-    /// Walk up from `dst` to its nearest existing ancestor, bailing if any
-    /// intermediate path component exists but is neither a directory nor
-    /// a symlink.
+    /// Walk up from `dst`'s parent and bail if any existing ancestor
+    /// is neither a directory nor a symlink. Catches typo'd paths like
+    /// `/etc/hosts/foo` before the real pass commits anything.
     ///
-    /// Used by [`Self::check_feasibility`] to catch obvious path mistakes
-    /// (e.g. `dst = /etc/hosts/foo`) *before* the real pass commits any
-    /// mutations, so that a typo doesn't leave the queue half-applied.
-    ///
-    /// # Why no `access(2)` probe
-    ///
-    /// We deliberately stop at topology. Writability probing via
-    /// [`access(2)`](https://man7.org/linux/man-pages/man2/access.2.html)
-    /// is TOCTOU-prone (the man page itself warns about this), and once
-    /// you start checking permissions you also have to reason about
-    /// quotas, ACLs, MAC, and read-only filesystems — none of which we
-    /// can fully predict. Permission errors from the real write path
-    /// produce clear OS-level messages; topology errors do not, which
-    /// is why only the latter is worth catching up front.
+    /// Topology-only by design: writability probing via `access(2)` is
+    /// TOCTOU-prone and opens an unbounded scope (quotas, ACLs, MAC,
+    /// read-only filesystems). Permission errors from the real write
+    /// path produce clear OS-level messages; topology errors do not.
     #[inline]
     #[tracing::instrument]
     fn ensure_creatable_topology(dst: &Path) -> AnyResult<()> {
         debug!("check topology of dst");
-        let Some(mut cursor) = dst.parent() else {
+        let Some(parent) = dst.parent() else {
             bail!(r#"dst "{}" has no parent"#, dst.display());
         };
-        loop {
-            match cursor.symlink_metadata() {
+        for ancestor in parent.ancestors() {
+            match ancestor.symlink_metadata() {
                 Ok(md) if md.is_dir() || md.is_symlink() => return Ok(()),
                 Ok(_) => bail!(
                     r#"Path component "{}" exists but is not a directory, \
                         cannot create symlink at "{}""#,
-                    cursor.display(),
+                    ancestor.display(),
                     dst.display(),
                 ),
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                    let Some(parent) = cursor.parent() else {
-                        bail!(
-                            r#"No existing ancestor found for dst "{}""#,
-                            dst.display()
-                        );
-                    };
-                    cursor = parent;
+                    // Do nothing, skip
                 }
                 Err(err) => {
                     return Err(err).with_context(|| {
                         format!(
                             r#"Failed to stat ancestor "{}""#,
-                            cursor.display()
+                            ancestor.display()
                         )
                     });
                 }
             }
         }
+        bail!(r#"No existing ancestor found for dst "{}""#, dst.display());
     }
 
-    /// Walk up from `dst`'s parent and remove empty ancestor directories.
-    ///
-    /// # Design note: unbounded walk, no ownership tracking
-    ///
-    /// The walk goes all the way to `/` (stopping at the first non-empty
-    /// ancestor) and does **not** track whether lny created the dirs it's
-    /// removing. This is intentional:
-    ///
-    /// - lny is designed to be **stateless** — no history, no xattr, no
-    ///   sidecar state. Tracking ownership would violate that.
-    /// - The author's use case is "all symlinks under a tree are managed
-    ///   by lny" (e.g. `~/.config/lny-stuff`, `/etc/lny-stuff`), so any
-    ///   empty ancestor is by construction lny's responsibility.
-    /// - `/etc` support is explicit, so we cannot bound the walk at
-    ///   `$HOME` or XDG bases.
-    ///
-    /// Footgun if your layout differs: if you `mkdir -p` a directory by
-    /// hand and lny later removes its last occupant, lny will prune the
-    /// hand-made directory too. We accept that trade-off for simplicity.
-    /// See `BUGS.md` #3 (won't fix) for the full discussion.
+    /// Walk up from `path` removing empty ancestor directories, stopping
+    /// at the first non-empty one. The walk is unbounded (up to `/`) and
+    /// does not track ownership — lny is stateless by design, so dirs you
+    /// created manually may be pruned if they become empty. This is
+    /// accepted given the assumption that all symlinks in a managed tree
+    /// belong to lny.
     #[inline]
     #[tracing::instrument]
     fn remove_empty_parent_dirs(path: &Path) -> AnyResult<()> {
