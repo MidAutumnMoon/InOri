@@ -16,7 +16,7 @@ Worse, the dry pass returns `Ok(())` at line 269-272 *before* this would happen,
 
 Fix: call `create_parent_dirs` in the replace path too, and move the dry-run early return to *after* feasibility checks (or make dry run actually check parent existence).
 
-### 2. `dry_execute` only catches collisions, not feasibility
+### 2. `dry_execute` only catches collisions, not feasibility — FIXED (Option B)
 `lny/src/step.rs:158-160`, `200-210`, `269-272`, `329-332`
 
 The two-pass design in `main.rs` (`dry_execute` all, then `execute` all) is supposed to be the safety net, but every step's dry branch early-returns after the collision check. None of these will be caught by dry run:

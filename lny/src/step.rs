@@ -154,8 +154,14 @@ pub enum Step {
 }
 
 impl Step {
+    /// Check whether this step is feasible without mutating the filesystem.
+    ///
+    /// N.B. Catches path topology mistakes and collisions but intentionally
+    /// does not probe writability — see [`Self::ensure_creatable_topology`]
+    /// for the rationale. ENOSPC, permission errors, and similar surface
+    /// only at [`Self::execute`] time.
     #[inline]
-    pub fn dry_execute(self) -> AnyResult<()> {
+    pub fn check_feasibility(self) -> AnyResult<()> {
         self.real_execute(true)
     }
 
@@ -205,7 +211,8 @@ impl Step {
 
         // N.B. early return
         if dry {
-            debug!("dry run");
+            debug!("dry run, check feasibility");
+            Self::ensure_creatable_topology(&dst)?;
             return Ok(());
         }
 
@@ -267,7 +274,8 @@ impl Step {
 
         // N.B. early rerun
         if dry {
-            debug!("dry run");
+            debug!("dry run, check feasibility");
+            Self::ensure_creatable_topology(&dst)?;
             return Ok(());
         }
 
@@ -369,6 +377,61 @@ impl Step {
             )
         })?;
         Ok(())
+    }
+
+    /// Walk up from `dst` to its nearest existing ancestor, bailing if any
+    /// intermediate path component exists but is neither a directory nor
+    /// a symlink.
+    ///
+    /// Used by [`Self::check_feasibility`] to catch obvious path mistakes
+    /// (e.g. `dst = /etc/hosts/foo`) *before* the real pass commits any
+    /// mutations, so that a typo doesn't leave the queue half-applied.
+    ///
+    /// # Why no `access(2)` probe
+    ///
+    /// We deliberately stop at topology. Writability probing via
+    /// [`access(2)`](https://man7.org/linux/man-pages/man2/access.2.html)
+    /// is TOCTOU-prone (the man page itself warns about this), and once
+    /// you start checking permissions you also have to reason about
+    /// quotas, ACLs, MAC, and read-only filesystems — none of which we
+    /// can fully predict. Permission errors from the real write path
+    /// produce clear OS-level messages; topology errors do not, which
+    /// is why only the latter is worth catching up front.
+    #[inline]
+    #[tracing::instrument]
+    fn ensure_creatable_topology(dst: &Path) -> AnyResult<()> {
+        debug!("check topology of dst");
+        let Some(mut cursor) = dst.parent() else {
+            bail!(r#"dst "{}" has no parent"#, dst.display());
+        };
+        loop {
+            match cursor.symlink_metadata() {
+                Ok(md) if md.is_dir() || md.is_symlink() => return Ok(()),
+                Ok(_) => bail!(
+                    r#"Path component "{}" exists but is not a directory, \
+                        cannot create symlink at "{}""#,
+                    cursor.display(),
+                    dst.display(),
+                ),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    let Some(parent) = cursor.parent() else {
+                        bail!(
+                            r#"No existing ancestor found for dst "{}""#,
+                            dst.display()
+                        );
+                    };
+                    cursor = parent;
+                }
+                Err(err) => {
+                    return Err(err).with_context(|| {
+                        format!(
+                            r#"Failed to stat ancestor "{}""#,
+                            cursor.display()
+                        )
+                    });
+                }
+            }
+        }
     }
 
     #[inline]
@@ -652,6 +715,48 @@ mod test {
                 DstFact::NotExist
             )
         };
+    }
+
+    #[test]
+    fn ensure_creatable_topology() {
+        use tap::Tap;
+
+        let top = make_tempdir!();
+
+        // 1. parent exists and is a dir
+        {
+            let dst = top.child(make_random_str!());
+            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+        }
+
+        // 2. partial chain missing, no obstacle
+        {
+            let grandparent = top.child(make_random_str!());
+            let parent = grandparent.child(make_random_str!());
+            let dst = parent.child(make_random_str!());
+            // parent and grandparent don't exist yet
+            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+        }
+
+        // 3. ancestor is a regular file — the bug we're catching
+        {
+            let file = top
+                .child(make_random_str!())
+                .tap(|it| it.touch().unwrap());
+            let dst = file.child(make_random_str!());
+            assert!(Step::ensure_creatable_topology(dst.path()).is_err());
+        }
+
+        // 4. ancestor is a symlink (deferred to OS at write time)
+        {
+            let real_dir = top
+                .child(make_random_str!())
+                .tap(|it| it.create_dir_all().unwrap());
+            let link = top.child(make_random_str!());
+            symlink(real_dir.path(), link.path()).unwrap();
+            let dst = link.child(make_random_str!());
+            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+        }
     }
 
     #[test]

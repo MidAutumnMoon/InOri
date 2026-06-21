@@ -73,12 +73,12 @@ impl App {
         let step_queue = StepQueue::new(new_blueprint, old_blueprint)
             .context("Error happened while executing the blueprint")?;
 
-        ceprintln!(Blue, "Check collision");
+        ceprintln!(Blue, "Check feasibility");
 
         // TODO: use new type for checked steps?
         // TODO: structural error for reporting
         for step in step_queue.clone() {
-            step.dry_execute()?;
+            step.check_feasibility()?;
         }
 
         ceprintln!(Blue, "Execute blueprint");
