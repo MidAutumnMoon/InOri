@@ -58,6 +58,12 @@ impl Blueprint {
                 .all_unique(),
             "Some symlinks in the blueprint have conflicting destination path"
         };
+        ensure! {
+            self.symlinks.iter()
+                .all( |it| it.src != it.dst ),
+            "Some symlinks have identical src and dst, \
+                which would produce a self-referential symlink"
+        };
         Ok(())
     }
 }
@@ -143,5 +149,23 @@ mod test {
         let der = json.into_deserializer();
         let res = Blueprint::deserialize(der);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn reject_self_referential_symlink() {
+        let json = serde_json::json! {
+            {
+                "version": CURRENT_BLUEPRINT_VERSION,
+                "symlinks": [
+                    { "src": "/foo", "dst": "/foo" }
+                ]
+            }
+        };
+        let der = json.into_deserializer();
+        let res = Blueprint::deserialize(der);
+        assert!(res.is_err());
+        assert!(
+            res.err().unwrap().to_string().contains("self-referential")
+        );
     }
 }

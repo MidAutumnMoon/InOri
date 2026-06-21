@@ -87,6 +87,13 @@ impl StepQueue {
             if let Some(old_symlink) = found_old_symlink {
                 if old_symlink.same_src(&new_symlink) {
                     trace!("same src, do nothing");
+                    // N.B. We keep `Nothing` steps in the queue rather than
+                    // filtering them out. They carry no filesystem effect,
+                    // but retaining them makes the step stream match 1:1
+                    // with the blueprint entries — useful for tracing and
+                    // for users who want to confirm lny considered each
+                    // entry. The cost (an extra iteration per Nothing in
+                    // both passes) is negligible at lny's scale.
                     Step::Nothing
                 } else {
                     trace!("replace symlink");
@@ -210,6 +217,16 @@ impl Step {
             );
         }
 
+        // N.B. We deliberately allow src to not exist — creating links to
+        // not-yet-existing targets is a legitimate use case (e.g. linking
+        // before installing). Emit a trace so typos are diagnosable.
+        if !src.try_exists().unwrap_or(false) {
+            trace!(
+                ?src,
+                "src does not exist; will create a dangling symlink"
+            );
+        }
+
         // N.B. early return
         if dry {
             debug!("dry run, check feasibility");
@@ -319,12 +336,19 @@ impl Step {
         let rename_ret = rename(&tmp_dst, &dst).with_context(|| {
             format!(r#"Failed to replace symlink "{}""#, dst.display())
         });
-        if rename_ret.is_err() {
+        if let Err(rename_err) = rename_ret {
             debug!("error when renaming symlink, remove tmp file");
-            remove_file(&tmp_dst).context(
-                "Failed to remove intermediate symlink, \
-                    your filesystem might be cooked",
-            )?;
+            // If cleanup fails too, surface both — the original rename
+            // error is what the user actually needs to diagnose.
+            if let Err(cleanup_err) = remove_file(&tmp_dst) {
+                return Err(cleanup_err).context(format!(
+                    r#"Failed to remove intermediate symlink \
+                        "{}", filesystem might be cooked. \
+                        Original rename error: {rename_err}"#,
+                    tmp_dst.display(),
+                ));
+            }
+            return Err(rename_err);
         }
         Ok(())
     }

@@ -79,13 +79,11 @@ impl ContextOfTemplate {
         let data = xdg.data_dir().must_absolute()?.into();
         let cache = xdg.cache_dir().must_absolute()?.into();
 
-        let state = {
-            let Some(state) = xdg.state_dir() else {
-                debug!("Failed to get XDG_STATE_HOME");
-                anyhow::bail!("XDG_STATE_HOME is not set");
-            };
-            state.must_absolute()?.into()
-        };
+        let state = xdg
+            .state_dir()
+            .context("Failed to determine XDG state directory")?
+            .must_absolute()?
+            .into();
 
         Self {
             home,
