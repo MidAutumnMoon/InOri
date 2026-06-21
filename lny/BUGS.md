@@ -4,7 +4,7 @@ Reviewed against `lny/src/{main,blueprint,step,template}.rs`.
 
 ## Real bugs
 
-### 1. `replace_symlink` doesn't create parent dirs, and the dry run hides it
+### 1. `replace_symlink` doesn't create parent dirs, and the dry run hides it — FIXED
 `lny/src/step.rs:233-313`
 
 The comment at line 262-263 says:

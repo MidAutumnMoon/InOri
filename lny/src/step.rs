@@ -278,6 +278,14 @@ impl Step {
             return Ok(());
         }
 
+        // N.B. dst may not exist (e.g. old blueprint was never applied
+        // or dst was removed out of band), in which case replace behaves
+        // like create and we must materialize the parent dirs before
+        // linking to the temporary target.
+        if let Some(parent) = dst.parent() {
+            Self::create_parent_dirs(parent)?;
+        }
+
         // attempt to atomic replace
         let tmp_dst = {
             use rand::distr::Alphanumeric;
@@ -873,6 +881,39 @@ mod test {
 
             assert!(s.execute().is_ok());
             assert!(dir.symlink_metadata().unwrap().is_dir());
+        }
+        // 4. parent dir doesn't exist (regression for BUGS.md #1)
+        {
+            let top = make_tempdir!();
+            let dir = top.child(make_random_str!()); // deliberately not created
+            let old_src = top
+                .child(make_random_str!())
+                .tap(|it| it.touch().unwrap());
+            let new_src = top
+                .child(make_random_str!())
+                .tap(|it| it.touch().unwrap());
+            let dst = dir.child(make_random_str!());
+
+            let new_symlink = make_symlink!(
+                new_src.to_str().unwrap(),
+                dst.to_str().unwrap()
+            );
+            let old_symlink = make_symlink!(
+                old_src.to_str().unwrap(),
+                dst.to_str().unwrap()
+            );
+            let s = Step::Replace {
+                new_symlink,
+                old_symlink,
+            };
+
+            assert!(s.execute().is_ok());
+            assert!(dir.try_exists_no_traverse().unwrap());
+            assert!(dir.symlink_metadata().unwrap().is_dir());
+            assert!(
+                dst.is_symlink()
+                    && dst.read_link().unwrap() == new_src.path()
+            );
         }
     }
 }
