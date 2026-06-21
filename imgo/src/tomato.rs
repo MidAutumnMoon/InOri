@@ -28,15 +28,6 @@ fn offset(pixel_count: usize, key: f64) -> usize {
     raw.round() as usize
 }
 
-/// `i32::signum` re-exported for parity with Java's `Math.signum`.
-///
-/// Kept as a named helper so the algorithm reads close to the source.
-#[inline]
-#[must_use]
-const fn signum(v: i32) -> i32 {
-    v.signum()
-}
-
 /// Builds the Gilbert curve permutation of all pixel indices over a
 /// `width` x `height` grid, returned in traversal order.
 ///
@@ -69,10 +60,10 @@ fn generate2d(
 ) {
     let w = (ax + ay).abs();
     let h = (bx + by).abs();
-    let dax = signum(ax);
-    let day = signum(ay);
-    let dbx = signum(bx);
-    let dby = signum(by);
+    let dax = ax.signum();
+    let day = ay.signum();
+    let dbx = bx.signum();
+    let dby = by.signum();
 
     if h == 1 {
         for _ in 0..w {
@@ -155,19 +146,31 @@ fn generate2d(
 /// `key` controls the offset along the Gilbert curve; the same key is
 /// required for a successful round-trip.
 ///
-/// `pixels` must be `width * height * 4` bytes long, RGBA8.
+/// `pixels` must be `width * height * 4` bytes long, RGBA8. This is
+/// checked via `debug_assert`; in release builds a mismatched length
+/// panics at the first pixel copy with an opaque message.
+///
+/// # Key preconditions
+///
+/// `key` must be finite and non-negative. The caller is responsible
+/// for validation; this function does not check. Negative, NaN, or
+/// infinite keys produce silent no-ops or nonsensical offsets.
 ///
 /// # Offset and Java interop
 ///
-/// The offset is `round((√5 − 1)/2 · N · key)`, then taken **modulo
-/// `pixel_count`**. The Java reference does *not* take the modulo, so it
-/// throws `ArrayIndexOutOfBoundsException` once `key ≳ 1/φ ≈ 1.618`.
-/// This implementation is more robust and round-trips correctly for any
+/// The offset is `round((√5 − 1)/2 · N · key) = round(N · key / φ)`,
+/// then taken **modulo `pixel_count`**. The Java reference does *not*
+/// take the modulo, so it throws `ArrayIndexOutOfBoundsException` once
+/// `offset > pixel_count`, i.e. once `key > φ ≈ 1.618`. This
+/// implementation is more robust and round-trips correctly for any
 /// non-negative finite key, but for byte-identical interop with the
-/// Java tool keep `key < 1/φ`.
+/// Java tool keep `key < φ`.
 ///
-/// Note also that two keys that are congruent modulo `1/φ` produce the
-/// same scramble (e.g. `key=2.0` ≡ `key≈0.382` on the same image).
+/// Two keys that are congruent modulo `φ` produce the same scramble
+/// (e.g. `key = 2.0` ≡ `key ≈ 0.382` on the same image). In particular,
+/// `key = n · φ` (for any positive integer `n`) yields `offset = N`,
+/// which modulo `N` is `0` — i.e. the **identity**. A user who picks
+/// `key = 1.618` gets no scrambling with no indication.
 pub fn scramble_rgba(
     pixels: &mut [u8],
     width: u32,
