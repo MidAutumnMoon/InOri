@@ -144,20 +144,20 @@ fn collect_for(
 }
 
 /// Shared orchestration core: owns backup, progress, parallel
-/// execution, temp files, and output resolution. The `execute` closure
-/// does the actual work (spawn command or transform pixels) and writes
-/// its result to the given temp path.
+/// execution, temp files, and output resolution. The `execute`
+/// closure does the actual work (spawn command or transform pixels)
+/// and writes its result to the given temp path.
 ///
-/// `execute` receives `&ProgressBar` so it can emit progress-aware
-/// warnings (e.g. lossy downconversion). It must not touch the
-/// filesystem beyond the temp path.
+/// `execute` returns a list of warning messages (e.g. lossy
+/// downconversion notices) which `orchestrate` prints bar-aware. It
+/// must not touch the filesystem beyond the temp path.
 fn orchestrate(
     workspace: &Path,
     images: Vec<Image>,
     no_backup: bool,
     jobs: NonZeroU64,
     output_format: ImageFormat,
-    execute: impl Fn(&Image, &Path, &ProgressBar) -> anyhow::Result<()>
+    execute: impl Fn(&Image, &Path) -> anyhow::Result<Vec<String>>
     + Send
     + Sync,
 ) -> anyhow::Result<()> {
@@ -245,17 +245,27 @@ fn orchestrate(
                 };
 
                 // Execute the work (spawn command or transform pixels).
-                if let Err(e) = exec(&image, temp_output.path(), &bar) {
+                let warnings = match exec(&image, temp_output.path()) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Red,
+                                "Failed to process {}: {e}",
+                                input_path.display()
+                            );
+                        });
+                        *permit.lock() = Permit::Cancel;
+                        bar.inc(1);
+                        return;
+                    }
+                };
+
+                // Print any warnings the transcoder surfaced.
+                for warning in &warnings {
                     bar.suspend(|| {
-                        ceprintln!(
-                            Red,
-                            "Failed to process {}: {e}",
-                            input_path.display()
-                        );
+                        ceprintln!(Yellow, "{warning}");
                     });
-                    *permit.lock() = Permit::Cancel;
-                    bar.inc(1);
-                    return;
                 }
 
                 // Get the destination directory (same as source).
@@ -371,7 +381,7 @@ pub fn run_pipeline_external(
         no_backup,
         jobs,
         output_format,
-        |image, temp, _bar| {
+        |image, temp| {
             let input_path = image.path.original_path();
             let mut cmd = transcoder.transcode(&input_path, temp);
             let output = cmd
@@ -387,7 +397,7 @@ pub fn run_pipeline_external(
                     String::from_utf8_lossy(&output.stderr),
                 );
             }
-            Ok(())
+            Ok(vec![])
         },
     )
 }
@@ -422,47 +432,37 @@ pub fn run_pipeline_pixel(
         no_backup,
         jobs,
         output_format,
-        |image, temp, bar| {
+        |image, temp| {
             let input_path = image.path.original_path();
-
             let img = image::open(&input_path).with_context(|| {
                 format!("decode {}", input_path.display())
             })?;
 
-            // ── Step 5 decision: warnings stay here (temporary) ──────
-            // Per-image warnings (>8-bit downconversion, GIF first-frame)
-            // need progress-bar access (`bar.suspend`). They live in this
-            // closure rather than in `Pixel::transform` to keep the trait
-            // sans-IO. This is a temporary wart; a future task will design
-            // a proper warning channel (e.g. a tracing layer or a callback
-            // hook on the orchestration).
+            let mut warnings = Vec::new();
+
+            // Warn about lossy downconversion for >8-bit inputs: the
+            // algorithm is lossless, but the RGBA8 pipeline truncates
+            // deep pixels.
             let bpp = img.color().bits_per_pixel();
             if bpp > 32 {
-                bar.suspend(|| {
-                    ceprintln!(
-                        Yellow,
-                        "{}: {bpp}-bit input, \
-                         downconverting to 8-bit (lossy)",
-                        input_path.display()
-                    );
-                });
+                warnings.push(format!(
+                    "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
+                    input_path.display()
+                ));
             }
+            // GIF: `image::open` loads only the first frame.
             if image.format == ImageFormat::GIF {
-                bar.suspend(|| {
-                    ceprintln!(
-                        Yellow,
-                        "{}: GIF, only first frame processed",
-                        input_path.display()
-                    );
-                });
+                warnings.push(format!(
+                    "{}: GIF, only first frame processed",
+                    input_path.display()
+                ));
             }
-            // ── End step 5 decision ────────────────────────────────────
 
             let mut rgba = img.to_rgba8();
             transcoder.transform(&mut rgba)?;
             rgba.save(temp)
                 .with_context(|| format!("encode {}", temp.display()))?;
-            Ok(())
+            Ok(warnings)
         },
     )
 }
