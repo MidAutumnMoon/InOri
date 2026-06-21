@@ -27,7 +27,7 @@ The two-pass design in `main.rs` (`dry_execute` all, then `execute` all) is supp
 
 Either rename `dry_execute` to `check_collisions` to be honest about what it does, or make it actually walk the failure paths.
 
-### 3. `remove_empty_parent_dirs` will prune directories lny didn't create
+### 3. `remove_empty_parent_dirs` will prune directories lny didn't create — WON'T FIX (intentional)
 `lny/src/step.rs:368-389`
 
 The walk uses `path.ancestors()` and stops only at the first non-empty dir. There's no record of "did I create this dir during create_symlink?". Concrete footgun:
@@ -40,6 +40,8 @@ The walk uses `path.ancestors()` and stops only at the first non-empty dir. Ther
 This silently reverts directory structure the user owned. At minimum, lny should only prune directories it created in this run (or some tracked history). Bounding the walk to stop at the XDG base directories / home would also help.
 
 It also walks *all the way to `/`*. In practice it stops at the first non-empty ancestor, but on a clean system (container/chroot with empty `/`) it could attempt `remove_dir("/")` — which fails, but it shouldn't even try.
+
+**Disposition:** The author's workflow is "all symlinks in a tree are managed by lny", so any empty ancestor is by construction lny's to prune, and `/etc` support rules out bounding the walk at `$HOME`/XDG. Tracking ownership (history file, xattr) would violate lny's stateless design. The behavior is now documented in code at `remove_empty_parent_dirs`; no code change.
 
 ### 4. `StepQueue::next()` pops LIFO, so execution order is reversed
 `lny/src/step.rs:132-137`

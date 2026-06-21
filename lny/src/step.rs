@@ -434,6 +434,26 @@ impl Step {
         }
     }
 
+    /// Walk up from `dst`'s parent and remove empty ancestor directories.
+    ///
+    /// # Design note: unbounded walk, no ownership tracking
+    ///
+    /// The walk goes all the way to `/` (stopping at the first non-empty
+    /// ancestor) and does **not** track whether lny created the dirs it's
+    /// removing. This is intentional:
+    ///
+    /// - lny is designed to be **stateless** — no history, no xattr, no
+    ///   sidecar state. Tracking ownership would violate that.
+    /// - The author's use case is "all symlinks under a tree are managed
+    ///   by lny" (e.g. `~/.config/lny-stuff`, `/etc/lny-stuff`), so any
+    ///   empty ancestor is by construction lny's responsibility.
+    /// - `/etc` support is explicit, so we cannot bound the walk at
+    ///   `$HOME` or XDG bases.
+    ///
+    /// Footgun if your layout differs: if you `mkdir -p` a directory by
+    /// hand and lny later removes its last occupant, lny will prune the
+    /// hand-made directory too. We accept that trade-off for simplicity.
+    /// See `BUGS.md` #3 (won't fix) for the full discussion.
     #[inline]
     #[tracing::instrument]
     fn remove_empty_parent_dirs(path: &Path) -> AnyResult<()> {
