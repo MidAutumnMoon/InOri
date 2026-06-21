@@ -31,9 +31,30 @@ use crate::BaseSeqExt;
 use crate::External;
 use crate::Image;
 use crate::ImageFormat;
+use crate::Meta;
 use crate::Pixel;
 use crate::RelAbs;
 use crate::collect_images;
+
+/// Internal flag shared across worker threads: once one task fails,
+/// remaining tasks observe `Cancel` and skip themselves.
+enum Permit {
+    Go,
+    Cancel,
+}
+
+/// Reports a fatal task error: prints the message bar-aware, marks the
+/// pipeline as cancelled, and advances the progress bar. Always returns
+/// `None` so callers can write `fail(...)? `-style control flow with `Option`.
+fn fail(
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    msg: impl std::fmt::Display,
+) {
+    bar.suspend(|| ceprintln!(Red, "{msg}"));
+    *permit.lock() = Permit::Cancel;
+    bar.inc(1);
+}
 
 /// Shared CLI options common to every transcoder subcommand.
 #[derive(clap::Args)]
@@ -68,16 +89,28 @@ pub struct SharedOpts {
     pub manual_selection: Option<Vec<PathBuf>>,
 }
 
+impl SharedOpts {
+    /// Effective "skip backup" flag: explicit `--no-backup` OR manual
+    /// selection (which always disables backup).
+    #[inline]
+    #[must_use]
+    pub fn skips_backup(&self) -> bool {
+        self.no_backup || self.manual_selection.is_some()
+    }
+
+    /// Resolve the workspace directory: explicit `--workspace` or `PWD`.
+    fn workspace(&self) -> anyhow::Result<PathBuf> {
+        let pwd = std::env::current_dir()?;
+        Ok(self.workspace.as_ref().map_or(pwd, Clone::clone))
+    }
+}
 /// Collect images for the given input formats, honoring `SharedOpts`
 /// for workspace, recursion, and manual selection.
 fn collect_for(
     shared: &SharedOpts,
     input_formats: &[ImageFormat],
 ) -> anyhow::Result<(PathBuf, Vec<Image>)> {
-    let workspace = {
-        let pwd = std::env::current_dir()?;
-        shared.workspace.as_ref().map_or(pwd, Clone::clone)
-    };
+    let workspace = shared.workspace()?;
 
     let images = if let Some(man_sel) = &shared.manual_selection {
         debug!("Use manually chosen images");
@@ -143,6 +176,33 @@ fn collect_for(
     Ok((workspace, images))
 }
 
+/// Inputs to [`orchestrate`]: everything the orchestrator needs to
+/// know about the run, derived from `SharedOpts` + a transcoder's
+/// [`Meta`].
+struct PipelineSpec {
+    workspace: PathBuf,
+    images: Vec<Image>,
+    no_backup: bool,
+    jobs: NonZeroU64,
+    output_format: ImageFormat,
+}
+
+/// Builds a [`PipelineSpec`] from the shared CLI options and the
+/// transcoder's metadata.
+fn spec_for(
+    shared: &SharedOpts,
+    meta: &dyn Meta,
+) -> anyhow::Result<PipelineSpec> {
+    let (workspace, images) = collect_for(shared, meta.input_formats())?;
+    Ok(PipelineSpec {
+        workspace,
+        images,
+        no_backup: shared.skips_backup(),
+        jobs: shared.jobs.unwrap_or_else(|| meta.default_jobs()),
+        output_format: meta.output_format(),
+    })
+}
+
 /// Shared orchestration core: owns backup, progress, parallel
 /// execution, temp files, and output resolution. The `execute`
 /// closure does the actual work (spawn command or transform pixels)
@@ -152,15 +212,18 @@ fn collect_for(
 /// downconversion notices) which `orchestrate` prints bar-aware. It
 /// must not touch the filesystem beyond the temp path.
 fn orchestrate(
-    workspace: &Path,
-    images: Vec<Image>,
-    no_backup: bool,
-    jobs: NonZeroU64,
-    output_format: ImageFormat,
+    spec: PipelineSpec,
     execute: impl Fn(&Image, &Path) -> anyhow::Result<Vec<String>>
     + Send
     + Sync,
 ) -> anyhow::Result<()> {
+    let PipelineSpec {
+        workspace,
+        images,
+        no_backup,
+        jobs,
+        output_format,
+    } = spec;
     if images.is_empty() {
         ceprintln!(Yellow, "No images to process.");
         return Ok(());
@@ -195,11 +258,6 @@ fn orchestrate(
     };
 
     thread_pool.scope(|scope| -> anyhow::Result<()> {
-        enum Permit {
-            Go,
-            Cancel,
-        }
-
         let permit = Arc::new(Mutex::new(Permit::Go));
         let exec = &execute;
 
@@ -231,15 +289,14 @@ fn orchestrate(
                 ) {
                     Ok(t) => t,
                     Err(e) => {
-                        bar.suspend(|| {
-                            ceprintln!(
-                                Red,
+                        fail(
+                            &permit,
+                            &bar,
+                            format!(
                                 "Failed to create tempfile for {}: {e}",
                                 input_path.display()
-                            );
-                        });
-                        *permit.lock() = Permit::Cancel;
-                        bar.inc(1);
+                            ),
+                        );
                         return;
                     }
                 };
@@ -248,15 +305,14 @@ fn orchestrate(
                 let warnings = match exec(&image, temp_output.path()) {
                     Ok(w) => w,
                     Err(e) => {
-                        bar.suspend(|| {
-                            ceprintln!(
-                                Red,
+                        fail(
+                            &permit,
+                            &bar,
+                            format!(
                                 "Failed to process {}: {e}",
                                 input_path.display()
-                            );
-                        });
-                        *permit.lock() = Permit::Cancel;
-                        bar.inc(1);
+                            ),
+                        );
                         return;
                     }
                 };
@@ -270,13 +326,11 @@ fn orchestrate(
 
                 // Get the destination directory (same as source).
                 let Some(dest_dir) = image.path.parent_dir() else {
-                    bar.suspend(|| {
-                        ceprintln!(
-                            Red,
-                            "[BUG] Failed to get parent directory"
-                        );
-                    });
-                    bar.inc(1);
+                    fail(
+                        &permit,
+                        &bar,
+                        "[BUG] Failed to get parent directory",
+                    );
                     return;
                 };
 
@@ -289,27 +343,25 @@ fn orchestrate(
                     if let Some(backup_parent) = backup_path.parent()
                         && let Err(e) = create_dir_all(backup_parent)
                     {
-                        bar.suspend(|| {
-                            ceprintln!(
-                                Red,
+                        fail(
+                            &permit,
+                            &bar,
+                            format!(
                                 "Failed to create backup dir {}: {e}",
                                 backup_parent.display()
-                            );
-                        });
-                        *permit.lock() = Permit::Cancel;
-                        bar.inc(1);
+                            ),
+                        );
                         return;
                     }
                     if let Err(e) = rename(&input_path, &backup_path) {
-                        bar.suspend(|| {
-                            ceprintln!(
-                                Red,
+                        fail(
+                            &permit,
+                            &bar,
+                            format!(
                                 "Failed to backup {}: {e}",
                                 input_path.display()
-                            );
-                        });
-                        *permit.lock() = Permit::Cancel;
-                        bar.inc(1);
+                            ),
+                        );
                         return;
                     }
                     debug!("Backed up to {}", backup_path.display());
@@ -333,14 +385,14 @@ fn orchestrate(
                 if let Err(e) =
                     std::fs::copy(temp_output.path(), &dest_path)
                 {
-                    bar.suspend(|| {
-                        ceprintln!(
-                            Red,
+                    fail(
+                        &permit,
+                        &bar,
+                        format!(
                             "Failed to copy output to {}: {e}",
                             dest_path.display()
-                        );
-                    });
-                    bar.inc(1);
+                        ),
+                    );
                     return;
                 }
 
@@ -367,39 +419,26 @@ pub fn run_pipeline_external(
     transcoder: &dyn External,
 ) -> anyhow::Result<()> {
     ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());
+    let spec = spec_for(shared, transcoder)?;
 
-    let (workspace, images) =
-        collect_for(shared, transcoder.input_formats())?;
-
-    let no_backup = shared.no_backup || shared.manual_selection.is_some();
-    let jobs = shared.jobs.unwrap_or_else(|| transcoder.default_jobs());
-    let output_format = transcoder.output_format();
-
-    orchestrate(
-        &workspace,
-        images,
-        no_backup,
-        jobs,
-        output_format,
-        |image, temp| {
-            let input_path = image.path.original_path();
-            let mut cmd = transcoder.transcode(&input_path, temp);
-            let output = cmd
-                .output()
-                .with_context(|| format!("spawn {}", transcoder.id()))?;
-            if !output.status.success() {
-                bail!(
-                    "{} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",
-                    transcoder.id(),
-                    input_path.display(),
-                    output.status.code(),
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr),
-                );
-            }
-            Ok(vec![])
-        },
-    )
+    orchestrate(spec, |image, temp| {
+        let input_path = image.path.original_path();
+        let mut cmd = transcoder.transcode(&input_path, temp);
+        let output = cmd
+            .output()
+            .with_context(|| format!("spawn {}", transcoder.id()))?;
+        if !output.status.success() {
+            bail!(
+                "{} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",
+                transcoder.id(),
+                input_path.display(),
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        Ok(vec![])
+    })
 }
 
 /// Runs the in-process pixel transcoder pipeline.
@@ -418,51 +457,37 @@ pub fn run_pipeline_pixel(
         Yellow,
         "Note: metadata (EXIF/ICC) is stripped; GIF uses first frame only."
     );
+    let spec = spec_for(shared, transcoder)?;
 
-    let (workspace, images) =
-        collect_for(shared, transcoder.input_formats())?;
+    orchestrate(spec, |image, temp| {
+        let input_path = image.path.original_path();
+        let img = image::open(&input_path)
+            .with_context(|| format!("decode {}", input_path.display()))?;
 
-    let no_backup = shared.no_backup || shared.manual_selection.is_some();
-    let jobs = shared.jobs.unwrap_or_else(|| transcoder.default_jobs());
-    let output_format = transcoder.output_format();
+        let mut warnings = Vec::new();
 
-    orchestrate(
-        &workspace,
-        images,
-        no_backup,
-        jobs,
-        output_format,
-        |image, temp| {
-            let input_path = image.path.original_path();
-            let img = image::open(&input_path).with_context(|| {
-                format!("decode {}", input_path.display())
-            })?;
+        // Warn about lossy downconversion for >8-bit inputs: the
+        // algorithm is lossless, but the RGBA8 pipeline truncates
+        // deep pixels.
+        let bpp = img.color().bits_per_pixel();
+        if bpp > 32 {
+            warnings.push(format!(
+                "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
+                input_path.display()
+            ));
+        }
+        // GIF: `image::open` loads only the first frame.
+        if image.format == ImageFormat::GIF {
+            warnings.push(format!(
+                "{}: GIF, only first frame processed",
+                input_path.display()
+            ));
+        }
 
-            let mut warnings = Vec::new();
-
-            // Warn about lossy downconversion for >8-bit inputs: the
-            // algorithm is lossless, but the RGBA8 pipeline truncates
-            // deep pixels.
-            let bpp = img.color().bits_per_pixel();
-            if bpp > 32 {
-                warnings.push(format!(
-                    "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
-                    input_path.display()
-                ));
-            }
-            // GIF: `image::open` loads only the first frame.
-            if image.format == ImageFormat::GIF {
-                warnings.push(format!(
-                    "{}: GIF, only first frame processed",
-                    input_path.display()
-                ));
-            }
-
-            let mut rgba = img.to_rgba8();
-            transcoder.transform(&mut rgba)?;
-            rgba.save(temp)
-                .with_context(|| format!("encode {}", temp.display()))?;
-            Ok(warnings)
-        },
-    )
+        let mut rgba = img.to_rgba8();
+        transcoder.transform(&mut rgba)?;
+        rgba.save(temp)
+            .with_context(|| format!("encode {}", temp.display()))?;
+        Ok(warnings)
+    })
 }
