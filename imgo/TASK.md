@@ -39,7 +39,7 @@ otherwise leaks the difference into a return-type enum.
 
 ## Steps
 
-### 1. `transcoder/mod.rs` — define the new traits
+### 1. `transcoder/mod.rs` — define the new traits (Done)
 
 - Replace `trait Transcoder` with `trait Meta` + `trait External: Meta` +
   `trait Pixel: Meta` as shown above.
