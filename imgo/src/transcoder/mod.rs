@@ -9,6 +9,7 @@ use crate::ImageFormat;
 pub mod avif;
 pub mod jxl;
 pub mod magick;
+pub mod tomato;
 
 /// Metadata shared by all transcoder kinds.
 pub trait Meta: Send + Sync {

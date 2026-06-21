@@ -57,7 +57,7 @@ otherwise leaks the difference into a return-type enum.
 
 No behavioral change for these.
 
-### 3. New `transcoder/tomato.rs` — the `Tomato` struct + `Pixel` impl
+### 3. New `transcoder/tomato.rs` — the `Tomato` struct + `Pixel` impl (Done)
 
 ```rust
 #[derive(Debug, clap::Args)]
