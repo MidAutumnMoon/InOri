@@ -1,7 +1,8 @@
 use tap::Pipe;
 
+use crate::External;
 use crate::ImageFormat;
-use crate::Transcoder;
+use crate::Meta;
 
 use std::num::NonZeroU64;
 use std::path::Path;
@@ -54,7 +55,7 @@ pub enum QualityPreset {
     High,
 }
 
-impl Transcoder for Avif {
+impl Meta for Avif {
     fn id(&self) -> &'static str {
         "avifenc"
     }
@@ -71,7 +72,9 @@ impl Transcoder for Avif {
     fn output_format(&self) -> ImageFormat {
         ImageFormat::AVIF
     }
+}
 
+impl External for Avif {
     fn transcode(&self, input: &Path, output: &Path) -> Command {
         let mut cmd = AVIFENC_PATH.unwrap_or("avifenc").pipe(Command::new);
 

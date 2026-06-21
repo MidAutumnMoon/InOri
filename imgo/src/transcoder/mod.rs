@@ -36,5 +36,10 @@ pub trait External: Meta {
 /// input and encodes the output; the impl only mutates pixels.
 pub trait Pixel: Meta {
     /// Transform the decoded RGBA image in place.
+    ///
+    /// # Errors
+    ///
+    /// Implementations may return an error if the transform cannot be
+    /// applied (e.g. invalid parameters).
     fn transform(&self, img: &mut RgbaImage) -> anyhow::Result<()>;
 }

@@ -2,8 +2,9 @@ use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::Command;
 
+use crate::External;
 use crate::ImageFormat;
-use crate::Transcoder;
+use crate::Meta;
 
 const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
 
@@ -12,7 +13,7 @@ const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
 #[group(id = "JxlTranscoder")]
 pub struct Jxl;
 
-impl Transcoder for Jxl {
+impl Meta for Jxl {
     fn id(&self) -> &'static str {
         "jxl"
     }
@@ -31,7 +32,9 @@ impl Transcoder for Jxl {
         #[expect(clippy::unwrap_used)]
         NonZeroU64::new(1).unwrap()
     }
+}
 
+impl External for Jxl {
     /// JPEG XL has a superior lossless encoding algorithm which also
     /// doesn't need too much tweaking. These options are used for squashing
     /// out more savings on spaces.

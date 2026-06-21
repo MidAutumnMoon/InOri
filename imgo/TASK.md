@@ -45,7 +45,7 @@ otherwise leaks the difference into a return-type enum.
   `trait Pixel: Meta` as shown above.
 - Keep `ImageFormat`, `Image`, `RelAbs`, `BaseSeqExt` re-exports as-is.
 
-### 2. Migrate existing shell-out impls (mechanical)
+### 2. Migrate existing shell-out impls (mechanical) (Done)
 
 `avif.rs`, `jxl.rs`, `magick.rs`:
 

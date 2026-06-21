@@ -5,8 +5,9 @@ use std::thread::available_parallelism;
 
 use tap::Pipe;
 
+use crate::External;
 use crate::ImageFormat;
-use crate::Transcoder;
+use crate::Meta;
 
 pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 
@@ -39,7 +40,7 @@ pub enum Mode {
     FakePencil,
 }
 
-impl Transcoder for Denoise {
+impl Meta for Denoise {
     fn id(&self) -> &'static str {
         "magick despeckle"
     }
@@ -56,7 +57,9 @@ impl Transcoder for Denoise {
     fn output_format(&self) -> ImageFormat {
         ImageFormat::PNG
     }
+}
 
+impl External for Denoise {
     fn transcode(&self, input: &Path, output: &Path) -> Command {
         let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
 
@@ -86,7 +89,7 @@ impl Transcoder for Denoise {
 #[group(id = "CleanScanTranscoder")]
 pub struct CleanScan {}
 
-impl Transcoder for CleanScan {
+impl Meta for CleanScan {
     fn id(&self) -> &'static str {
         "magick clean-scan"
     }
@@ -102,7 +105,9 @@ impl Transcoder for CleanScan {
     fn output_format(&self) -> ImageFormat {
         ImageFormat::PNG
     }
+}
 
+impl External for CleanScan {
     fn transcode(&self, input: &Path, output: &Path) -> Command {
         let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
         cmd.arg("-verbose");
