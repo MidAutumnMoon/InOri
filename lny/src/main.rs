@@ -8,10 +8,9 @@ use crate::step::StepQueue;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
-use ino_color::ceprintln;
-use ino_color::fg::Blue;
-use ino_color::fg::Yellow;
 use ino_tap::TapExt;
 
 use std::path::PathBuf;
@@ -38,7 +37,7 @@ impl CliOpts {
 
 #[tracing::instrument(name = "app_run", skip_all)]
 fn run(cliopts: CliOpts) -> AnyResult<()> {
-    ceprintln!(Blue, "Preparing blueprints");
+    info!("Preparing blueprints");
 
     let new_blueprint = cliopts
         .new_blueprint
@@ -55,10 +54,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
         .tap_trace();
 
     if new_blueprint.is_none() && old_blueprint.is_none() {
-        ceprintln!(
-            Yellow,
-            "No new nor old blueprint given, nothing to do"
-        );
+        warn!("No new nor old blueprint given, nothing to do");
         return Ok(());
     }
 
@@ -69,7 +65,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
     let step_queue = StepQueue::new(new_blueprint, old_blueprint)
         .context("Error happened while executing the blueprint")?;
 
-    ceprintln!(Blue, "Check feasibility");
+    info!("Check feasibility");
 
     // TODO: use new type for checked steps?
     // TODO: structural error for reporting
@@ -77,7 +73,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
         step.check_feasibility()?;
     }
 
-    ceprintln!(Blue, "Execute blueprint");
+    info!("Execute blueprint");
 
     for step in step_queue {
         step.execute()?;
@@ -89,7 +85,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
 fn main() -> AnyResult<()> {
     ino_tracing::init_tracing_subscriber();
 
-    ceprintln!(Blue, "Stretch hands");
+    info!("Stretch hands");
 
     let cliopt = {
         debug!("Parse cliopts");

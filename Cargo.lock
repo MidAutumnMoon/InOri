@@ -740,7 +740,6 @@ dependencies = [
  "assert_fs",
  "clap",
  "etcetera",
- "ino_color",
  "ino_path",
  "ino_tap",
  "ino_tracing",

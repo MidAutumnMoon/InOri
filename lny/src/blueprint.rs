@@ -7,7 +7,6 @@ use anyhow::ensure;
 use ino_tap::TapExt;
 use itertools::Itertools;
 use serdev::Deserialize;
-use tap::Pipe;
 use tracing::debug;
 
 use crate::template::RenderedPath;
@@ -30,9 +29,9 @@ impl Blueprint {
         ensure! { path.is_file(),
             r#"The given path "{}" is not file"#, path.display()
         };
-        std::fs::read_to_string(path)
-            .context("Failed to read blueprint file")?
-            .pipe_deref(Self::from_str)
+        let raw = std::fs::read_to_string(path)
+            .context("Failed to read blueprint file")?;
+        Self::from_str(&raw)
             .context("Failed to parse the blueprint's content")
     }
 
@@ -46,21 +45,24 @@ impl Blueprint {
     #[tracing::instrument(skip_all)]
     fn validate(&self) -> AnyResult<()> {
         debug!("validate the blueprint");
-        ensure! { self.version == CURRENT_BLUEPRINT_VERSION,
+        ensure! {
+            self.version == CURRENT_BLUEPRINT_VERSION,
             r#"Blueprint version mismatch, expect "{}", got "{}""#,
             CURRENT_BLUEPRINT_VERSION,
             self.version
         };
         // TODO report which ones are conflicting
         ensure! {
-            self.symlinks.iter()
-                .map( |it| &it.dst )
+            self.symlinks
+                .iter()
+                .map(|it| &it.dst)
                 .all_unique(),
             "Some symlinks in the blueprint have conflicting destination path"
         };
         ensure! {
-            self.symlinks.iter()
-                .all( |it| it.src != it.dst ),
+            self.symlinks
+                .iter()
+                .all(|it| it.src != it.dst),
             "Some symlinks have identical src and dst, \
                 which would produce a self-referential symlink"
         };

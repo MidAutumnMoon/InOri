@@ -12,15 +12,12 @@ use anyhow::Context;
 use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
-use ino_color::ceprintln;
-use ino_color::fg::Blue;
 use ino_path::PathExt;
 use ino_tap::TapExt;
 use itertools::Itertools;
 use rand::RngExt;
-use tap::Pipe;
-use tap::Tap;
 use tracing::debug;
+use tracing::info;
 use tracing::trace;
 
 // TODO: move dst conflict check here?
@@ -36,7 +33,7 @@ impl StepQueue {
         new_blueprint: Blueprint,
         old_blueprint: Blueprint,
     ) -> AnyResult<Self> {
-        ceprintln!(Blue, "Actualize blueprint");
+        info!("Actualize blueprint");
         debug!("actualize blueprint into steps");
         trace!(?new_blueprint, ?old_blueprint);
 
@@ -46,10 +43,11 @@ impl StepQueue {
                 .map(|it| it.collect_vec().tap_trace())
                 .into();
 
-        let mut steps = new_blueprint_symlinks
-            .len()
-            .max(old_blueprint_symlinks.len())
-            .pipe(VecDeque::with_capacity);
+        let mut steps = VecDeque::with_capacity(
+            new_blueprint_symlinks
+                .len()
+                .max(old_blueprint_symlinks.len()),
+        );
 
         // This is inefficient, but also not complex and works well
         // for few thousands or even few tens of thousands items.
@@ -84,7 +82,7 @@ impl StepQueue {
                 }
             }
 
-            if let Some(old_symlink) = found_old_symlink {
+            let step = if let Some(old_symlink) = found_old_symlink {
                 if old_symlink.same_src(&new_symlink) {
                     trace!("same src, do nothing");
                     // N.B. We keep `Nothing` steps in the queue rather than
@@ -105,9 +103,9 @@ impl StepQueue {
             } else {
                 trace!("create new symlink");
                 Step::Create { new_symlink }
-            }
-            .tap_trace()
-            .pipe(|it| steps.push_back(it));
+            };
+            trace!(?step);
+            steps.push_back(step);
         }
 
         // At this point, the remaining symlinks in the old blueprint
@@ -120,9 +118,9 @@ impl StepQueue {
             let Some(old_symlink) = old_symlink.take() else {
                 continue;
             };
-            Step::Remove { old_symlink }.tap_trace().pipe(|it| {
-                steps.push_back(it);
-            });
+            let step = Step::Remove { old_symlink };
+            trace!(?step);
+            steps.push_back(step);
         }
 
         ensure!(
@@ -321,9 +319,11 @@ impl Step {
                 .take(6)
                 .map(char::from)
                 .collect::<String>();
-            let ostr =
-                dst.as_os_str().to_owned().tap_mut(|it| it.push(suffix));
-            PathBuf::from(ostr).tap_trace()
+            let mut ostr = dst.as_os_str().to_owned();
+            ostr.push(suffix);
+            let tmp_dst = PathBuf::from(ostr);
+            trace!(?tmp_dst);
+            tmp_dst
         };
         symlink(new_src, &tmp_dst).with_context(|| {
             format!(
@@ -563,6 +563,7 @@ mod test {
 
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+    use tap::Tap;
 
     use std::fs::remove_file;
     use std::os::unix::fs::symlink;
@@ -788,8 +789,6 @@ mod test {
 
     #[test]
     fn ensure_creatable_topology() {
-        use tap::Tap;
-
         let top = make_tempdir!();
 
         // 1. parent exists and is a dir

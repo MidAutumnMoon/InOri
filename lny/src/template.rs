@@ -10,9 +10,9 @@ use ino_path::PathExt;
 use ino_tap::TapExt;
 use minijinja::Environment;
 use serde::Deserialize;
-use tap::Pipe;
 
 use tracing::debug;
+use tracing::trace;
 
 // Constructing an [`Environment`] is expensive.
 #[allow(clippy::unwrap_used)]
@@ -110,7 +110,7 @@ pub struct RenderedPath {
 
 impl RenderedPath {
     #[tracing::instrument(skip_all)]
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn from_unrendered(input: &str) -> AnyResult<Self> {
         use serde::de::IntoDeserializer;
         use serde::de::value::Error as DeError;
@@ -143,7 +143,7 @@ impl<'de> Deserialize<'de> for RenderedPath {
 
         #[inline]
         fn ren(tmpl: &str) -> AnyResult<PathBuf> {
-            let path = ENGINE.render(tmpl)?.pipe(PathBuf::from);
+            let path = PathBuf::from(ENGINE.render(tmpl)?);
             ensure!(
                 path.is_absolute(),
                 r#"Path must be absolute. Raw: "{}" Rendered: "{}""#,
@@ -152,12 +152,10 @@ impl<'de> Deserialize<'de> for RenderedPath {
             );
             Ok(path)
         }
-        Ok(Self {
-            inner: String::deserialize(der)?
-                .pipe_deref(ren)
-                .map_err(serde::de::Error::custom)?
-                .tap_trace(),
-        })
+        let raw = String::deserialize(der)?;
+        let inner = ren(&raw).map_err(serde::de::Error::custom)?;
+        trace!(?inner);
+        Ok(Self { inner })
     }
 }
 
