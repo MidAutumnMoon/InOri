@@ -43,7 +43,7 @@ It also walks *all the way to `/`*. In practice it stops at the first non-empty 
 
 **Disposition:** The author's workflow is "all symlinks in a tree are managed by lny", so any empty ancestor is by construction lny's to prune, and `/etc` support rules out bounding the walk at `$HOME`/XDG. Tracking ownership (history file, xattr) would violate lny's stateless design. The behavior is now documented in code at `remove_empty_parent_dirs`; no code change.
 
-### 4. `StepQueue::next()` pops LIFO, so execution order is reversed
+### 4. `StepQueue::next()` pops LIFO, so execution order is reversed — FIXED
 `lny/src/step.rs:132-137`
 
 `next()` does `self.steps.pop()`, but steps are pushed in insertion order. The queue ends up `[new-stuff..., removes...]`, and popping yields `removes` first (in reverse), then `new-stuff` in reverse. The two `for` loops in `main.rs` are consistent with each other so it doesn't break dry-vs-real, but:

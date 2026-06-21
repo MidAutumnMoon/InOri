@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::remove_file;
 use std::fs::rename;
 use std::os::unix::fs::symlink;
@@ -26,7 +27,7 @@ use tracing::trace;
 
 #[derive(Debug, Clone)]
 pub struct StepQueue {
-    steps: Vec<Step>,
+    steps: VecDeque<Step>,
 }
 
 impl StepQueue {
@@ -48,7 +49,7 @@ impl StepQueue {
         let mut steps = new_blueprint_symlinks
             .len()
             .max(old_blueprint_symlinks.len())
-            .pipe(Vec::with_capacity);
+            .pipe(VecDeque::with_capacity);
 
         // This is inefficient, but also not complex and works well
         // for few thousands or even few tens of thousands items.
@@ -99,7 +100,7 @@ impl StepQueue {
                 Step::Create { new_symlink }
             }
             .tap_trace()
-            .pipe(|it| steps.push(it));
+            .pipe(|it| steps.push_back(it));
         }
 
         // At this point, the remaining symlinks in the old blueprint
@@ -113,7 +114,7 @@ impl StepQueue {
                 continue;
             };
             Step::Remove { old_symlink }.tap_trace().pipe(|it| {
-                steps.push(it);
+                steps.push_back(it);
             });
         }
 
@@ -132,7 +133,7 @@ impl StepQueue {
 impl Iterator for StepQueue {
     type Item = Step;
     fn next(&mut self) -> Option<Self::Item> {
-        self.steps.pop()
+        self.steps.pop_front()
     }
 }
 
@@ -593,7 +594,7 @@ mod test {
             assert! {
                 q.is_ok_and( |mut it| {
                     it.steps.len() == 1
-                    && it.steps.pop().unwrap()
+                    && it.steps.pop_back().unwrap()
                         == Step::Create { new_symlink: sym }
                 } )
             };
@@ -608,7 +609,7 @@ mod test {
             assert! {
                 q.is_ok_and( |mut it| {
                     it.steps.len() == 1
-                    && it.steps.pop().unwrap()
+                    && it.steps.pop_back().unwrap()
                         == Step::Remove { old_symlink: sym }
                 } )
             };
@@ -626,7 +627,7 @@ mod test {
             assert! {
                 q.is_ok_and( |mut it| {
                     it.steps.len() == 1
-                    && it.steps.pop().unwrap()
+                    && it.steps.pop_back().unwrap()
                         == Step::Replace { new_symlink, old_symlink }
                 } )
             };
@@ -644,7 +645,7 @@ mod test {
             assert! {
                 q.is_ok_and( |mut it| {
                     it.steps.len() == 1
-                    && it.steps.pop().unwrap() == Step::Nothing
+                    && it.steps.pop_back().unwrap() == Step::Nothing
                 } )
             };
         }
@@ -690,6 +691,30 @@ mod test {
                         } )
             };
         }
+    }
+
+    /// Regression for BUGS.md #4: the iterator must yield steps in
+    /// insertion order (FIFO), not LIFO.
+    #[test]
+    fn step_queue_is_fifo() {
+        // Push order: new-bp symlinks first (Create/Replace/Nothing),
+        // then leftover old-bp symlinks (Remove).
+        let new_bp = Blueprint::empty().tap_mut(|it| {
+            it.symlinks = vec![
+                make_symlink!("/a", "/dst_a"),
+                make_symlink!("/b", "/dst_b"),
+            ];
+        });
+        let old_bp = Blueprint::empty().tap_mut(|it| {
+            it.symlinks = vec![make_symlink!("/c", "/dst_c")];
+        });
+
+        let mut q = StepQueue::new(new_bp, old_bp).unwrap();
+
+        assert!(matches!(q.next(), Some(Step::Create { .. })));
+        assert!(matches!(q.next(), Some(Step::Create { .. })));
+        assert!(matches!(q.next(), Some(Step::Remove { .. })));
+        assert!(q.next().is_none());
     }
 
     #[test]
