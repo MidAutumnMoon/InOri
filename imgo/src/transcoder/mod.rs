@@ -11,6 +11,8 @@ pub mod jxl;
 pub mod magick;
 pub mod tomato;
 
+pub use tomato::Tomato;
+
 /// Metadata shared by all transcoder kinds.
 pub trait Meta: Send + Sync {
     /// A string id representing this transcoder.
