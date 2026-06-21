@@ -26,7 +26,7 @@ Options:
 
 1. Current `version` is **1**
 2. Both symlink paths may contain [Minijinja](https://docs.rs/minijinja/latest/minijinja/) template markers
-3. Both symlink paths must be abosulte.
+3. Both symlink paths must be absolute.
 
 ## Builtin Template Constants
 
@@ -36,4 +36,4 @@ Options:
 - `{{ cache }}`: $XDG_CACHE_HOME
 - `{{ state }}`: $XDG_STATE_HOME
 
-Guaranteed to be abosulte if the app started successfully.
+Guaranteed to be absolute if the app started successfully.

@@ -74,10 +74,9 @@ impl FromStr for Blueprint {
     #[tracing::instrument(skip_all)]
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         debug!("try parse the input as json");
-        serde_json::from_str::<Self>(raw)
+        Ok(serde_json::from_str::<Self>(raw)
             .context("Blueprint contains invalid JSON")?
-            .tap_trace()
-            .pipe(Ok)
+            .tap_trace())
     }
 }
 
@@ -96,11 +95,6 @@ pub struct Symlink {
 }
 
 impl Symlink {
-    #[allow(dead_code)]
-    pub(crate) fn new_test(src: RenderedPath, dst: RenderedPath) -> Self {
-        Self { src, dst }
-    }
-
     pub fn same_dst(&self, other: &Self) -> bool {
         self.dst == other.dst
     }

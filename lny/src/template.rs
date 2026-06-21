@@ -42,13 +42,13 @@ impl Engine {
     #[tracing::instrument(skip_all)]
     pub fn render(&self, tmpl: &str) -> AnyResult<String> {
         debug!(?tmpl, "Render template");
-        self.environ
+        Ok(self
+            .environ
             .render_str(tmpl, &self.context)
             .with_context(|| {
                 format!(r#"Failed to render template "{tmpl}""#)
             })?
-            .tap_trace()
-            .pipe(Ok)
+            .tap_trace())
     }
 }
 
@@ -64,6 +64,10 @@ pub struct ContextOfTemplate {
 }
 
 impl ContextOfTemplate {
+    // N.B. May cause tests to fail in environments where XDG variables
+    // can't be autodetected (e.g. nix sandboxes). Set them manually in
+    // that case. On Linux `etcetera` provides sensible defaults for
+    // most dirs, so failures here are rare in practice.
     #[tracing::instrument(name = "template_context_new")]
     pub fn new() -> AnyResult<Self> {
         use etcetera::BaseStrategy;
@@ -85,15 +89,15 @@ impl ContextOfTemplate {
             .must_absolute()?
             .into();
 
-        Self {
+        let me = Self {
             home,
             config,
             data,
             cache,
             state,
         }
-        .tap_trace()
-        .pipe(Ok)
+        .tap_trace();
+        Ok(me)
     }
 }
 
@@ -112,7 +116,7 @@ impl RenderedPath {
         use serde::de::value::Error as DeError;
         use serde::de::value::StrDeserializer;
         let der: StrDeserializer<DeError> = input.into_deserializer();
-        Self::deserialize(der)?.pipe(Ok)
+        Ok(Self::deserialize(der)?)
     }
 }
 

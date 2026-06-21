@@ -584,7 +584,7 @@ mod test {
                 .expect("Failed to make src RenderedPath");
             let dst = RenderedPath::from_unrendered($dst)
                 .expect("Failed to make dst RenderedPath");
-            Symlink::new_test(src, dst)
+            Symlink { src, dst }
         }};
     }
 
