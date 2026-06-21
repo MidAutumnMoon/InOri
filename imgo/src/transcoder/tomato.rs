@@ -18,12 +18,12 @@ use crate::tomato::scramble_image;
 pub struct Tomato {
     /// Scramble (obfuscate) the image. Exactly one of `--encrypt` /
     /// `--decrypt` must be given.
-    #[arg(long)]
+    #[arg(long, short)]
     pub encrypt: bool,
 
     /// Descramble (restore) the image. Exactly one of `--encrypt` /
     /// `--decrypt` must be given.
-    #[arg(long)]
+    #[arg(long, short)]
     pub decrypt: bool,
 
     /// Key controlling the offset along the Gilbert curve.
