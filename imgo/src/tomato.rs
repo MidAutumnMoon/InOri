@@ -68,6 +68,16 @@ fn offset(pixel_count: usize, key: f64) -> usize {
     raw.round().max(0.0) as usize
 }
 
+/// Greatest common divisor (Euclidean algorithm).
+fn gcd(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
 /// Builds the Gilbert curve permutation of all pixel indices over a
 /// `width` x `height` grid, returned in traversal order.
 ///
@@ -177,34 +187,54 @@ pub fn scramble_rgba(
 
     let positions = gilbert2d(width, height);
     let off = offset(pixel_count, key) % pixel_count;
+    if off == 0 {
+        return; // identity, no work needed
+    }
     let loop_position = pixel_count - off;
 
-    // The permutation is a cyclic shift by `off` along the Gilbert
-    // curve: pixel at curve-index `i` moves to `wrap(i + off)`.
+    // The scramble is a cyclic shift by `off` along the Gilbert curve.
+    // In pixel-index space, the inverse permutation σ (where
+    // `new[j] = old[σ(j)]`) walks each cycle either backward (encrypt:
+    // step = loop_position) or forward (decrypt: step = off) along the
+    // curve. Cycles partition curve-indices by residue mod
+    // `gcd(N, step)`, so each residue in `[0, gcd)` is a cycle leader —
+    // no `visited` bitmap is needed.
     //
-    // `wrap(i + off)` equals `i + off` when `i < loop_position`,
-    // otherwise `i - loop_position`. Both stay inside `[0, N)`, and
-    // `positions` is a permutation of `0..N`, so every index is valid.
-    let wrap = |i: usize| -> usize {
-        if i < loop_position {
-            i + off
-        } else {
-            i - loop_position
+    // Applying σ in place: for each cycle, save the leader's pixel,
+    // shift every other pixel one step backward along σ, then drop the
+    // saved pixel into the tail. Each `next` slot is read before it is
+    // written, so no value is lost.
+    let step = if encrypt { loop_position } else { off };
+    let num_cycles = gcd(pixel_count, step);
+
+    for start_curve in 0..num_cycles {
+        let start_slot4 = positions[start_curve] as usize * 4;
+        let mut leader = [0u8; 4];
+        leader.copy_from_slice(&pixels[start_slot4..start_slot4 + 4]);
+
+        let mut cur_curve = start_curve;
+        let mut cur_slot4 = start_slot4;
+        loop {
+            let next_curve = cur_curve + step;
+            let next_curve = if next_curve < pixel_count {
+                next_curve
+            } else {
+                next_curve - pixel_count
+            };
+            if next_curve == start_curve {
+                pixels[cur_slot4..cur_slot4 + 4].copy_from_slice(&leader);
+                break;
+            }
+            let next_slot4 = positions[next_curve] as usize * 4;
+            // Read next into a temp before writing cur: `cur` and `next`
+            // never coincide within a cycle, but Rust can't prove it.
+            let mut next_px = [0u8; 4];
+            next_px.copy_from_slice(&pixels[next_slot4..next_slot4 + 4]);
+            pixels[cur_slot4..cur_slot4 + 4].copy_from_slice(&next_px);
+            cur_curve = next_curve;
+            cur_slot4 = next_slot4;
         }
-    };
-
-    let src: &[u8] = pixels;
-    let mut dst = vec![0u8; pixel_count * 4];
-
-    for i in 0..pixel_count {
-        let a = positions[i];
-        let b = positions[wrap(i)];
-        let (s, d) = if encrypt { (a, b) } else { (b, a) };
-        let (s, d) = (s as usize * 4, d as usize * 4);
-        dst[d..d + 4].copy_from_slice(&src[s..s + 4]);
     }
-
-    pixels.copy_from_slice(&dst);
 }
 
 /// Convenience wrapper over [`scramble_rgba`] that takes an
