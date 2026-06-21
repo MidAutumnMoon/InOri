@@ -96,47 +96,58 @@ pub fn gilbert2d(width: u32, height: u32) -> Vec<u32> {
     curve
 }
 
-#[expect(clippy::many_single_char_names)]
-fn generate2d(curve: &mut Vec<u32>, width: u32, mut p: Pt, a: Pt, b: Pt) {
-    let w = a.abs_sum();
-    let h = b.abs_sum();
-    let da = a.signum();
-    let db = b.signum();
+fn generate2d(
+    curve: &mut Vec<u32>,
+    width: u32,
+    mut origin: Pt,
+    side_a: Pt,
+    side_b: Pt,
+) {
+    let a_len = side_a.abs_sum();
+    let b_len = side_b.abs_sum();
+    let a_dir = side_a.signum();
+    let b_dir = side_b.signum();
 
-    if h == 1 {
-        for _ in 0..w {
-            curve.push((p.0 + p.1 * width as i32) as u32);
-            p = p + da;
+    if b_len == 1 {
+        for _ in 0..a_len {
+            curve.push((origin.0 + origin.1 * width as i32) as u32);
+            origin = origin + a_dir;
         }
         return;
     }
 
-    if w == 1 {
-        for _ in 0..h {
-            curve.push((p.0 + p.1 * width as i32) as u32);
-            p = p + db;
+    if a_len == 1 {
+        for _ in 0..b_len {
+            curve.push((origin.0 + origin.1 * width as i32) as u32);
+            origin = origin + b_dir;
         }
         return;
     }
 
-    let mut a2 = a.div_euclid(2);
-    let mut b2 = b.div_euclid(2);
-    let w2 = a2.abs_sum();
-    let h2 = b2.abs_sum();
+    let mut a_half = side_a.div_euclid(2);
+    let mut b_half = side_b.div_euclid(2);
+    let a_half_len = a_half.abs_sum();
+    let b_half_len = b_half.abs_sum();
 
-    if 2 * w > 3 * h {
-        if (w2 & 1) == 1 && w > 2 {
-            a2 = a2 + da;
+    if 2 * a_len > 3 * b_len {
+        if (a_half_len & 1) == 1 && a_len > 2 {
+            a_half = a_half + a_dir;
         }
-        generate2d(curve, width, p, a2, b);
-        generate2d(curve, width, p + a2, a - a2, b);
+        generate2d(curve, width, origin, a_half, side_b);
+        generate2d(curve, width, origin + a_half, side_a - a_half, side_b);
     } else {
-        if (h2 & 1) == 1 && h > 2 {
-            b2 = b2 + db;
+        if (b_half_len & 1) == 1 && b_len > 2 {
+            b_half = b_half + b_dir;
         }
-        generate2d(curve, width, p, b2, a2);
-        generate2d(curve, width, p + b2, a, b - b2);
-        generate2d(curve, width, p + (a - da) + (b2 - db), -b2, -(a - a2));
+        generate2d(curve, width, origin, b_half, a_half);
+        generate2d(curve, width, origin + b_half, side_a, side_b - b_half);
+        generate2d(
+            curve,
+            width,
+            origin + (side_a - a_dir) + (b_half - b_dir),
+            -b_half,
+            -(side_a - a_half),
+        );
     }
 }
 
