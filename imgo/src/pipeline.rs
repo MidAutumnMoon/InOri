@@ -36,6 +36,10 @@ use crate::Pixel;
 use crate::RelAbs;
 use crate::collect_images;
 
+/// Type alias for the transcoder work closure passed through the pipeline.
+type Work<'a> =
+    dyn Fn(&Image, &Path) -> anyhow::Result<Vec<String>> + Sync + 'a;
+
 /// Internal flag shared across worker threads: once one task fails,
 /// remaining tasks observe `Cancel` and skip themselves.
 enum Permit {
@@ -54,6 +58,179 @@ fn fail(
     bar.suspend(|| ceprintln!(Red, "{msg}"));
     *permit.lock() = Permit::Cancel;
     bar.inc(1);
+}
+
+// ── Fail-aware helpers: return None after calling fail() ───────────
+// These exist so the worker closure can use `?` for abort control flow.
+
+/// Create a tempfile with the output extension.
+fn make_temp(
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    output_ext: &str,
+    input_path: &Path,
+) -> Option<NamedTempFile> {
+    match NamedTempFile::with_suffix(format!(".{output_ext}")) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            fail(
+                permit,
+                bar,
+                format!(
+                    "Failed to create tempfile for {}: {e}",
+                    input_path.display()
+                ),
+            );
+            None
+        }
+    }
+}
+
+/// Run the transcoder work and collect any warnings.
+fn run_work(
+    exec: &Work<'_>,
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    image: &Image,
+    temp: &Path,
+) -> Option<Vec<String>> {
+    match exec(image, temp) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            fail(
+                permit,
+                bar,
+                format!(
+                    "Failed to process {}: {e}",
+                    image.path.original_path().display()
+                ),
+            );
+            None
+        }
+    }
+}
+
+/// Move the source to backup, creating the backup directory tree first.
+fn backup(
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    image: &Image,
+    input_path: &Path,
+    backup_dir: &Path,
+) -> Option<()> {
+    let backup_path = image.path.backup_path_structure(backup_dir);
+    if let Some(backup_parent) = backup_path.parent()
+        && let Err(e) = create_dir_all(backup_parent)
+    {
+        fail(
+            permit,
+            bar,
+            format!(
+                "Failed to create backup dir {}: {e}",
+                backup_parent.display()
+            ),
+        );
+        return None;
+    }
+    if let Err(e) = rename(input_path, &backup_path) {
+        fail(
+            permit,
+            bar,
+            format!("Failed to backup {}: {e}", input_path.display()),
+        );
+        return None;
+    }
+    debug!("Backed up to {}", backup_path.display());
+    Some(())
+}
+
+/// Copy the finished temp output to its final destination.
+fn finalize(
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    temp: &Path,
+    dest: &Path,
+) -> Option<()> {
+    if let Err(e) = std::fs::copy(temp, dest) {
+        fail(
+            permit,
+            bar,
+            format!("Failed to copy output to {}: {e}", dest.display()),
+        );
+        return None;
+    }
+    Some(())
+}
+
+// ── Infallible helpers ────────────────────────────────────────────
+
+/// Print any warnings the transcoder surfaced, bar-aware.
+fn print_warnings(bar: &ProgressBar, warnings: &[String]) {
+    for warning in warnings {
+        bar.suspend(|| ceprintln!(Yellow, "{warning}"));
+    }
+}
+
+/// Build the destination path, resolving conflicts by incrementing seq.
+fn resolve_dest(
+    dest_dir: &Path,
+    image: &Image,
+    output_ext: &str,
+) -> PathBuf {
+    let mut output_extra = image.extra.set_ext(&format!(".{output_ext}"));
+    let mut dest_path = dest_dir.join(output_extra.to_filename());
+    while dest_path.exists() {
+        debug!(
+            r#"Destination "{}" exists, incrementing seq"#,
+            dest_path.display()
+        );
+        output_extra = output_extra.increment_seq();
+        dest_path = dest_dir.join(output_extra.to_filename());
+    }
+    dest_path
+}
+
+/// Processes a single image: temp → work → warnings → backup →
+/// resolve dest → finalize. Returns `None` if the task was cancelled
+/// or failed (in which case `fail()` has already been called).
+fn process_one(
+    permit: &Arc<Mutex<Permit>>,
+    bar: &ProgressBar,
+    exec: &Work<'_>,
+    image: &Image,
+    backup_dir: &Path,
+    no_backup: bool,
+    output_ext: &str,
+) -> Option<()> {
+    if matches!(*permit.lock(), Permit::Cancel) {
+        debug!("Job cancelled");
+        return None;
+    }
+    let _g = debug_span!("processing", ?image).entered();
+    let input_path = image.path.original_path();
+
+    bar.suspend(|| {
+        ceprintln!(BrightBlue, "Processing: {}", input_path.display());
+    });
+
+    let temp_output = make_temp(permit, bar, output_ext, &input_path)?;
+    let warnings = run_work(exec, permit, bar, image, temp_output.path())?;
+    print_warnings(bar, &warnings);
+
+    let dest_dir = image.path.parent_dir().or_else(|| {
+        fail(permit, bar, "[BUG] Failed to get parent directory");
+        None
+    })?;
+
+    if !no_backup {
+        backup(permit, bar, image, &input_path, backup_dir)?;
+    }
+
+    let dest_path = resolve_dest(&dest_dir, image, output_ext);
+    finalize(permit, bar, temp_output.path(), &dest_path)?;
+
+    bar.inc(1);
+    Some(())
 }
 
 /// Shared CLI options common to every transcoder subcommand.
@@ -259,7 +436,7 @@ fn orchestrate(
 
     thread_pool.scope(|scope| -> anyhow::Result<()> {
         let permit = Arc::new(Mutex::new(Permit::Go));
-        let exec = &execute;
+        let exec: &Work<'_> = &execute;
 
         for (image, permit, bar, backup_dir) in izip!(
             images,
@@ -268,135 +445,15 @@ fn orchestrate(
             repeat(backup_dir),
         ) {
             scope.spawn(move |_| {
-                if matches!(*permit.lock(), Permit::Cancel) {
-                    debug!("Job cancelled");
-                    return;
-                }
-                let _g = debug_span!("processing", ?image).entered();
-                let input_path = image.path.original_path();
-
-                bar.suspend(|| {
-                    ceprintln!(
-                        BrightBlue,
-                        "Processing: {}",
-                        input_path.display()
-                    );
-                });
-
-                // Create temp file for the output.
-                let temp_output = match NamedTempFile::with_suffix(
-                    format!(".{output_ext}"),
-                ) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        fail(
-                            &permit,
-                            &bar,
-                            format!(
-                                "Failed to create tempfile for {}: {e}",
-                                input_path.display()
-                            ),
-                        );
-                        return;
-                    }
-                };
-
-                // Execute the work (spawn command or transform pixels).
-                let warnings = match exec(&image, temp_output.path()) {
-                    Ok(w) => w,
-                    Err(e) => {
-                        fail(
-                            &permit,
-                            &bar,
-                            format!(
-                                "Failed to process {}: {e}",
-                                input_path.display()
-                            ),
-                        );
-                        return;
-                    }
-                };
-
-                // Print any warnings the transcoder surfaced.
-                for warning in &warnings {
-                    bar.suspend(|| {
-                        ceprintln!(Yellow, "{warning}");
-                    });
-                }
-
-                // Get the destination directory (same as source).
-                let Some(dest_dir) = image.path.parent_dir() else {
-                    fail(
-                        &permit,
-                        &bar,
-                        "[BUG] Failed to get parent directory",
-                    );
-                    return;
-                };
-
-                // Backup source BEFORE resolving destination path.
-                // This frees up the original filename when source and
-                // output have the same extension.
-                if !no_backup {
-                    let backup_path =
-                        image.path.backup_path_structure(&backup_dir);
-                    if let Some(backup_parent) = backup_path.parent()
-                        && let Err(e) = create_dir_all(backup_parent)
-                    {
-                        fail(
-                            &permit,
-                            &bar,
-                            format!(
-                                "Failed to create backup dir {}: {e}",
-                                backup_parent.display()
-                            ),
-                        );
-                        return;
-                    }
-                    if let Err(e) = rename(&input_path, &backup_path) {
-                        fail(
-                            &permit,
-                            &bar,
-                            format!(
-                                "Failed to backup {}: {e}",
-                                input_path.display()
-                            ),
-                        );
-                        return;
-                    }
-                    debug!("Backed up to {}", backup_path.display());
-                }
-
-                // Build output filename with new extension, resolving
-                // conflicts by incrementing seq.
-                let mut output_extra =
-                    image.extra.set_ext(&format!(".{output_ext}"));
-                let mut dest_path =
-                    dest_dir.join(output_extra.to_filename());
-                while dest_path.exists() {
-                    debug!(
-                        r#"Destination "{}" exists, incrementing seq"#,
-                        dest_path.display()
-                    );
-                    output_extra = output_extra.increment_seq();
-                    dest_path = dest_dir.join(output_extra.to_filename());
-                }
-
-                if let Err(e) =
-                    std::fs::copy(temp_output.path(), &dest_path)
-                {
-                    fail(
-                        &permit,
-                        &bar,
-                        format!(
-                            "Failed to copy output to {}: {e}",
-                            dest_path.display()
-                        ),
-                    );
-                    return;
-                }
-
-                bar.inc(1);
+                let _ = process_one(
+                    &permit,
+                    &bar,
+                    exec,
+                    &image,
+                    &backup_dir,
+                    no_backup,
+                    output_ext,
+                );
             });
         }
 
