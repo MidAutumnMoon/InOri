@@ -31,7 +31,6 @@ use crate::BaseSeqExt;
 use crate::External;
 use crate::Image;
 use crate::ImageFormat;
-use crate::Meta;
 use crate::Pixel;
 use crate::RelAbs;
 use crate::collect_images;
@@ -62,29 +61,6 @@ fn fail(
 
 // ── Fail-aware helpers: return None after calling fail() ───────────
 // These exist so the worker closure can use `?` for abort control flow.
-
-/// Create a tempfile with the output extension.
-fn make_temp(
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    output_ext: &str,
-    input_path: &Path,
-) -> Option<NamedTempFile> {
-    match NamedTempFile::with_suffix(format!(".{output_ext}")) {
-        Ok(t) => Some(t),
-        Err(e) => {
-            fail(
-                permit,
-                bar,
-                format!(
-                    "Failed to create tempfile for {}: {e}",
-                    input_path.display()
-                ),
-            );
-            None
-        }
-    }
-}
 
 /// Run the transcoder work and collect any warnings.
 fn run_work(
@@ -144,24 +120,6 @@ fn backup(
     Some(())
 }
 
-/// Copy the finished temp output to its final destination.
-fn finalize(
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    temp: &Path,
-    dest: &Path,
-) -> Option<()> {
-    if let Err(e) = std::fs::copy(temp, dest) {
-        fail(
-            permit,
-            bar,
-            format!("Failed to copy output to {}: {e}", dest.display()),
-        );
-        return None;
-    }
-    Some(())
-}
-
 // ── Infallible helpers ────────────────────────────────────────────
 
 /// Print any warnings the transcoder surfaced, bar-aware.
@@ -213,7 +171,22 @@ fn process_one(
         ceprintln!(BrightBlue, "Processing: {}", input_path.display());
     });
 
-    let temp_output = make_temp(permit, bar, output_ext, &input_path)?;
+    let temp_output =
+        match NamedTempFile::with_suffix(format!(".{output_ext}")) {
+            Ok(t) => t,
+            Err(e) => {
+                fail(
+                    permit,
+                    bar,
+                    format!(
+                        "Failed to create tempfile for {}: {e}",
+                        input_path.display()
+                    ),
+                );
+                return None;
+            }
+        };
+
     let warnings = run_work(exec, permit, bar, image, temp_output.path())?;
     print_warnings(bar, &warnings);
 
@@ -227,7 +200,18 @@ fn process_one(
     }
 
     let dest_path = resolve_dest(&dest_dir, image, output_ext);
-    finalize(permit, bar, temp_output.path(), &dest_path)?;
+
+    if let Err(e) = std::fs::copy(temp_output.path(), &dest_path) {
+        fail(
+            permit,
+            bar,
+            format!(
+                "Failed to copy output to {}: {e}",
+                dest_path.display()
+            ),
+        );
+        return None;
+    }
 
     bar.inc(1);
     Some(())
@@ -274,12 +258,6 @@ impl SharedOpts {
     pub fn skips_backup(&self) -> bool {
         self.no_backup || self.manual_selection.is_some()
     }
-
-    /// Resolve the workspace directory: explicit `--workspace` or `PWD`.
-    fn workspace(&self) -> anyhow::Result<PathBuf> {
-        let pwd = std::env::current_dir()?;
-        Ok(self.workspace.as_ref().map_or(pwd, Clone::clone))
-    }
 }
 /// Collect images for the given input formats, honoring `SharedOpts`
 /// for workspace, recursion, and manual selection.
@@ -287,7 +265,10 @@ fn collect_for(
     shared: &SharedOpts,
     input_formats: &[ImageFormat],
 ) -> anyhow::Result<(PathBuf, Vec<Image>)> {
-    let workspace = shared.workspace()?;
+    let workspace = {
+        let pwd = std::env::current_dir()?;
+        shared.workspace.as_ref().map_or(pwd, Clone::clone)
+    };
 
     let images = if let Some(man_sel) = &shared.manual_selection {
         debug!("Use manually chosen images");
@@ -353,33 +334,6 @@ fn collect_for(
     Ok((workspace, images))
 }
 
-/// Inputs to [`orchestrate`]: everything the orchestrator needs to
-/// know about the run, derived from `SharedOpts` + a transcoder's
-/// [`Meta`].
-struct PipelineSpec {
-    workspace: PathBuf,
-    images: Vec<Image>,
-    no_backup: bool,
-    jobs: NonZeroU64,
-    output_format: ImageFormat,
-}
-
-/// Builds a [`PipelineSpec`] from the shared CLI options and the
-/// transcoder's metadata.
-fn spec_for(
-    shared: &SharedOpts,
-    meta: &dyn Meta,
-) -> anyhow::Result<PipelineSpec> {
-    let (workspace, images) = collect_for(shared, meta.input_formats())?;
-    Ok(PipelineSpec {
-        workspace,
-        images,
-        no_backup: shared.skips_backup(),
-        jobs: shared.jobs.unwrap_or_else(|| meta.default_jobs()),
-        output_format: meta.output_format(),
-    })
-}
-
 /// Shared orchestration core: owns backup, progress, parallel
 /// execution, temp files, and output resolution. The `execute`
 /// closure does the actual work (spawn command or transform pixels)
@@ -389,18 +343,15 @@ fn spec_for(
 /// downconversion notices) which `orchestrate` prints bar-aware. It
 /// must not touch the filesystem beyond the temp path.
 fn orchestrate(
-    spec: PipelineSpec,
+    workspace: &Path,
+    images: Vec<Image>,
+    no_backup: bool,
+    jobs: NonZeroU64,
+    output_format: ImageFormat,
     execute: impl Fn(&Image, &Path) -> anyhow::Result<Vec<String>>
     + Send
     + Sync,
 ) -> anyhow::Result<()> {
-    let PipelineSpec {
-        workspace,
-        images,
-        no_backup,
-        jobs,
-        output_format,
-    } = spec;
     if images.is_empty() {
         ceprintln!(Yellow, "No images to process.");
         return Ok(());
@@ -476,26 +427,35 @@ pub fn run_pipeline_external(
     transcoder: &dyn External,
 ) -> anyhow::Result<()> {
     ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());
-    let spec = spec_for(shared, transcoder)?;
 
-    orchestrate(spec, |image, temp| {
-        let input_path = image.path.original_path();
-        let mut cmd = transcoder.transcode(&input_path, temp);
-        let output = cmd
-            .output()
-            .with_context(|| format!("spawn {}", transcoder.id()))?;
-        if !output.status.success() {
-            bail!(
-                "{} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",
-                transcoder.id(),
-                input_path.display(),
-                output.status.code(),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
-            );
-        }
-        Ok(vec![])
-    })
+    let (workspace, images) =
+        collect_for(shared, transcoder.input_formats())?;
+
+    orchestrate(
+        &workspace,
+        images,
+        shared.skips_backup(),
+        shared.jobs.unwrap_or_else(|| transcoder.default_jobs()),
+        transcoder.output_format(),
+        |image, temp| {
+            let input_path = image.path.original_path();
+            let mut cmd = transcoder.transcode(&input_path, temp);
+            let output = cmd
+                .output()
+                .with_context(|| format!("spawn {}", transcoder.id()))?;
+            if !output.status.success() {
+                bail!(
+                    "{} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",
+                    transcoder.id(),
+                    input_path.display(),
+                    output.status.code(),
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            Ok(vec![])
+        },
+    )
 }
 
 /// Runs the in-process pixel transcoder pipeline.
@@ -514,37 +474,43 @@ pub fn run_pipeline_pixel(
         Yellow,
         "Note: metadata (EXIF/ICC) is stripped; GIF uses first frame only."
     );
-    let spec = spec_for(shared, transcoder)?;
 
-    orchestrate(spec, |image, temp| {
-        let input_path = image.path.original_path();
-        let img = image::open(&input_path)
-            .with_context(|| format!("decode {}", input_path.display()))?;
+    let (workspace, images) =
+        collect_for(shared, transcoder.input_formats())?;
 
-        let mut warnings = Vec::new();
+    orchestrate(
+        &workspace,
+        images,
+        shared.skips_backup(),
+        shared.jobs.unwrap_or_else(|| transcoder.default_jobs()),
+        transcoder.output_format(),
+        |image, temp| {
+            let input_path = image.path.original_path();
+            let img = image::open(&input_path).with_context(|| {
+                format!("decode {}", input_path.display())
+            })?;
 
-        // Warn about lossy downconversion for >8-bit inputs: the
-        // algorithm is lossless, but the RGBA8 pipeline truncates
-        // deep pixels.
-        let bpp = img.color().bits_per_pixel();
-        if bpp > 32 {
-            warnings.push(format!(
-                "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
-                input_path.display()
-            ));
-        }
-        // GIF: `image::open` loads only the first frame.
-        if image.format == ImageFormat::GIF {
-            warnings.push(format!(
-                "{}: GIF, only first frame processed",
-                input_path.display()
-            ));
-        }
+            let mut warnings = Vec::new();
 
-        let mut rgba = img.to_rgba8();
-        transcoder.transform(&mut rgba)?;
-        rgba.save(temp)
-            .with_context(|| format!("encode {}", temp.display()))?;
-        Ok(warnings)
-    })
+            let bpp = img.color().bits_per_pixel();
+            if bpp > 32 {
+                warnings.push(format!(
+                    "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
+                    input_path.display()
+                ));
+            }
+            if image.format == ImageFormat::GIF {
+                warnings.push(format!(
+                    "{}: GIF, only first frame processed",
+                    input_path.display()
+                ));
+            }
+
+            let mut rgba = img.to_rgba8();
+            transcoder.transform(&mut rgba)?;
+            rgba.save(temp)
+                .with_context(|| format!("encode {}", temp.display()))?;
+            Ok(warnings)
+        },
+    )
 }
