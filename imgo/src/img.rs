@@ -1,23 +1,7 @@
-use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
 
 use crate::BaseSeqExt;
 use crate::RelAbs;
-
-pub trait Transcoder {
-    /// A string id represents this transcoder.
-    fn id(&self) -> &'static str;
-
-    /// Formats that this transcoder accepts as input.
-    fn input_formats(&self) -> &'static [ImageFormat];
-    /// Formats that this transcoder can output.
-    fn output_format(&self) -> ImageFormat;
-    /// Default number of parallel jobs.
-    fn default_jobs(&self) -> NonZeroU64;
-    /// Generate the transcoding command.
-    fn transcode(&self, input: &Path, output: &Path) -> Command;
-}
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
