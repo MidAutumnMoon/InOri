@@ -86,27 +86,21 @@ impl NHCommand {
     /// Returns an error if required Nix features are unavailable or if the
     /// selected subcommand fails.
     pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-        use nh_nixos::nixos::OsRebuildVariant::{
-            Boot, Build, Switch, Test,
-        };
+        use nh_nixos::nixos::ActivationAction::{Boot, Switch, Test};
 
         match self {
             Self::Switch(args) => {
-                args.rebuild_and_activate(&Switch, None, elevation)
+                args.build_and_activate(Switch, elevation)
             }
-            Self::Boot(args) => {
-                args.rebuild_and_activate(&Boot, None, elevation)
-            }
-            Self::Test(args) => {
-                args.rebuild_and_activate(&Test, None, elevation)
-            }
+            Self::Boot(args) => args.build_and_activate(Boot, elevation),
+            Self::Test(args) => args.build_and_activate(Test, elevation),
             Self::Build(args) => {
                 if args.common.ask || args.common.dry {
                     tracing::warn!(
                         "`--ask` and `--dry` have no effect for `nh build`"
                     );
                 }
-                args.build_only(&Build, None, &elevation)
+                args.build_only(&elevation)
             }
             Self::Repl(args) => args.run(),
             Self::Info(args) => args.info(),
