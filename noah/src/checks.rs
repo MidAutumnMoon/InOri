@@ -1,75 +1,3 @@
-use std::{cmp::Ordering, env};
-
-use nh::EyreRootcauseBridge;
-use semver::Version;
-use tracing::warn;
-
-use crate::nix_info::{
-    NixVariant, nix_variant, nix_version,
-    normalize_version_string,
-};
-
-/// Verifies if the installed Nix version meets requirements.
-///
-/// # Returns
-///
-/// * `Result<()>` - Ok if version requirements are met, error otherwise
-///
-/// # Errors
-///
-/// Returns an error if the Nix version cannot be determined or parsed.
-pub fn check_nix_version() -> rootcause::Result<()> {
-    // XXX: Both Nix and Lix follow semantic versioning (semver). Update the
-    // versions below once latest stable for either of those packages change.
-    // We *also* cannot (or rather, will not) make this check for non-nixpkgs
-    // Nix variants, since there is no good baseline for what to support
-    // without the understanding of stable/unstable branches.
-    // TODO: Set up a CI to automatically update those in the future.
-    const MIN_LIX_VERSION: &str = "2.93.3";
-    const MIN_NIX_VERSION: &str = "2.31.2";
-
-    if env::var("NH_NO_CHECKS").is_ok() {
-        return Ok(());
-    }
-
-    let variant = nix_variant()?;
-    let version = nix_version().into_rootcause()?;
-    let version_normal = normalize_version_string(&version);
-
-    let min_version = match variant {
-        NixVariant::Lix => MIN_LIX_VERSION,
-        NixVariant::Nix => MIN_NIX_VERSION,
-    };
-
-    let current = match Version::parse(&version_normal) {
-        Ok(ver) => ver,
-        Err(e) => {
-            warn!(
-                "Failed to parse Nix version '{version_normal}': {e}. \
-                 Skipping version check.",
-            );
-            return Ok(());
-        }
-    };
-
-    let required = Version::parse(min_version)?;
-
-    match current.cmp(&required) {
-        Ordering::Less => {
-            let binary_name = match variant {
-                NixVariant::Lix => "Lix",
-                NixVariant::Nix => "Nix",
-            };
-            warn!(
-                "Warning: {binary_name} version {version} is older than the \
-                 recommended minimum version {min_version}. You may encounter \
-                 issues."
-            );
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
 
 /// Checks if core NH environment variables are set correctly. This was
 /// previously `setup_environment()`, but the setup logic has been moved away.
@@ -108,32 +36,6 @@ pub fn verify_variables() -> color_eyre::Result<()> {
 
     Ok(())
 }
-
-/// Consolidate all necessary checks for Nix functionality into a single
-/// function. This will be executed in the main function, but can be executed
-/// before critical commands to double-check if necessary.
-///
-/// NOTE: Experimental feature checks are now done per-command to avoid
-/// redundant error messages for features not needed by the specific command.
-///
-/// # Returns
-///
-/// * `Result<()>` - Ok if all checks pass, error otherwise
-///
-/// # Errors
-///
-/// Returns an error if any required Nix environment checks fail.
-pub fn verify_nix_environment() -> rootcause::Result<()> {
-    if env::var("NH_NO_CHECKS").is_ok() {
-        return Ok(());
-    }
-
-    // Only check version globally. Features are checked per-command now.
-    // This function is kept as is for backwards compatibility.
-    check_nix_version()?;
-    Ok(())
-}
-
 
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "Fine in tests")]

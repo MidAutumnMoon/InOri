@@ -5,6 +5,7 @@ use nh::EyreRootcauseBridge;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 use crate::nix_info::NixVariant;
+use crate::nix_info::nix_variant;
 
 mod checks;
 mod interface;
@@ -31,6 +32,8 @@ fn main() -> rootcause::Result<()> {
         )
         .display_env_section(false)
         .install().into_rootcause()?;
+
+    let _variant = nix_variant()?;
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
@@ -60,9 +63,6 @@ fn main() -> rootcause::Result<()> {
 
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
-
-    // Check Nix version upfront
-    checks::verify_nix_environment()?;
 
     // Once we assert required Nix features, validate NH environment checks
     // For now, this is just NH_* variables being set. More checks may be
