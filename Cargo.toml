@@ -30,8 +30,6 @@ ino_color = { path = "./crates/ino_color" }
 ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
 ino_tap = { path = "./crates/ino_tap" }
-ino_shell = { path = "./crates/ino_shell" }
-ino_shell-macros = { path = "./crates/ino_shell-macros" }
 
 # Shared dependencies (InOri + Noah)
 anyhow = "1"
@@ -50,16 +48,6 @@ tap = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [ "env-filter", "registry", "std" ] }
-
-[workspace.dependencies.tokio]
-version = "1"
-features = [
-    "rt",
-    "net",
-    "time",
-    "fs",
-    "macros",
-]
 
 #
 # Profiles
