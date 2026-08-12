@@ -266,8 +266,8 @@
     reason = "vendored: upstream API docs are complete without pedantic section requirements"
 )]
 
-mod exec;
 mod error;
+mod exec;
 
 use std::{
     collections::HashMap,
@@ -389,8 +389,12 @@ impl Shell {
     ///
     /// Fails if [`std::env::current_dir`] returns an error.
     pub fn new() -> Result<Self> {
-        let cwd = current_dir().map_err(|err| Error::new_current_dir(err, None))?;
-        Ok(Self { cwd: cwd.into(), env: Arc::default() })
+        let cwd = current_dir()
+            .map_err(|err| Error::new_current_dir(err, None))?;
+        Ok(Self {
+            cwd: cwd.into(),
+            env: Arc::default(),
+        })
     }
 
     /// Returns the working directory for this [`Shell`].
@@ -421,7 +425,10 @@ impl Shell {
     #[must_use]
     pub fn with_current_dir(&self, path: impl AsRef<Path>) -> Self {
         fn inner(sh: &Shell, path: &OsStr) -> Shell {
-            Shell { cwd: sh.cwd.join(path).into(), env: sh.env.clone() }
+            Shell {
+                cwd: sh.cwd.join(path).into(),
+                env: sh.env.clone(),
+            }
         }
         inner(self, path.as_ref().as_os_str())
     }
@@ -438,9 +445,12 @@ impl Shell {
                 .var_os(key)
                 .ok_or(VarError::NotPresent)
                 .map_err(|err| Error::new_var(err, key.to_os_string()))?;
-            env_os
-                .into_string()
-                .map_err(|value| Error::new_var(VarError::NotUnicode(value), key.to_os_string()))
+            env_os.into_string().map_err(|value| {
+                Error::new_var(
+                    VarError::NotUnicode(value),
+                    key.to_os_string(),
+                )
+            })
         }
         inner(self, key.as_ref())
     }
@@ -452,7 +462,10 @@ impl Shell {
     /// shell.
     pub fn var_os(&self, key: impl AsRef<OsStr>) -> Option<OsString> {
         fn inner(sh: &Shell, key: &OsStr) -> Option<OsString> {
-            sh.env.get(key).map(OsString::from).or_else(|| env::var_os(key))
+            sh.env
+                .get(key)
+                .map(OsString::from)
+                .or_else(|| env::var_os(key))
         }
         inner(self, key.as_ref())
     }
@@ -467,14 +480,22 @@ impl Shell {
     pub fn vars_os(&self) -> HashMap<OsString, OsString> {
         let mut result: HashMap<OsString, OsString> = HashMap::default();
         result.extend(env::vars_os());
-        result.extend(self.env.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))));
+        result.extend(
+            self.env
+                .iter()
+                .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+        );
         result
     }
 
     /// Sets the value of `key` environment variable for this [`Shell`] to `value`.
     ///
     /// Note that this doesn't affect [`std::env::var`].
-    pub fn set_var(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+    pub fn set_var(
+        &mut self,
+        key: impl AsRef<OsStr>,
+        value: impl AsRef<OsStr>,
+    ) {
         fn inner(sh: &mut Shell, key: &OsStr, value: &OsStr) {
             Arc::make_mut(&mut sh.env).insert(key.into(), value.into());
         }
@@ -484,11 +505,18 @@ impl Shell {
     /// Returns a new [`Shell`] with environmental variable `key` set to `value`.
     /// Note that this doesn't affect [`std::env::var`].
     #[must_use]
-    pub fn with_var(&self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
+    pub fn with_var(
+        &self,
+        key: impl AsRef<OsStr>,
+        value: impl AsRef<OsStr>,
+    ) -> Self {
         fn inner(sh: &Shell, key: &OsStr, value: &OsStr) -> Shell {
             let mut env = Arc::clone(&sh.env);
             Arc::make_mut(&mut env).insert(key.into(), value.into());
-            Shell { cwd: sh.cwd.clone(), env }
+            Shell {
+                cwd: sh.cwd.clone(),
+                env,
+            }
         }
         inner(self, key.as_ref(), value.as_ref())
     }
@@ -498,13 +526,17 @@ impl Shell {
     pub fn read_file(&self, path: impl AsRef<Path>) -> Result<String> {
         fn inner(sh: &Shell, path: &Path) -> Result<String> {
             let path = sh.path(path);
-            fs::read_to_string(&path).map_err(|err| Error::new_read_file(err, path))
+            fs::read_to_string(&path)
+                .map_err(|err| Error::new_read_file(err, path))
         }
         inner(self, path.as_ref())
     }
 
     /// Read a file into a vector of bytes.
-    pub fn read_binary_file(&self, path: impl AsRef<Path>) -> Result<Vec<u8>> {
+    pub fn read_binary_file(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<Vec<u8>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<u8>> {
             let path = sh.path(path);
             fs::read(&path).map_err(|err| Error::new_read_file(err, path))
@@ -517,28 +549,38 @@ impl Shell {
     /// This function will create the file and all intermediate directories if
     /// they don't exist.
     // TODO: probably want to make this an atomic rename write?
-    pub fn write_file(&self, path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> Result<()> {
+    pub fn write_file(
+        &self,
+        path: impl AsRef<Path>,
+        contents: impl AsRef<[u8]>,
+    ) -> Result<()> {
         fn inner(sh: &Shell, path: &Path, contents: &[u8]) -> Result<()> {
             let path = sh.path(path);
             if let Some(p) = path.parent() {
                 sh.create_dir(p)?;
             }
-            fs::write(&path, contents).map_err(|err| Error::new_write_file(err, path))
+            fs::write(&path, contents)
+                .map_err(|err| Error::new_write_file(err, path))
         }
         inner(self, path.as_ref(), contents.as_ref())
     }
 
     /// Creates a `dst` file with the same contents as `src`
     #[doc(alias = "cp")]
-    pub fn copy_file(&self, src_file: impl AsRef<Path>, dst_file: impl AsRef<Path>) -> Result<()> {
+    pub fn copy_file(
+        &self,
+        src_file: impl AsRef<Path>,
+        dst_file: impl AsRef<Path>,
+    ) -> Result<()> {
         fn inner(sh: &Shell, src: &Path, dst: &Path) -> Result<()> {
             let src = sh.path(src);
             let dst = sh.path(dst);
             if let Some(p) = dst.parent() {
                 sh.create_dir(p)?;
             }
-            std::fs::copy(&src, &dst)
-                .map_err(|err| Error::new_copy_file(err, src.clone(), dst.clone()))?;
+            std::fs::copy(&src, &dst).map_err(|err| {
+                Error::new_copy_file(err, src.clone(), dst.clone())
+            })?;
             Ok(())
         }
         inner(self, src_file.as_ref(), dst_file.as_ref())
@@ -555,7 +597,11 @@ impl Shell {
             let src = sh.path(src);
             let dst = sh.path(dst);
             let Some(file_name) = src.file_name() else {
-                return Err(Error::new_copy_file(io::ErrorKind::InvalidData.into(), src, dst));
+                return Err(Error::new_copy_file(
+                    io::ErrorKind::InvalidData.into(),
+                    src,
+                    dst,
+                ));
             };
             sh.copy_file(&src, dst.join(file_name))
         }
@@ -564,21 +610,30 @@ impl Shell {
 
     /// Hardlinks `src` to `dst`.
     #[doc(alias = "ln")]
-    pub fn hard_link(&self, src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+    pub fn hard_link(
+        &self,
+        src: impl AsRef<Path>,
+        dst: impl AsRef<Path>,
+    ) -> Result<()> {
         fn inner(sh: &Shell, src: &Path, dst: &Path) -> Result<()> {
             let src = sh.path(src);
             let dst = sh.path(dst);
-            fs::hard_link(&src, &dst).map_err(|err| Error::new_hard_link(err, src, dst))
+            fs::hard_link(&src, &dst)
+                .map_err(|err| Error::new_hard_link(err, src, dst))
         }
         inner(self, src.as_ref(), dst.as_ref())
     }
 
     /// Returns a sorted list of paths directly contained in the directory at `path`.
     #[doc(alias = "ls")]
-    pub fn read_dir(&self, path: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
+    pub fn read_dir(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<Vec<PathBuf>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<PathBuf>> {
             let path = sh.path(path);
-            let dir = fs::read_dir(&path).map_err(|err| Error::new_read_dir(err, path.clone()))?;
+            let dir = fs::read_dir(&path)
+                .map_err(|err| Error::new_read_dir(err, path.clone()))?;
             let mut res: Vec<PathBuf> = dir
                 .map(|entry| entry.map(|e| e.path()))
                 .collect::<Result<_, _>>()
@@ -627,7 +682,9 @@ impl Shell {
             let path = base.join(format!("xshell-tmp-dir-{cnt}"));
             match fs::create_dir(&path) {
                 Ok(()) => return Ok(TempDir { path }),
-                Err(err) if try_count == 1024 => return Err(Error::new_create_dir(err, path)),
+                Err(err) if try_count == 1024 => {
+                    return Err(Error::new_create_dir(err, path));
+                }
                 Err(_) => try_count += 1,
             }
         }
@@ -639,10 +696,12 @@ impl Shell {
         fn inner(sh: &Shell, path: &Path) -> Result<(), Error> {
             let path = sh.path(path);
             match path.metadata() {
-                Ok(meta) => {
-                    if meta.is_dir() { remove_dir_all(&path) } else { fs::remove_file(&path) }
-                        .map_err(|err| Error::new_remove_path(err, path))
+                Ok(meta) => if meta.is_dir() {
+                    remove_dir_all(&path)
+                } else {
+                    fs::remove_file(&path)
                 }
+                .map_err(|err| Error::new_remove_path(err, path)),
                 Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
                 Err(err) => Err(Error::new_remove_path(err, path)),
             }
@@ -771,7 +830,10 @@ impl Cmd {
     }
 
     #[doc(hidden)]
-    pub fn __extend_arg(mut self, arg_fragment: impl AsRef<OsStr>) -> Self {
+    pub fn __extend_arg(
+        mut self,
+        arg_fragment: impl AsRef<OsStr>,
+    ) -> Self {
         fn inner(sh: &mut Cmd, arg_fragment: &OsStr) {
             if let Some(last_arg) = sh.args.last_mut() {
                 last_arg.push(arg_fragment);
@@ -786,7 +848,11 @@ impl Cmd {
     }
 
     /// Overrides the value of the environmental variable for this command.
-    pub fn env(mut self, key: impl AsRef<OsStr>, val: impl AsRef<OsStr>) -> Self {
+    pub fn env(
+        mut self,
+        key: impl AsRef<OsStr>,
+        val: impl AsRef<OsStr>,
+    ) -> Self {
         fn inner(sh: &mut Cmd, key: &OsStr, val: &OsStr) {
             Arc::make_mut(&mut sh.sh.env).insert(key.into(), val.into());
         }
@@ -801,8 +867,10 @@ impl Cmd {
         K: AsRef<OsStr>,
         V: AsRef<OsStr>,
     {
-        Arc::make_mut(&mut self.sh.env)
-            .extend(vars.into_iter().map(|(k, v)| (k.as_ref().into(), v.as_ref().into())));
+        Arc::make_mut(&mut self.sh.env).extend(
+            vars.into_iter()
+                .map(|(k, v)| (k.as_ref().into(), v.as_ref().into())),
+        );
         self
     }
 
@@ -898,7 +966,10 @@ impl Cmd {
         Ok(())
     }
 
-    fn check_exec_result(&self, result: &mut exec::ExecResult) -> Result<()> {
+    fn check_exec_result(
+        &self,
+        result: &mut exec::ExecResult,
+    ) -> Result<()> {
         if let Some(status) = result.status
             && !status.success()
             && !self.ignore_status
@@ -941,13 +1012,30 @@ impl Cmd {
         command.stdout(Stdio::inherit());
         command.stderr(Stdio::inherit());
         eprintln!("$ {self}");
-        let mut child = command
-            .spawn()
-            .map_err(|err| Error::new_cmd(self, CmdErrorKind::Io(err), Vec::new(), Vec::new()))?;
+        let mut child = command.spawn().map_err(|err| {
+            Error::new_cmd(
+                self,
+                CmdErrorKind::Io(err),
+                Vec::new(),
+                Vec::new(),
+            )
+        })?;
         let status = exec::wait_deadline(&mut child, self.deadline)
-            .map_err(|err| Error::new_cmd(self, CmdErrorKind::Io(err), Vec::new(), Vec::new()))?;
+            .map_err(|err| {
+                Error::new_cmd(
+                    self,
+                    CmdErrorKind::Io(err),
+                    Vec::new(),
+                    Vec::new(),
+                )
+            })?;
         if !status.success() {
-            return Err(Error::new_cmd(self, CmdErrorKind::Status(status), Vec::new(), Vec::new()));
+            return Err(Error::new_cmd(
+                self,
+                CmdErrorKind::Status(status),
+                Vec::new(),
+                Vec::new(),
+            ));
         }
 
         Ok(())
@@ -962,13 +1050,30 @@ impl Cmd {
         command.stdout(Stdio::inherit());
         command.stderr(Stdio::inherit());
         eprintln!("$ {self}");
-        let mut child = command
-            .spawn()
-            .map_err(|err| Error::new_cmd(self, CmdErrorKind::Io(err), Vec::new(), Vec::new()))?;
+        let mut child = command.spawn().map_err(|err| {
+            Error::new_cmd(
+                self,
+                CmdErrorKind::Io(err),
+                Vec::new(),
+                Vec::new(),
+            )
+        })?;
         let status = exec::wait_deadline(&mut child, self.deadline)
-            .map_err(|err| Error::new_cmd(self, CmdErrorKind::Io(err), Vec::new(), Vec::new()))?;
+            .map_err(|err| {
+                Error::new_cmd(
+                    self,
+                    CmdErrorKind::Io(err),
+                    Vec::new(),
+                    Vec::new(),
+                )
+            })?;
         if !status.success() {
-            return Err(Error::new_cmd(self, CmdErrorKind::Status(status), Vec::new(), Vec::new()));
+            return Err(Error::new_cmd(
+                self,
+                CmdErrorKind::Status(status),
+                Vec::new(),
+                Vec::new(),
+            ));
         }
         Ok(())
     }
@@ -1006,8 +1111,14 @@ impl Cmd {
     }
 
     fn chomp(&self, stream: Vec<u8>) -> Result<String> {
-        let mut text = String::from_utf8(stream)
-            .map_err(|err| Error::new_cmd(self, CmdErrorKind::Utf8(err), Vec::new(), Vec::new()))?;
+        let mut text = String::from_utf8(stream).map_err(|err| {
+            Error::new_cmd(
+                self,
+                CmdErrorKind::Utf8(err),
+                Vec::new(),
+                Vec::new(),
+            )
+        })?;
         if let Some(without_newline) = text.strip_suffix('\n')
             && !without_newline.contains('\n')
         {
@@ -1020,18 +1131,29 @@ impl Cmd {
     }
 
     /// Run the command and return its full output.
-    #[expect(clippy::expect_used, reason = "check_exec_result returns Err if status is None")]
+    #[expect(
+        clippy::expect_used,
+        reason = "check_exec_result returns Err if status is None"
+    )]
     pub fn output(&self) -> Result<Output> {
         let mut command = self.to_command();
         command.stdin(Stdio::null());
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
 
-        let mut result =
-            exec::exec(command, self.stdin_contents.as_deref(), None, None, self.deadline);
+        let mut result = exec::exec(
+            command,
+            self.stdin_contents.as_deref(),
+            None,
+            None,
+            self.deadline,
+        );
         self.check_exec_result(&mut result)?;
         Ok(Output {
-            status: result.status.take().expect("check_exec_result guarantees Some"),
+            status: result
+                .status
+                .take()
+                .expect("check_exec_result guarantees Some"),
             stdout: result.stdout,
             stderr: result.stderr,
         })

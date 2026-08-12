@@ -20,15 +20,44 @@ pub struct Error {
 
 /// Note: this is intentionally not public.
 enum ErrorKind {
-    CurrentDir { err: io::Error, path: Option<Arc<Path>> },
-    Var { err: env::VarError, var: OsString },
-    ReadFile { err: io::Error, path: PathBuf },
-    ReadDir { err: io::Error, path: PathBuf },
-    WriteFile { err: io::Error, path: PathBuf },
-    CopyFile { err: io::Error, src: PathBuf, dst: PathBuf },
-    HardLink { err: io::Error, src: PathBuf, dst: PathBuf },
-    CreateDir { err: io::Error, path: PathBuf },
-    RemovePath { err: io::Error, path: PathBuf },
+    CurrentDir {
+        err: io::Error,
+        path: Option<Arc<Path>>,
+    },
+    Var {
+        err: env::VarError,
+        var: OsString,
+    },
+    ReadFile {
+        err: io::Error,
+        path: PathBuf,
+    },
+    ReadDir {
+        err: io::Error,
+        path: PathBuf,
+    },
+    WriteFile {
+        err: io::Error,
+        path: PathBuf,
+    },
+    CopyFile {
+        err: io::Error,
+        src: PathBuf,
+        dst: PathBuf,
+    },
+    HardLink {
+        err: io::Error,
+        src: PathBuf,
+        dst: PathBuf,
+    },
+    CreateDir {
+        err: io::Error,
+        path: PathBuf,
+    },
+    RemovePath {
+        err: io::Error,
+        path: PathBuf,
+    },
     Cmd(CmdError),
 }
 
@@ -57,13 +86,17 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &*self.kind {
             ErrorKind::CurrentDir { err, path } => {
-                let suffix =
-                    path.as_ref().map_or(String::new(), |path| format!(" `{}`", path.display()));
+                let suffix = path.as_ref().map_or(String::new(), |path| {
+                    format!(" `{}`", path.display())
+                });
                 write!(f, "failed to get current directory{suffix}: {err}")
             }
             ErrorKind::Var { err, var } => {
                 let var = var.to_string_lossy();
-                write!(f, "failed to get environment variable `{var}`: {err}")
+                write!(
+                    f,
+                    "failed to get environment variable `{var}`: {err}"
+                )
             }
             ErrorKind::ReadFile { err, path } => {
                 let path = path.display();
@@ -120,22 +153,37 @@ impl fmt::Display for CmdError {
         let cmd = &self.cmd;
         match &self.kind {
             CmdErrorKind::Status(status) => match status.code() {
-                Some(code) => write!(f, "command exited with non-zero code `{cmd}`: {code}{nl}")?,
+                Some(code) => write!(
+                    f,
+                    "command exited with non-zero code `{cmd}`: {code}{nl}"
+                )?,
                 #[cfg(unix)]
                 None => {
                     use std::os::unix::process::ExitStatusExt;
                     match status.signal() {
                         Some(sig) => {
-                            write!(f, "command was terminated by a signal `{cmd}`: {sig}{nl}")?;
+                            write!(
+                                f,
+                                "command was terminated by a signal `{cmd}`: {sig}{nl}"
+                            )?;
                         }
-                        None => write!(f, "command was terminated by a signal `{cmd}`{nl}")?,
+                        None => write!(
+                            f,
+                            "command was terminated by a signal `{cmd}`{nl}"
+                        )?,
                     }
                 }
                 #[cfg(not(unix))]
-                None => write!(f, "command was terminated by a signal `{cmd}`{nl}")?,
+                None => write!(
+                    f,
+                    "command was terminated by a signal `{cmd}`{nl}"
+                )?,
             },
             CmdErrorKind::Utf8(err) => {
-                write!(f, "command produced invalid utf-8 `{cmd}`: {err}")?;
+                write!(
+                    f,
+                    "command produced invalid utf-8 `{cmd}`: {err}"
+                )?;
                 return Ok(());
             }
             CmdErrorKind::Io(err) => {
@@ -143,7 +191,10 @@ impl fmt::Display for CmdError {
                     let prog = self.cmd.prog.as_path().display();
                     write!(f, "command not found: `{prog}`{nl}")?;
                 } else {
-                    write!(f, "io error when running command `{cmd}`: {err}{nl}")?;
+                    write!(
+                        f,
+                        "io error when running command `{cmd}`: {err}{nl}"
+                    )?;
                 }
             }
             CmdErrorKind::Timeout => {
@@ -151,10 +202,18 @@ impl fmt::Display for CmdError {
             }
         }
         if !self.stdout.is_empty() {
-            write!(f, "stdout suffix:\n{}\n", String::from_utf8_lossy(&self.stdout))?;
+            write!(
+                f,
+                "stdout suffix:\n{}\n",
+                String::from_utf8_lossy(&self.stdout)
+            )?;
         }
         if !self.stderr.is_empty() {
-            write!(f, "stderr suffix:\n{}\n", String::from_utf8_lossy(&self.stderr))?;
+            write!(
+                f,
+                "stderr suffix:\n{}\n",
+                String::from_utf8_lossy(&self.stderr)
+            )?;
         }
         Ok(())
     }
@@ -162,7 +221,10 @@ impl fmt::Display for CmdError {
 
 /// `pub(crate)` constructors, visible only in this crate.
 impl Error {
-    pub(crate) fn new_current_dir(err: io::Error, path: Option<Arc<Path>>) -> Self {
+    pub(crate) fn new_current_dir(
+        err: io::Error,
+        path: Option<Arc<Path>>,
+    ) -> Self {
         ErrorKind::CurrentDir { err, path }.into()
     }
 
@@ -182,11 +244,19 @@ impl Error {
         ErrorKind::WriteFile { err, path }.into()
     }
 
-    pub(crate) fn new_copy_file(err: io::Error, src: PathBuf, dst: PathBuf) -> Self {
+    pub(crate) fn new_copy_file(
+        err: io::Error,
+        src: PathBuf,
+        dst: PathBuf,
+    ) -> Self {
         ErrorKind::CopyFile { err, src, dst }.into()
     }
 
-    pub(crate) fn new_hard_link(err: io::Error, src: PathBuf, dst: PathBuf) -> Self {
+    pub(crate) fn new_hard_link(
+        err: io::Error,
+        src: PathBuf,
+        dst: PathBuf,
+    ) -> Self {
         ErrorKind::HardLink { err, src, dst }.into()
     }
 
@@ -223,7 +293,13 @@ impl Error {
         let cmd = cmd.clone();
         trim(&mut stdout, STREAM_SUFFIX_SIZE);
         trim(&mut stderr, STREAM_SUFFIX_SIZE);
-        ErrorKind::Cmd(CmdError { cmd, kind, stdout, stderr }).into()
+        ErrorKind::Cmd(CmdError {
+            cmd,
+            kind,
+            stdout,
+            stderr,
+        })
+        .into()
     }
 }
 

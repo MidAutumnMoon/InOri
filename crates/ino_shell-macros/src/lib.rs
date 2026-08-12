@@ -2,16 +2,23 @@
 
 #![deny(missing_debug_implementations)]
 #![deny(rust_2018_idioms)]
-#![expect(clippy::expect_used, reason = "proc-macro invariants guaranteed by the cmd! macro")]
+#![expect(
+    clippy::expect_used,
+    reason = "proc-macro invariants guaranteed by the cmd! macro"
+)]
 
 use std::iter;
 
-use proc_macro::{Delimiter, Group, Literal, Span, TokenStream, TokenTree};
+use proc_macro::{
+    Delimiter, Group, Literal, Span, TokenStream, TokenTree,
+};
 
 #[doc(hidden)]
 #[proc_macro]
 pub fn __cmd(macro_arg: TokenStream) -> TokenStream {
-    try_cmd(macro_arg).unwrap_or_else(|msg| parse_ts(&format!("compile_error!({msg:?})")))
+    try_cmd(macro_arg).unwrap_or_else(|msg| {
+        parse_ts(&format!("compile_error!({msg:?})"))
+    })
 }
 
 type Result<T> = std::result::Result<T, String>;
@@ -25,8 +32,8 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
         (cmd, literal)
     };
 
-    let literal =
-        into_literal(&literal).ok_or_else(|| "expected a plain string literal".to_string())?;
+    let literal = into_literal(&literal)
+        .ok_or_else(|| "expected a plain string literal".to_string())?;
 
     let literal_text = literal.to_string();
     if !literal_text.starts_with('"') {
@@ -38,8 +45,9 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
     let mut res = TokenStream::new();
 
     {
-        let (_joined_to_prev, splat, program) =
-            args.next().ok_or_else(|| "command can't be empty".to_string())??;
+        let (_joined_to_prev, splat, program) = args
+            .next()
+            .ok_or_else(|| "command can't be empty".to_string())??;
         if splat {
             return Err("can't splat program name".to_string());
         }
@@ -53,7 +61,12 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
         if prev_spat && joined_to_prev {
             return Err(format!(
                 "can't combine splat with concatenation, add spaces around `{{{}...}}`",
-                trim_decorations(&res.into_iter().last().expect("res has program").to_string()),
+                trim_decorations(
+                    &res.into_iter()
+                        .last()
+                        .expect("res has program")
+                        .to_string()
+                ),
             ));
         }
         prev_spat = splat;
@@ -81,11 +94,16 @@ fn into_literal(ts: &TokenTree) -> Option<Literal> {
     match ts {
         TokenTree::Literal(l) => Some(l.clone()),
         TokenTree::Group(g) => match g.delimiter() {
-            Delimiter::None => match g.stream().into_iter().collect::<Vec<_>>().as_slice() {
-                [TokenTree::Literal(l)] => Some(l.clone()),
-                _ => None,
-            },
-            Delimiter::Parenthesis | Delimiter::Brace | Delimiter::Bracket => None,
+            Delimiter::None => {
+                match g.stream().into_iter().collect::<Vec<_>>().as_slice()
+                {
+                    [TokenTree::Literal(l)] => Some(l.clone()),
+                    _ => None,
+                }
+            }
+            Delimiter::Parenthesis
+            | Delimiter::Brace
+            | Delimiter::Bracket => None,
         },
         _ => None,
     }
@@ -124,7 +142,10 @@ fn shell_lex(
 
 /// Like `trim_matches` except only trims a maximum of 1 match
 fn strip_matches<'a>(s: &'a str, pattern: &str) -> &'a str {
-    s.strip_prefix(pattern).unwrap_or(s).strip_suffix(pattern).unwrap_or(s)
+    s.strip_prefix(pattern)
+        .unwrap_or(s)
+        .strip_suffix(pattern)
+        .unwrap_or(s)
 }
 
 fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token<'_>>> + '_ {
@@ -144,7 +165,11 @@ fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token<'_>>> + '_ {
                 return Some(Err(err));
             }
         };
-        let token = Token { joined_to_prev, text: &cmd[..len], kind };
+        let token = Token {
+            joined_to_prev,
+            text: &cmd[..len],
+            kind,
+        };
         cmd = &cmd[len..];
         Some(Ok(token))
     })
@@ -165,16 +190,25 @@ enum TokenKind {
 
 fn next_token(s: &str) -> Result<(usize, TokenKind)> {
     if s.starts_with('{') {
-        let len = s.find('}').ok_or_else(|| "unclosed `{` in command".to_string())? + 1;
+        let len = s
+            .find('}')
+            .ok_or_else(|| "unclosed `{` in command".to_string())?
+            + 1;
         let splat = s[..len].ends_with("...}");
         return Ok((len, TokenKind::Interpolation { splat }));
     }
     if let Some(rest) = s.strip_prefix('\'') {
-        let len = rest.find('\'').ok_or_else(|| "unclosed `'` in command".to_string())? + 2;
+        let len = rest
+            .find('\'')
+            .ok_or_else(|| "unclosed `'` in command".to_string())?
+            + 2;
         return Ok((len, TokenKind::String));
     }
-    let len =
-        s.find(|it: char| it.is_ascii_whitespace() || it == '\'' || it == '{').unwrap_or(s.len());
+    let len = s
+        .find(|it: char| {
+            it.is_ascii_whitespace() || it == '\'' || it == '{'
+        })
+        .unwrap_or(s.len());
     Ok((len, TokenKind::Word))
 }
 
@@ -183,12 +217,15 @@ fn respan(ts: TokenStream, span: Span) -> TokenStream {
     for tt in ts {
         let tt = match tt {
             TokenTree::Ident(mut ident) => {
-                ident.set_span(ident.span().resolved_at(span).located_at(span));
+                ident.set_span(
+                    ident.span().resolved_at(span).located_at(span),
+                );
                 TokenTree::Ident(ident)
             }
-            TokenTree::Group(group) => {
-                TokenTree::Group(Group::new(group.delimiter(), respan(group.stream(), span)))
-            }
+            TokenTree::Group(group) => TokenTree::Group(Group::new(
+                group.delimiter(),
+                respan(group.stream(), span),
+            )),
             _ => tt,
         };
         res.extend(Some(tt));
