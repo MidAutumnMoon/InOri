@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use color_eyre::Result;
+use nh::EyreRootcauseBridge;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 use crate::nix_info::NixVariant;
@@ -19,7 +20,7 @@ pub struct Facts {
 
 pub struct Envvars {}
 
-fn main() -> Result<()> {
+fn main() -> rootcause::Result<()> {
     ino_tracing::init_tracing_subscriber();
     let mut args = <interface::Main as clap::Parser>::parse();
 
@@ -29,7 +30,7 @@ fn main() -> Result<()> {
             "Please report the bug at https://github.com/nix-community/nh/issues",
         )
         .display_env_section(false)
-        .install()?;
+        .install().into_rootcause()?;
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
@@ -66,7 +67,7 @@ fn main() -> Result<()> {
     // Once we assert required Nix features, validate NH environment checks
     // For now, this is just NH_* variables being set. More checks may be
     // added to setup_environment in the future.
-    checks::verify_variables()?;
+    checks::verify_variables().into_rootcause()?;
 
     let elevation = args.elevation_strategy.as_ref().map_or(
         ElevationStrategy::Auto,
@@ -82,5 +83,5 @@ fn main() -> Result<()> {
         },
     );
 
-    args.command.run(elevation)
+    args.command.run(elevation).into_rootcause()
 }

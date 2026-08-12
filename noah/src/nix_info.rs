@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 use std::sync::{LazyLock, OnceLock};
 
-use color_eyre::eyre::Context;
+// use color_eyre::eyre::Context;
 use ino_shell::{Shell, cmd};
 use regex::Regex;
+use rootcause::IntoReport;
+use rootcause::prelude::ResultExt;
 use tracing::debug;
 
-use crate::Result;
+// use crate::Result;
 
 /// Variant of the system Nix. Determinate Nix is not supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +22,7 @@ static NIX_VERSION_OUTPUT: LazyLock<Option<String>> =
         let shell = Shell::new().ok()?;
         cmd!(shell, "nix --version").read().ok()
     });
+
 // Caching only on success so a transient failure is retried on the next call.
 static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> =
     OnceLock::new();
@@ -37,12 +40,19 @@ fn nix_version_output() -> Option<&'static String> {
 /// # Errors
 ///
 /// Returns an error if `nix --version` cannot be run.
-pub fn nix_variant() -> Result<NixVariant> {
-    let output = nix_version_output().ok_or_else(|| {
-        color_eyre::eyre::eyre!("Failed to run `nix --version`")
-    })?;
+pub fn nix_variant() -> rootcause::Result<NixVariant> {
+    let variant = guess_nix_variant_from_version_output()?;
+    Ok(variant)
+}
 
-    if output.to_lowercase().contains("lix") {
+fn guess_nix_variant_from_version_output() -> rootcause::Result<NixVariant>
+{
+    let shell = Shell::new()?;
+    let version_output = cmd!(shell, "nix --version")
+        .read()
+        .context("Failed to run `nix --version`")?;
+
+    if version_output.to_lowercase().contains("lix") {
         Ok(NixVariant::Lix)
     } else {
         Ok(NixVariant::Nix)
@@ -59,7 +69,7 @@ pub fn nix_variant() -> Result<NixVariant> {
 ///
 /// Returns an error if `nix --version` produces no output or the output
 /// contains no valid version string.
-pub fn nix_version() -> Result<String> {
+pub fn nix_version() -> color_eyre::Result<String> {
     let output = nix_version_output().ok_or_else(|| {
         color_eyre::eyre::eyre!("No output from `nix --version` command")
     })?;
@@ -145,7 +155,7 @@ pub fn normalize_version_string(version: &str) -> String {
 ///
 /// Returns an error if `nix config show experimental-features` fails to
 /// execute.
-pub fn nix_experimental_features() -> Result<HashSet<String>> {
+pub fn nix_experimental_features() -> rootcause::Result<HashSet<String>> {
     if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {
         return Ok(features.clone());
     }
@@ -172,7 +182,7 @@ pub fn nix_experimental_features() -> Result<HashSet<String>> {
 /// fails.
 pub fn missing_experimental_features(
     required: &[&str],
-) -> Result<Vec<String>> {
+) -> rootcause::Result<Vec<String>> {
     let enabled = nix_experimental_features()?;
 
     let missing: Vec<String> = required

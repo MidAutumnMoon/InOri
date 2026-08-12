@@ -10,6 +10,8 @@ edition.workspace      = true
 rust-version.workspace = true
 default-run            = "nh"
 
+[lib]
+
 [dependencies]
 anstyle = "1.0.13"
 clap.workspace                = true

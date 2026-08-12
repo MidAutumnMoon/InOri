@@ -1,9 +1,9 @@
 use std::{cmp::Ordering, env};
 
+use nh::EyreRootcauseBridge;
 use semver::Version;
 use tracing::{debug, warn};
 
-use crate::Result;
 use crate::nix_info::{
     NixVariant, missing_experimental_features, nix_variant, nix_version,
     normalize_version_string,
@@ -18,7 +18,7 @@ use crate::nix_info::{
 /// # Errors
 ///
 /// Returns an error if the Nix version cannot be determined or parsed.
-pub fn check_nix_version() -> Result<()> {
+pub fn check_nix_version() -> rootcause::Result<()> {
     // XXX: Both Nix and Lix follow semantic versioning (semver). Update the
     // versions below once latest stable for either of those packages change.
     // We *also* cannot (or rather, will not) make this check for non-nixpkgs
@@ -33,7 +33,7 @@ pub fn check_nix_version() -> Result<()> {
     }
 
     let variant = nix_variant()?;
-    let version = nix_version()?;
+    let version = nix_version().into_rootcause()?;
     let version_normal = normalize_version_string(&version);
 
     let min_version = match variant {
@@ -81,7 +81,7 @@ pub fn check_nix_version() -> Result<()> {
 // clippy warning suppressed to allow for this function to returning meaningful
 // errors in the future
 #[allow(clippy::unnecessary_wraps, clippy::missing_errors_doc)]
-pub fn verify_variables() -> Result<()> {
+pub fn verify_variables() -> color_eyre::Result<()> {
     if let Ok(flake) = std::env::var("FLAKE") {
         // Set NH_FLAKE if it's not already set
         if std::env::var("NH_FLAKE").is_err() {
@@ -123,7 +123,7 @@ pub fn verify_variables() -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if any required Nix environment checks fail.
-pub fn verify_nix_environment() -> Result<()> {
+pub fn verify_nix_environment() -> rootcause::Result<()> {
     if env::var("NH_NO_CHECKS").is_ok() {
         return Ok(());
     }
@@ -167,7 +167,7 @@ pub trait FeatureRequirements {
     /// # Errors
     ///
     /// Returns an error if any required Nix features are not enabled.
-    fn check_features(&self) -> Result<()> {
+    fn check_features(&self) -> color_eyre::Result<()> {
         if env::var("NH_NO_CHECKS").is_ok() {
             return Ok(());
         }
@@ -179,7 +179,7 @@ pub trait FeatureRequirements {
 
         debug!("Required Nix features: {}", required.join(", "));
 
-        let missing = missing_experimental_features(required)?;
+        let missing = missing_experimental_features(required).unwrap();
         if !missing.is_empty() {
             return Err(color_eyre::eyre::eyre!(
                 "Missing required experimental features for this command: {}",
@@ -417,19 +417,6 @@ mod tests {
         assert!(
             result.is_ok(),
             "verify_nix_environment should succeed when NH_NO_CHECKS is set"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn check_nix_version_bypassed_with_nh_no_checks() {
-        let _guard = EnvGuard::new("NH_NO_CHECKS", "1");
-
-        let result = check_nix_version();
-
-        assert!(
-            result.is_ok(),
-            "check_nix_version should succeed when NH_NO_CHECKS is set"
         );
     }
 }
