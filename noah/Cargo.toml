@@ -15,10 +15,10 @@ anstyle = "1.0.13"
 clap.workspace                = true
 clap-verbosity-flag = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-nh-clean = { path = "../nh-clean" }
-nh-core = { path = "../nh-core" }
-nh-nixos = { path = "../nh-nixos" }
-nh-search = { path = "../nh-search" }
+nh-clean = { path = "./crates/nh-clean" }
+nh-core = { path = "./crates/nh-core" }
+nh-nixos = { path = "./crates/nh-nixos" }
+nh-search = { path = "./crates/nh-search" }
 rootcause.workspace = true
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
