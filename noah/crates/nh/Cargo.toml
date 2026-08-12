@@ -1,6 +1,6 @@
 [package]
 name                   = "nh"
-license.workspace      = true
+license = "EUPL-1.2"
 repository             = "https://github.com/nix-community/nh"
 description            = "Yet Another Nix Helper"
 keywords               = [ "nix", "nixos", "nix-darwin", "helper", "CLI" ]

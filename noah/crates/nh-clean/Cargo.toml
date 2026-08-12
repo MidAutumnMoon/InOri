@@ -4,7 +4,7 @@ description            = "This is an internal component crate of nh"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
-license.workspace      = true
+license = "EUPL-1.2"
 publish                = true
 
 [lib]

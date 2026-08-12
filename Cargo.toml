@@ -1,13 +1,13 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/*",
     "coruma",
     "derputils",
     "lny",
     "rpgdemake",
-    # "noah",
     "imgo",
+    "./noah/crates/*",
 ]
 
 [workspace.package]
@@ -15,33 +15,85 @@ authors = [ "MidAutumnMoon" ]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/MidAutumnMoon/InOri"
 edition = "2024"
-rust-version = "1.90.0"
+rust-version = "1.95.0"
+version = "4.4.2"
+homepage = "https://github.com/nix-community/nh"
 
 #
 # Dependencies
 #
 
 [workspace.dependencies]
+# InOri internal crates
+ino_color = { path = "./crates/ino_color" }
+ino_tracing = { path = "./crates/ino_tracing" }
+ino_path = { path = "./crates/ino_path" }
+ino_tap = { path = "./crates/ino_tap" }
+
+# Noah (nh fork) internal crates
+nh = { path = "./noah/crates/nh", version = "4.4.2" }
+nh-clean = { path = "./noah/crates/nh-clean", version = "4.4.2" }
+nh-config = { path = "./noah/crates/nh-config", version = "0.1.0" }
+nh-core = { path = "./noah/crates/nh-core", version = "4.4.2" }
+nh-darwin = { path = "./noah/crates/nh-darwin", version = "4.4.2" }
+nh-diff = { path = "./noah/crates/nh-diff", version = "4.4.2" }
+nh-home = { path = "./noah/crates/nh-home", version = "4.4.2" }
+nh-installable = { path = "./noah/crates/nh-installable", version = "4.4.2" }
+nh-nixos = { path = "./noah/crates/nh-nixos", version = "4.4.2" }
+nh-remote = { path = "./noah/crates/nh-remote", version = "4.4.2" }
+nh-search = { path = "./noah/crates/nh-search", version = "4.4.2" }
+nix-command = { path = "./noah/crates/nix-command", version = "0.2.4" }
+
+# Shared dependencies (InOri + Noah)
 anyhow = "1"
 assert_fs = "1"
-clap = { version = "4", features = [ "derive", "cargo", "env" ] }
+clap = { version = "4", features = [ "cargo", "color", "derive", "env", "unstable-styles" ] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+indicatif = "0.18"
 itertools = "0"
 rayon = "1"
 rustix = { version = "1", features = [ "all-apis" ] }
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 strum = { version = "0", features = ["derive"] }
-indicatif = "0.18"
 tap = "1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = [ "env-filter" ] }
+tracing-subscriber = { version = "0.3", features = [ "env-filter", "registry", "std" ] }
 
-ino_color = { path = "./crates/ino_color" }
-ino_tracing = { path = "./crates/ino_tracing" }
-ino_path = { path = "./crates/ino_path" }
-ino_tap = { path = "./crates/ino_tap" }
+# Noah-only dependencies
+anstyle = "1.0.13"
+clap-verbosity-flag = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
+clap_complete = "4.5.61"
+clap_complete_nushell = "4.5.10"
+clap_mangen = { features = [ "env" ], version = "0.3.0" }
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+dix = "2.1.0"
+elasticsearch-dsl = "0.4.24"
+humantime = "2.3.0"
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+proptest = "1.9.0"
+regex = "1.12.2"
+reqwest = { default-features = false, features = [ "blocking", "json", "rustls" ], version = "0.13.1" }
+roff = "1.0.0"
+secrecy = { features = [ "serde" ], version = "0.10.3" }
+semver = "1.0.27"
+serial_test = "3.2.0"
+shlex = "2.0.1"
+signal-hook = "0.4.1"
+spam-db = "0.2.4"
+subprocess = "1.0.3"
+supports-hyperlinks = "3.1.0"
+system-configuration = "0.7.0"
+tempfile = "3.23.0"
+textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
+toml_edit = "0.25.12"
+urlencoding = "2.1.3"
+walkdir = "2.5.0"
+which = "8.0.0"
+yansi = "1.0.1"
 
 [workspace.dependencies.tokio]
 version = "1"
@@ -75,14 +127,36 @@ all = { priority = -1, level = "warn" }
 pedantic = { priority = -1, level = "warn" }
 nursery = { priority = -1, level = "warn" }
 
+# InOri allows
 cognitive_complexity = "allow"
 literal_string_with_formatting_args = "allow"
 missing_const_for_fn = "allow"
 too_many_lines = "allow"
 
+# Noah allows
+absolute_paths = "allow"
+arbitrary_source_item_ordering = "allow"
+enum_variant_names = "allow"
+implicit_return = "allow"
+missing_docs_in_private_items = "allow"
+non_ascii_literal = "allow"
+pattern_type_mismatch = "allow"
+print_stdout = "allow"
+question_mark_used = "allow"
+similar_names = "allow"
+single_call_fn = "allow"
+std_instead_of_core = "allow"
+struct_excessive_bools = "allow"
+too_long_first_doc_paragraph = "allow"
+unused_trait_names = "allow"
+
+# Warnings (InOri + Noah)
 unwrap_used = "warn"
 panic = "warn"
 indexing_slicing = "warn"
 unreachable = "warn"
 undocumented_unsafe_blocks = "warn"
 unwrap_in_result = "warn"
+expect_used = "warn"
+todo = "warn"
+unimplemented = "warn"

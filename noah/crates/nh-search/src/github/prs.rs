@@ -48,190 +48,187 @@ query($number: Int!) {
 
 #[derive(Debug, Deserialize)]
 struct SearchPullRequestsData {
-  search: SearchNodes<PullRequestNode>,
+    search: SearchNodes<PullRequestNode>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SearchNodes<T> {
-  nodes: Vec<Option<T>>,
+    nodes: Vec<Option<T>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PullRequestData {
-  repository: RepositoryData,
+    repository: RepositoryData,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryData {
-  pull_request: Option<PullRequestNode>,
+    pull_request: Option<PullRequestNode>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PullRequestNode {
-  number:        u64,
-  title:         String,
-  url:           String,
-  state:         String,
-  merged:        bool,
-  base_ref_name: String,
-  merge_commit:  Option<MergeCommitNode>,
+    number: u64,
+    title: String,
+    url: String,
+    state: String,
+    merged: bool,
+    base_ref_name: String,
+    merge_commit: Option<MergeCommitNode>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MergeCommitNode {
-  oid: String,
+    oid: String,
 }
 
 pub(super) fn search(
-  client: &GraphqlClient,
-  query: &str,
-  days: u32,
+    client: &GraphqlClient,
+    query: &str,
+    days: u32,
 ) -> Result<Vec<PullRequest>> {
-  let updated_since = Timestamp::now()
-    .checked_sub((i64::from(days) * 24).hours())?
-    .to_string();
-  let github_query = search_query(query, &updated_since);
-  let data = client.query::<SearchPullRequestsData>(
-    SEARCH_PULL_REQUESTS_QUERY,
-    &json!({
-      "query": github_query,
-      "first": SEARCH_LIMIT,
-    }),
-  )?;
+    let updated_since = Timestamp::now()
+        .checked_sub((i64::from(days) * 24).hours())?
+        .to_string();
+    let github_query = search_query(query, &updated_since);
+    let data = client.query::<SearchPullRequestsData>(
+        SEARCH_PULL_REQUESTS_QUERY,
+        &json!({
+          "query": github_query,
+          "first": SEARCH_LIMIT,
+        }),
+    )?;
 
-  data
-    .search
-    .nodes
-    .into_iter()
-    .flatten()
-    .map(PullRequestNode::try_into_pull_request)
-    .collect()
+    data.search
+        .nodes
+        .into_iter()
+        .flatten()
+        .map(PullRequestNode::try_into_pull_request)
+        .collect()
 }
 
 pub(super) fn pull_request(
-  client: &GraphqlClient,
-  number: u64,
+    client: &GraphqlClient,
+    number: u64,
 ) -> Result<Option<PullRequest>> {
-  let data = client.query::<PullRequestData>(
-    PULL_REQUEST_QUERY,
-    &json!({
-      "number": number,
-    }),
-  )?;
+    let data = client.query::<PullRequestData>(
+        PULL_REQUEST_QUERY,
+        &json!({
+          "number": number,
+        }),
+    )?;
 
-  data
-    .repository
-    .pull_request
-    .map(PullRequestNode::try_into_pull_request)
-    .transpose()
+    data.repository
+        .pull_request
+        .map(PullRequestNode::try_into_pull_request)
+        .transpose()
 }
 
 pub fn parse_direct_pr_number(query: &str) -> Option<u64> {
-  let query = query.trim();
-  let number = query.strip_prefix('#').unwrap_or(query);
-  (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
+    let query = query.trim();
+    let number = query.strip_prefix('#').unwrap_or(query);
+    (!number.is_empty()
+        && number.bytes().all(|byte| byte.is_ascii_digit()))
     .then(|| number.parse().ok())
     .flatten()
 }
 
 fn search_query(query: &str, updated_since: &str) -> String {
-  format!(
-    "repo:NixOS/nixpkgs {query} type:pr updated:>{updated_since} \
+    format!(
+        "repo:NixOS/nixpkgs {query} type:pr updated:>{updated_since} \
      sort:updated-desc"
-  )
+    )
 }
 
 impl PullRequestNode {
-  fn try_into_pull_request(self) -> Result<PullRequest> {
-    let state = parse_state(self.merged, &self.state)?;
-    let merge_commit_sha = self.merge_commit.map(|commit| commit.oid);
+    fn try_into_pull_request(self) -> Result<PullRequest> {
+        let state = parse_state(self.merged, &self.state)?;
+        let merge_commit_sha = self.merge_commit.map(|commit| commit.oid);
 
-    Ok(PullRequest {
-      number: self.number,
-      title: self.title,
-      url: self.url,
-      state,
-      base_branch: self.base_ref_name,
-      merge_commit_sha,
-    })
-  }
+        Ok(PullRequest {
+            number: self.number,
+            title: self.title,
+            url: self.url,
+            state,
+            base_branch: self.base_ref_name,
+            merge_commit_sha,
+        })
+    }
 }
 
 fn parse_state(merged: bool, state: &str) -> Result<PullRequestState> {
-  if merged {
-    return Ok(PullRequestState::Merged);
-  }
+    if merged {
+        return Ok(PullRequestState::Merged);
+    }
 
-  match state {
-    "OPEN" | "open" => Ok(PullRequestState::Open),
-    "CLOSED" | "closed" => Ok(PullRequestState::Closed),
-    other => bail!("unknown GitHub pull request state {other}"),
-  }
+    match state {
+        "OPEN" | "open" => Ok(PullRequestState::Open),
+        "CLOSED" | "closed" => Ok(PullRequestState::Closed),
+        other => bail!("unknown GitHub pull request state {other}"),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-  use color_eyre::Result;
-  use serde_json::json;
+    use color_eyre::Result;
+    use serde_json::json;
 
-  use super::{
-    PullRequestNode,
-    PullRequestState,
-    parse_direct_pr_number,
-    search_query,
-  };
+    use super::{
+        PullRequestNode, PullRequestState, parse_direct_pr_number,
+        search_query,
+    };
 
-  #[test]
-  fn parses_direct_pr_numbers() {
-    assert_eq!(Some(123), parse_direct_pr_number("123"));
-    assert_eq!(Some(123), parse_direct_pr_number("#123"));
-    assert_eq!(None, parse_direct_pr_number("foo 123"));
-    assert_eq!(None, parse_direct_pr_number("#"));
-  }
+    #[test]
+    fn parses_direct_pr_numbers() {
+        assert_eq!(Some(123), parse_direct_pr_number("123"));
+        assert_eq!(Some(123), parse_direct_pr_number("#123"));
+        assert_eq!(None, parse_direct_pr_number("foo 123"));
+        assert_eq!(None, parse_direct_pr_number("#"));
+    }
 
-  #[test]
-  fn search_query_uses_recently_updated_pull_requests() {
-    assert_eq!(
-      "repo:NixOS/nixpkgs hello type:pr updated:>2026-07-01T12:00:00Z \
+    #[test]
+    fn search_query_uses_recently_updated_pull_requests() {
+        assert_eq!(
+            "repo:NixOS/nixpkgs hello type:pr updated:>2026-07-01T12:00:00Z \
        sort:updated-desc",
-      search_query("hello", "2026-07-01T12:00:00Z")
-    );
-  }
+            search_query("hello", "2026-07-01T12:00:00Z")
+        );
+    }
 
-  #[test]
-  fn parses_merged_pull_request() -> Result<()> {
-    let node = serde_json::from_value::<PullRequestNode>(json!({
-      "number": 42,
-      "title": "hello: 1.0 -> 1.1",
-      "url": "https://github.com/NixOS/nixpkgs/pull/42",
-      "state": "CLOSED",
-      "merged": true,
-      "baseRefName": "master",
-      "mergeCommit": { "oid": "abc123" }
-    }))?;
-    let pr = node.try_into_pull_request()?;
+    #[test]
+    fn parses_merged_pull_request() -> Result<()> {
+        let node = serde_json::from_value::<PullRequestNode>(json!({
+          "number": 42,
+          "title": "hello: 1.0 -> 1.1",
+          "url": "https://github.com/NixOS/nixpkgs/pull/42",
+          "state": "CLOSED",
+          "merged": true,
+          "baseRefName": "master",
+          "mergeCommit": { "oid": "abc123" }
+        }))?;
+        let pr = node.try_into_pull_request()?;
 
-    assert_eq!(42, pr.number);
-    assert_eq!(PullRequestState::Merged, pr.state);
-    assert_eq!(Some("abc123"), pr.merge_commit_sha.as_deref());
-    Ok(())
-  }
+        assert_eq!(42, pr.number);
+        assert_eq!(PullRequestState::Merged, pr.state);
+        assert_eq!(Some("abc123"), pr.merge_commit_sha.as_deref());
+        Ok(())
+    }
 
-  #[test]
-  fn rejects_unknown_pull_request_state() -> Result<()> {
-    let node = serde_json::from_value::<PullRequestNode>(json!({
-      "number": 42,
-      "title": "hello: 1.0 -> 1.1",
-      "url": "https://github.com/NixOS/nixpkgs/pull/42",
-      "state": "DRAFT",
-      "merged": false,
-      "baseRefName": "master",
-      "mergeCommit": null
-    }))?;
+    #[test]
+    fn rejects_unknown_pull_request_state() -> Result<()> {
+        let node = serde_json::from_value::<PullRequestNode>(json!({
+          "number": 42,
+          "title": "hello: 1.0 -> 1.1",
+          "url": "https://github.com/NixOS/nixpkgs/pull/42",
+          "state": "DRAFT",
+          "merged": false,
+          "baseRefName": "master",
+          "mergeCommit": null
+        }))?;
 
-    assert!(node.try_into_pull_request().is_err());
-    Ok(())
-  }
+        assert!(node.try_into_pull_request().is_err());
+        Ok(())
+    }
 }

@@ -4,3 +4,7 @@
 result*
 flamegraph.svg
 perf.*
+
+# Noah (nh fork) artifacts
+mutants*
+report*

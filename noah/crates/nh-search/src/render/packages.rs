@@ -5,64 +5,68 @@ use super::common;
 use crate::types::PackageSearchResult;
 
 pub fn print(
-  channel: &str,
-  platforms: bool,
-  documents: &[PackageSearchResult],
+    channel: &str,
+    platforms: bool,
+    documents: &[PackageSearchResult],
 ) {
-  let nixpkgs_path = common::resolve_nixpkgs_path();
-  debug!("nixpkgs_path: {:?}", nixpkgs_path);
+    let nixpkgs_path = common::resolve_nixpkgs_path();
+    debug!("nixpkgs_path: {:?}", nixpkgs_path);
 
-  for elem in documents.iter().rev() {
-    println!();
-    trace!("{elem:#?}");
+    for elem in documents.iter().rev() {
+        println!();
+        trace!("{elem:#?}");
 
-    print!("{}", Paint::new(&elem.package_attr_name).fg(Color::Blue));
-    let version = &elem.package_pversion;
-    if !version.is_empty() {
-      print!(" ({})", Paint::new(version).fg(Color::Green));
-    }
+        print!("{}", Paint::new(&elem.package_attr_name).fg(Color::Blue));
+        let version = &elem.package_pversion;
+        if !version.is_empty() {
+            print!(" ({})", Paint::new(version).fg(Color::Green));
+        }
 
-    println!();
+        println!();
 
-    if let Some(description) = &elem.package_description {
-      common::print_wrapped(&description.replace('\n', " "));
-    }
+        if let Some(description) = &elem.package_description {
+            common::print_wrapped(&description.replace('\n', " "));
+        }
 
-    if let Some(main_program) = &elem.package_mainProgram {
-      common::print_wrapped_field("Main program", main_program);
-    }
+        if let Some(main_program) = &elem.package_mainProgram {
+            common::print_wrapped_field("Main program", main_program);
+        }
 
-    for url in &elem.package_homepage {
-      common::print_field_link("Homepage", url);
-    }
+        for url in &elem.package_homepage {
+            common::print_field_link("Homepage", url);
+        }
 
-    if platforms && !elem.package_platforms.is_empty() {
-      println!("  Platforms: {}", elem.package_platforms.join(", "));
-    }
+        if platforms && !elem.package_platforms.is_empty() {
+            println!("  Platforms: {}", elem.package_platforms.join(", "));
+        }
 
-    if let Some(package_position) = &elem.package_position {
-      match package_position.split(':').next() {
-        Some(position) => {
-          if let Some(nixpkgs_path) = &nixpkgs_path {
-            common::print_field_hyperlink(
-              "Defined at",
-              position,
-              &format!("file://{}/{position}", nixpkgs_path.display()),
-            );
-          }
+        if let Some(package_position) = &elem.package_position {
+            match package_position.split(':').next() {
+                Some(position) => {
+                    if let Some(nixpkgs_path) = &nixpkgs_path {
+                        common::print_field_hyperlink(
+                            "Defined at",
+                            position,
+                            &format!(
+                                "file://{}/{position}",
+                                nixpkgs_path.display()
+                            ),
+                        );
+                    }
 
-          let github_nixpkgs_url =
-            format!("https://github.com/NixOS/nixpkgs/blob/{channel}");
-          let url = format!("{github_nixpkgs_url}/{position}");
-          common::print_field_link("GitHub link", &url);
-        },
-        None => {
-          warn!(
-            "Position should have at least one part; received \
+                    let github_nixpkgs_url = format!(
+                        "https://github.com/NixOS/nixpkgs/blob/{channel}"
+                    );
+                    let url = format!("{github_nixpkgs_url}/{position}");
+                    common::print_field_link("GitHub link", &url);
+                }
+                None => {
+                    warn!(
+                        "Position should have at least one part; received \
              {package_position}"
-          );
-        },
-      }
+                    );
+                }
+            }
+        }
     }
-  }
 }
