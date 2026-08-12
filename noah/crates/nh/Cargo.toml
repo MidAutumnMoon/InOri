@@ -19,8 +19,10 @@ nh-clean = { path = "../nh-clean" }
 nh-core = { path = "../nh-core" }
 nh-nixos = { path = "../nh-nixos" }
 nh-search = { path = "../nh-search" }
+rootcause.workspace = true
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
+xshell = "0.2.7"
 yansi = "1.0.1"
 
 [dev-dependencies]

@@ -5,18 +5,21 @@ use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 mod interface;
 mod logging;
+mod nix_variant;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
 
-/// Run nh with arguments parsed from the process environment.
-///
-/// # Errors
-///
-/// Returns an error if logging setup, Nix environment validation, environment
-/// checks, or the selected command fails.
+pub struct Facts {
+    envvars: Envvars,
+}
+
+pub struct Envvars {}
+
 fn main() -> Result<()> {
+    nix_variant::nix_variant();
     let mut args = <interface::Main as clap::Parser>::parse();
+
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
