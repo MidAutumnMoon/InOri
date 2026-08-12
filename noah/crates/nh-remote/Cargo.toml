@@ -1,0 +1,32 @@
+[package]
+name                   = "nh-remote"
+description            = "This is an internal component crate of nh"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish                = true
+
+[lib]
+path = "src/remote.rs"
+
+[dependencies]
+color-eyre.workspace     = true
+dix.workspace            = true
+inquire.workspace        = true
+nh-core.workspace        = true
+nh-installable.workspace = true
+nix-command.workspace    = true
+secrecy.workspace        = true
+shlex.workspace          = true
+signal-hook.workspace    = true
+subprocess.workspace     = true
+tracing.workspace        = true
+which.workspace          = true
+
+[dev-dependencies]
+proptest.workspace    = true
+serial_test.workspace = true
+
+[lints]
+workspace = true
