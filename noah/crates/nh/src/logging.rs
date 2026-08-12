@@ -79,12 +79,12 @@ pub fn setup_logging(
     verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 ) -> Result<()> {
     color_eyre::config::HookBuilder::default()
-    .display_location_section(true)
-    .panic_section(
-      "Please report the bug at https://github.com/nix-community/nh/issues",
-    )
-    .display_env_section(false)
-    .install()?;
+        .display_location_section(true)
+        .panic_section(
+            "Please report the bug at https://github.com/nix-community/nh/issues",
+        )
+        .display_env_section(false)
+        .install()?;
 
     let fallback_level = verbosity.log_level().map_or(
         LevelFilter::WARN,

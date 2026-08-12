@@ -42,13 +42,13 @@ pub struct Main {
     pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
     #[arg(
-    short,
-    long,
-    global = true,
-    env = "NH_ELEVATION_STRATEGY",
-    value_hint = clap::ValueHint::CommandName,
-    alias = "elevation-program"
-  )]
+        short,
+        long,
+        global = true,
+        env = "NH_ELEVATION_STRATEGY",
+        value_hint = clap::ValueHint::CommandName,
+        alias = "elevation-program"
+    )]
     /// Choose the privilege elevation strategy.
     ///
     /// Can be a path to an elevation program (e.g., /usr/bin/sudo),

@@ -28,15 +28,15 @@ fn main() -> Result<()> {
     {
         tracing::warn!(
             "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
-       Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
-       Accepted values: none, passwordless, program:<path>"
+            Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
+            Accepted values: none, passwordless, program:<path>"
         );
         match ElevationStrategyArg::from_str(&old_value) {
             Ok(strategy) => args.elevation_strategy = Some(strategy),
             Err(e) => {
                 tracing::warn!(
                     "Failed to parse NH_ELEVATION_PROGRAM value '{}': {}. Falling back \
-           to none.",
+                    to none.",
                     old_value,
                     e
                 );
