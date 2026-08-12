@@ -259,7 +259,6 @@
 
 #![deny(missing_debug_implementations)]
 #![deny(missing_docs)]
-#![deny(rust_2018_idioms)]
 #![expect(
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,

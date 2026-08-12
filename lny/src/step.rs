@@ -674,7 +674,7 @@ mod test {
             let q = StepQueue::new(new_bp, old_bp);
             assert!(q.is_ok());
             let q = q.unwrap();
-            assert!(q.steps.len() == 4);
+            assert_eq!(q.steps.len(), 4);
             assert! {
                 q.steps.into_iter()
                     .all( |it|
@@ -845,7 +845,7 @@ mod test {
             assert!(s.execute().is_ok());
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
-            assert!(dst.read_link().unwrap() == src.path());
+            assert_eq!(dst.read_link().unwrap(), src.path());
         }
     }
 

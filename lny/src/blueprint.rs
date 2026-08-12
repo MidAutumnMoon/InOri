@@ -148,6 +148,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::expect_used)]
     fn reject_self_referential_symlink() {
         let json = serde_json::json! {
             {

@@ -166,9 +166,8 @@ fn typical_workload() {
 
         assert!(ret.success());
 
-        assert!(
-            std::fs::read_to_string(norm_file).unwrap()
-                == norm_file_content
+        assert_eq!(
+            std::fs::read_to_string(norm_file).unwrap(), norm_file_content
         );
 
         assert!(!to_remove_dst.try_exists_no_traverse().unwrap());
