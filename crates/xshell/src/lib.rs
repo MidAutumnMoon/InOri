@@ -271,7 +271,7 @@ mod error;
 
 use std::{
     collections::HashMap,
-    env::{self, current_dir, VarError},
+    env::{self, VarError, current_dir},
     ffi::{OsStr, OsString},
     fmt::{self},
     fs,
@@ -280,8 +280,8 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -578,15 +578,11 @@ impl Shell {
     pub fn read_dir(&self, path: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<PathBuf>> {
             let path = sh.path(path);
-            let mut res = Vec::new();
-            || -> _ {
-                for entry in fs::read_dir(&path)? {
-                    let entry = entry?;
-                    res.push(entry.path());
-                }
-                Ok(())
-            }()
-            .map_err(|err| Error::new_read_dir(err, path))?;
+            let dir = fs::read_dir(&path).map_err(|err| Error::new_read_dir(err, path.clone()))?;
+            let mut res: Vec<PathBuf> = dir
+                .map(|entry| entry.map(|e| e.path()))
+                .collect::<Result<_, _>>()
+                .map_err(|err| Error::new_read_dir(err, path))?;
             // Sort to ensure determinism, and ease debugging of downstream programs!
             res.sort();
             Ok(res)
@@ -903,15 +899,16 @@ impl Cmd {
     }
 
     fn check_exec_result(&self, result: &mut exec::ExecResult) -> Result<()> {
-        if let Some(status) = result.status {
-            if !status.success() && !self.ignore_status {
-                return Err(Error::new_cmd(
-                    self,
-                    CmdErrorKind::Status(status),
-                    mem::take(&mut result.stdout),
-                    mem::take(&mut result.stderr),
-                ));
-            }
+        if let Some(status) = result.status
+            && !status.success()
+            && !self.ignore_status
+        {
+            return Err(Error::new_cmd(
+                self,
+                CmdErrorKind::Status(status),
+                mem::take(&mut result.stdout),
+                mem::take(&mut result.stderr),
+            ));
         }
         if let Some(err) = result.error.take() {
             if err.kind() == io::ErrorKind::TimedOut {
@@ -1011,10 +1008,12 @@ impl Cmd {
     fn chomp(&self, stream: Vec<u8>) -> Result<String> {
         let mut text = String::from_utf8(stream)
             .map_err(|err| Error::new_cmd(self, CmdErrorKind::Utf8(err), Vec::new(), Vec::new()))?;
-        if text.ends_with('\n') && !text[0..text.len() - 1].contains('\n') {
-            text.pop();
-            if text.ends_with('\r') {
-                text.pop();
+        if let Some(without_newline) = text.strip_suffix('\n')
+            && !without_newline.contains('\n')
+        {
+            text.truncate(without_newline.len());
+            if let Some(without_cr) = text.strip_suffix('\r') {
+                text.truncate(without_cr.len());
             }
         }
         Ok(text)

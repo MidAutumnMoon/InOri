@@ -213,12 +213,11 @@ impl Error {
         // Try to determine whether the command failed because the current
         // directory does not exist. Return an appropriate error in such a
         // case.
-        if let CmdErrorKind::Io(err) = &kind {
-            if err.kind() == io::ErrorKind::NotFound {
-                if let Err(err) = cmd.sh.cwd.metadata() {
-                    return Self::new_current_dir(err, Some(cmd.sh.cwd.clone()));
-                }
-            }
+        if let CmdErrorKind::Io(err) = &kind
+            && err.kind() == io::ErrorKind::NotFound
+            && let Err(err) = cmd.sh.cwd.metadata()
+        {
+            return Self::new_current_dir(err, Some(cmd.sh.cwd.clone()));
         }
 
         let cmd = cmd.clone();

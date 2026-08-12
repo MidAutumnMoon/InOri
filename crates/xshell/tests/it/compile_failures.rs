@@ -1,4 +1,4 @@
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 #[track_caller]
 #[expect(clippy::unnecessary_debug_formatting, reason = "Debug fmt provides TOML quoting")]

@@ -66,7 +66,7 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
                 return Err(format!(
                     "can't combine splat with concatenation, add spaces around `{{{}...}}`",
                     trim_decorations(&arg.to_string()),
-                ))
+                ));
             }
         };
 

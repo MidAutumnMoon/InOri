@@ -142,10 +142,10 @@ pub fn exec(
         result.error = err;
     }
 
-    if let Err(err) = in_error {
-        if err.kind() != io::ErrorKind::BrokenPipe {
-            result.error = Some(err);
-        }
+    if let Err(err) = in_error
+        && err.kind() != io::ErrorKind::BrokenPipe
+    {
+        result.error = Some(err);
     }
 
     match status {

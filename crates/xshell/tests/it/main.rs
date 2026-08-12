@@ -6,7 +6,7 @@ mod timeout;
 
 use std::{ffi::OsStr, path::Path};
 
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 fn setup() -> Shell {
     static ONCE: std::sync::Once = std::sync::Once::new();

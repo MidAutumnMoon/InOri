@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 fn main() -> Result<()> {
     let sh = Shell::new()?;

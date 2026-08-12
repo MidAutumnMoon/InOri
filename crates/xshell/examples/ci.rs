@@ -4,7 +4,7 @@
 //! It also serves as a real-world example, yay bootstrap!
 use std::{env, process, time::Instant};
 
-use xshell::{cmd, Result, Shell};
+use xshell::{Result, Shell, cmd};
 
 fn main() {
     if let Err(err) = try_main() {
@@ -15,11 +15,7 @@ fn main() {
 
 fn try_main() -> Result<()> {
     let sh = Shell::new()?;
-    if env::args().nth(1).as_deref() == Some("publish") {
-        publish(&sh)
-    } else {
-        test(&sh)
-    }
+    if env::args().nth(1).as_deref() == Some("publish") { publish(&sh) } else { test(&sh) }
 }
 
 fn test(sh: &Shell) -> Result<()> {
