@@ -6,7 +6,7 @@ mod timeout;
 
 use std::{ffi::OsStr, path::Path};
 
-use xshell::{Shell, cmd};
+use ino_shell::{Shell, cmd};
 
 fn setup() -> Shell {
     static ONCE: std::sync::Once = std::sync::Once::new();
@@ -270,16 +270,16 @@ fn test_push_dir() {
 
     let d1 = sh.current_dir();
     {
-        let sh = sh.with_current_dir("xshell-macros");
+        let sh = sh.with_current_dir("ino_shell-macros");
         let d2 = sh.current_dir();
-        assert_eq!(d2, d1.join("xshell-macros"));
+        assert_eq!(d2, d1.join("ino_shell-macros"));
         {
             let sh = sh.with_current_dir("src");
             let d3 = sh.current_dir();
-            assert_eq!(d3, d1.join("xshell-macros/src"));
+            assert_eq!(d3, d1.join("ino_shell-macros/src"));
         }
         let d4 = sh.current_dir();
-        assert_eq!(d4, d1.join("xshell-macros"));
+        assert_eq!(d4, d1.join("ino_shell-macros"));
     }
     let d5 = sh.current_dir();
     assert_eq!(d5, d1);
@@ -291,12 +291,12 @@ fn test_push_and_change_dir() {
 
     let d1 = sh.current_dir();
     {
-        let mut sh = sh.with_current_dir("xshell-macros");
+        let mut sh = sh.with_current_dir("ino_shell-macros");
         let d2 = sh.current_dir();
-        assert_eq!(d2, d1.join("xshell-macros"));
+        assert_eq!(d2, d1.join("ino_shell-macros"));
         sh.set_current_dir("src");
         let d3 = sh.current_dir();
-        assert_eq!(d3, d1.join("xshell-macros/src"));
+        assert_eq!(d3, d1.join("ino_shell-macros/src"));
     }
     let d5 = sh.current_dir();
     assert_eq!(d5, d1);

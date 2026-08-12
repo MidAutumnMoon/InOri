@@ -1,6 +1,6 @@
 [package]
-name = "xshell-macros"
-description = "Private implementation detail of xshell crate"
+name = "ino_shell-macros"
+description = "Private implementation detail of ino_shell crate"
 version = "0.3.0-pre.2"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/matklad/xshell"

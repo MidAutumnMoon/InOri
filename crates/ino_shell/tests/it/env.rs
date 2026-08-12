@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use xshell::cmd;
+use ino_shell::cmd;
 
 use crate::setup;
 
@@ -94,7 +94,7 @@ fn test_env_clear() {
 }
 
 #[track_caller]
-fn assert_env(xecho_env_cmd: xshell::Cmd, want_env: &[(&str, Option<&str>)]) {
+fn assert_env(xecho_env_cmd: ino_shell::Cmd, want_env: &[(&str, Option<&str>)]) {
     let output = xecho_env_cmd.output().unwrap();
     let env = String::from_utf8_lossy(&output.stdout)
         .lines()

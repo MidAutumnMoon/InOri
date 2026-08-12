@@ -1,4 +1,4 @@
-use xshell::{Shell, cmd};
+use ino_shell::{Shell, cmd};
 
 #[track_caller]
 #[expect(clippy::unnecessary_debug_formatting, reason = "Debug fmt provides TOML quoting")]
@@ -20,13 +20,13 @@ edition = "2018"
 path = "main.rs"
 
 [dependencies]
-xshell = {{ path = {xshell_dir:?} }}
+ino_shell = {{ path = {xshell_dir:?} }}
 "#,
     );
 
     let snip = format!(
         "
-use xshell::*;
+use ino_shell::*;
 pub fn f() {{
     let sh = Shell::new().unwrap();
     {code};

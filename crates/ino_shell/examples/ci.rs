@@ -4,7 +4,7 @@
 //! It also serves as a real-world example, yay bootstrap!
 use std::{env, process, time::Instant};
 
-use xshell::{Result, Shell, cmd};
+use ino_shell::{Result, Shell, cmd};
 
 fn main() {
     if let Err(err) = try_main() {
@@ -56,8 +56,8 @@ fn publish(sh: &Shell) -> Result<()> {
         // Could also just use `CARGO_REGISTRY_TOKEN` environmental variable.
         let token = sh.var("CRATES_IO_TOKEN").unwrap_or("DUMMY_TOKEN".to_string());
         cmd!(sh, "git tag v{version}").run_echo()?;
-        cmd!(sh, "cargo publish --token {token} --package xshell-macros").run_echo()?;
-        cmd!(sh, "cargo publish --token {token} --package xshell").run_echo()?;
+        cmd!(sh, "cargo publish --token {token} --package ino_shell-macros").run_echo()?;
+        cmd!(sh, "cargo publish --token {token} --package ino_shell").run_echo()?;
         cmd!(sh, "git push --tags").run_echo()?;
     }
     Ok(())

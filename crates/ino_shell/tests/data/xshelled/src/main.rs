@@ -1,4 +1,4 @@
-use xshell::{Shell, cmd};
+use ino_shell::{Shell, cmd};
 
 fn main() {
     let sh = Shell::new().unwrap();

@@ -5,4 +5,4 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-xshell = { path = "../../../" }
+ino_shell = { path = "../../../" }

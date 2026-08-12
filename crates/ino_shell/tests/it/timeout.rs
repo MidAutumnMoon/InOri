@@ -1,7 +1,7 @@
 use crate::setup;
 use std::time::Duration;
 
-use xshell::cmd;
+use ino_shell::cmd;
 
 #[test]
 fn test_run_timeout_success() {

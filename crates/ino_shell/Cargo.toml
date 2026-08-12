@@ -1,8 +1,8 @@
 [package]
-name = "xshell"
+name = "ino_shell"
 description = "Utilities for quick shell scripting in Rust"
 categories = ["development-tools::build-utils", "filesystem"]
-version = "0.3.0-pre.2" # also update xshell-macros/Cargo.toml and CHANGELOG.md
+version = "0.3.0-pre.2" # also update ino_shell-macros/Cargo.toml and CHANGELOG.md
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/matklad/xshell"
 authors = ["Alex Kladov <aleksey.kladov@gmail.com>"]
@@ -13,7 +13,7 @@ rust-version = "1.95.0"
 [lints]
 workspace = true
 [dependencies]
-xshell-macros = { version = "=0.3.0-pre.2", path = "../xshell-macros" }
+ino_shell-macros = { version = "=0.3.0-pre.2", path = "../ino_shell-macros" }
 
 [dev-dependencies]
 anyhow = "1.0.56"

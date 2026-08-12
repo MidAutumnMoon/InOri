@@ -8,12 +8,12 @@
 //! Here's a quick example:
 //!
 //! ```no_run
-//! use xshell::{Shell, cmd};
+//! use ino_shell::{Shell, cmd};
 //!
 //! let sh = Shell::new()?;
 //! let branch = "main";
 //! let commit_hash = cmd!(sh, "git rev-parse {branch}").read()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! **Goals:**
@@ -38,7 +38,7 @@
 //! Start with the following skeleton:
 //!
 //! ```no_run
-//! use xshell::{cmd, Shell};
+//! use ino_shell::{cmd, Shell};
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     let sh = Shell::new()?;
@@ -55,9 +55,9 @@
 //! Next, clone the repository:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git").run_echo()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! The [`cmd!`] macro provides a convenient syntax for creating a command -- the [`Cmd`] struct.
@@ -82,21 +82,21 @@
 //! occurs, there's run method:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git")
 //!     .run()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! To make the code more general, let's use command interpolation to extract the username and the
 //! repository:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let user = "matklad";
 //! let repo = "xshell";
 //! cmd!(sh, "git clone https://github.com/{user}/{repo}.git").run_echo()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! Note that the `cmd!` macro parses the command string at compile time, so you don't have to worry
@@ -104,16 +104,16 @@
 //! name is `contains a space`:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let file = "contains a space";
 //! cmd!(sh, "touch {file}").run()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! Next, `cd` into the folder you have just cloned:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let mut sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let mut sh = Shell::new().unwrap();
 //! # let repo = "xshell";
 //! sh.set_current_dir(repo);
 //! ```
@@ -124,10 +124,10 @@
 //! Next, run the tests:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let test_args = ["-Zunstable-options", "--report-time"];
 //! cmd!(sh, "cargo test -- {test_args...}").run_echo()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! Note how the so-called splat syntax (`...`) is used to interpolate an iterable of arguments.
@@ -135,9 +135,9 @@
 //! Next, read the Cargo.toml so that we can fetch crate' declared version:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let manifest = sh.read_file("Cargo.toml")?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! [`Shell::read_file`] works like [`std::fs::read_to_string`], but paths are relative to the
@@ -155,7 +155,7 @@
 //! To extract the `version` field from Cargo.toml, [`str::split_once`] is enough:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let manifest = sh.read_file("Cargo.toml")?;
 //! let version = manifest
 //!     .split_once("version = \"")
@@ -172,16 +172,16 @@
 //! `--dry-run` when *not* running in CI:
 //!
 //! ```no_run
-//! # use xshell::{Shell, cmd}; let sh = Shell::new().unwrap();
+//! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let dry_run = if sh.var("CI").is_ok() { None } else { Some("--dry-run") };
 //! cmd!(sh, "cargo publish {dry_run...}").run_echo()?;
-//! # Ok::<(), xshell::Error>(())
+//! # Ok::<(), ino_shell::Error>(())
 //! ```
 //!
 //! Putting everything altogether, here's the whole script:
 //!
 //! ```no_run
-//! use xshell::{cmd, Shell};
+//! use ino_shell::{cmd, Shell};
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     let mut sh = Shell::new()?;
@@ -289,7 +289,7 @@ use std::{
 pub use crate::error::{Error, Result};
 use error::CmdErrorKind;
 #[doc(hidden)]
-pub use xshell_macros::__cmd;
+pub use ino_shell_macros::__cmd;
 
 const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 
@@ -300,16 +300,16 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// Basic:
 ///
 /// ```no_run
-/// # use xshell::{cmd, Shell};
+/// # use ino_shell::{cmd, Shell};
 /// let sh = Shell::new()?;
 /// cmd!(sh, "echo hello world").run()?;
-/// # Ok::<(), xshell::Error>(())
+/// # Ok::<(), ino_shell::Error>(())
 /// ```
 ///
 /// Interpolation:
 ///
 /// ```
-/// # use xshell::{cmd, Shell}; let sh = Shell::new()?;
+/// # use ino_shell::{cmd, Shell}; let sh = Shell::new()?;
 /// let greeting = "hello world";
 /// let c = cmd!(sh, "echo {greeting}");
 /// assert_eq!(c.to_string(), r#"echo "hello world""#);
@@ -324,13 +324,13 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let c = cmd!(sh, "echo 'spaces '{greeting}' around {greeting}'");
 /// assert_eq!(c.to_string(), r#"echo "spaces hello world around {greeting}""#);
 ///
-/// # Ok::<(), xshell::Error>(())
+/// # Ok::<(), ino_shell::Error>(())
 /// ```
 ///
 /// Splat interpolation:
 ///
 /// ```
-/// # use xshell::{cmd, Shell}; let sh = Shell::new()?;
+/// # use ino_shell::{cmd, Shell}; let sh = Shell::new()?;
 /// let args = ["hello", "world"];
 /// let c = cmd!(sh, "echo {args...}");
 /// assert_eq!(c.to_string(), r#"echo hello world"#);
@@ -339,7 +339,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let arg2: Option<&str> = None;
 /// let c = cmd!(sh, "echo {arg1...} {arg2...}");
 /// assert_eq!(c.to_string(), r#"echo hello"#);
-/// # Ok::<(), xshell::Error>(())
+/// # Ok::<(), ino_shell::Error>(())
 /// ```
 #[macro_export]
 macro_rules! cmd {
@@ -367,7 +367,7 @@ macro_rules! cmd {
 /// # Example
 ///
 /// ```no_run
-/// use xshell::{cmd, Shell};
+/// use ino_shell::{cmd, Shell};
 ///
 /// let sh = Shell::new()?;
 /// let sh = sh.with_current_dir("./target");
@@ -376,7 +376,7 @@ macro_rules! cmd {
 ///
 /// let process_cwd = std::env::current_dir().unwrap();
 /// assert_eq!(cwd, process_cwd.join("./target"));
-/// # Ok::<(), xshell::Error>(())
+/// # Ok::<(), ino_shell::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Shell {
@@ -679,13 +679,13 @@ impl Shell {
 /// # Example
 ///
 /// ```no_run
-/// use xshell::{Shell, cmd};
+/// use ino_shell::{Shell, cmd};
 ///
 /// let sh = Shell::new()?;
 ///
 /// let branch = "main";
 /// let cmd = cmd!(sh, "git switch {branch}").run()?;
-/// # Ok::<(), xshell::Error>(())
+/// # Ok::<(), ino_shell::Error>(())
 /// ```
 ///
 /// Use:

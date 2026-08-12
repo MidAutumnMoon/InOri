@@ -1,5 +1,5 @@
 #![expect(clippy::unwrap_used, reason = "test code")]
-use xshell::Shell;
+use ino_shell::Shell;
 
 #[test]
 fn versions_match() {
@@ -15,7 +15,7 @@ fn versions_match() {
     let v1 = read_version("./Cargo.toml");
 
     let cargo_toml = sh.read_file("./Cargo.toml").unwrap();
-    let dep = format!("xshell-macros = {{ version = \"={v1}\",");
+    let dep = format!("ino_shell-macros = {{ version = \"={v1}\",");
     assert!(cargo_toml.contains(&dep));
 }
 

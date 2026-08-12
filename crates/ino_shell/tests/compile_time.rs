@@ -6,7 +6,7 @@
 )]
 use std::time::{Duration, Instant};
 
-use xshell::{Shell, cmd};
+use ino_shell::{Shell, cmd};
 
 #[test]
 fn fixed_cost_compile_times() {

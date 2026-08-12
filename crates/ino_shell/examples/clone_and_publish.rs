@@ -1,5 +1,5 @@
 //! Clones a git repository and publishes it to crates.io.
-use xshell::{Shell, cmd};
+use ino_shell::{Shell, cmd};
 
 fn main() -> anyhow::Result<()> {
     let mut sh = Shell::new()?;
