@@ -225,7 +225,8 @@ impl FeatureRequirements for FlakeFeatures {
     }
 }
 
-/// Feature requirements for legacy (non-flake) commands
+/// Feature requirements for legacy (non-flake) commands.
+///
 /// XXX: There are actually no experimental feature requirements for legacy
 /// (nix2) CLI but since move-fast-break-everything is a common mantra among Nix
 /// & Nix-adjacent software, I've implemented this. Do not remove, this is

@@ -682,14 +682,16 @@ fn shell_quote(s: &str) -> String {
 }
 
 /// Get SSH options from `NH_SSHOPTS` (or `NIX_SSHOPTS` for compatibility)
-/// plus our defaults. This includes connection multiplexing options
+/// plus our defaults.
+///
+/// This includes connection multiplexing options
 /// (`ControlMaster`, `ControlPath`, `ControlPersist`) which enable efficient
 /// reuse of SSH connections.
 pub fn get_ssh_opts() -> Vec<String> {
     let mut opts: Vec<String> = Vec::new();
 
     // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
-    let (sshopts_var, sshopts_val) = env::var("NH_SSHOPTS").map_or_else(
+    let (sshopts_key, sshopts_value) = env::var("NH_SSHOPTS").map_or_else(
         |_| {
             env::var("NIX_SSHOPTS").map_or_else(
                 |_| ("", String::new()),
@@ -699,19 +701,19 @@ pub fn get_ssh_opts() -> Vec<String> {
         |v| ("NH_SSHOPTS", v),
     );
 
-    if !sshopts_val.is_empty() {
-        if let Some(parsed) = shlex::split(&sshopts_val) {
+    if !sshopts_value.is_empty() {
+        if let Some(parsed) = shlex::split(&sshopts_value) {
             opts.extend(parsed);
         } else {
             let truncated =
-                sshopts_val.chars().take(60).collect::<String>();
-            let sshopts_display = if sshopts_val.len() > 60 {
+                sshopts_value.chars().take(60).collect::<String>();
+            let sshopts_display = if sshopts_value.len() > 60 {
                 format!("{truncated}...")
             } else {
                 truncated
             };
             warn!(
-                "Failed to parse {sshopts_var}, ignoring. Provide valid options or \
+                "Failed to parse {sshopts_key}, ignoring. Provide valid options or \
          use ~/.ssh/config. Value: {sshopts_display}",
             );
         }
