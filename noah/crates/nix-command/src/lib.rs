@@ -489,7 +489,7 @@ impl NixCommand {
             move || read_pipe(BufReader::new(stdout), &tx, false)
         });
         let stderr_thread = thread::spawn(move || {
-            read_pipe(BufReader::new(stderr), &tx, true)
+            read_pipe(BufReader::new(stderr), &tx, true);
         });
         let start = Instant::now();
 

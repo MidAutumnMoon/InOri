@@ -288,11 +288,11 @@ pub fn ensure_ssh_key_login() -> Result<()> {
 /// Returns an error if:
 /// - No hostname is supplied and the system hostname cannot be retrieved
 pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
+    use color_eyre::eyre::Context;
+
     if let Some(h) = supplied_hostname {
         return Ok(h);
     }
-
-    use color_eyre::eyre::Context;
 
     nix::unistd::gethostname()
         .context("Failed to get hostname, and no hostname supplied")?

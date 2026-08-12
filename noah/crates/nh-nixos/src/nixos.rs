@@ -53,6 +53,7 @@ pub enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
+    #[expect(clippy::missing_errors_doc)]
     pub fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
         let attr = if self.with_bootloader {
             "vmWithBootLoader"
@@ -95,6 +96,7 @@ impl OsBuildVmArgs {
 
 impl OsRebuildActivateArgs {
     // final_attr is the attribute of config.system.build.X to evaluate.
+    #[expect(clippy::missing_errors_doc)]
     pub fn rebuild_and_activate(
         self,
         variant: &OsRebuildVariant,
@@ -640,6 +642,7 @@ impl OsRebuildArgs {
 
     // final_attr is the attribute of config.system.build.X to evaluate.
     // Used by Build and BuildVm subcommands which don't activate
+    #[expect(clippy::missing_errors_doc)]
     pub fn build_only(
         self,
         variant: &OsRebuildVariant,
@@ -701,7 +704,7 @@ impl OsRebuildArgs {
 }
 
 impl OsRollbackArgs {
-    #[expect(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines, clippy::missing_errors_doc)]
     pub fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
         let elevate =
             has_elevation_status(self.bypass_root_check, &elevation)?;
@@ -873,6 +876,7 @@ impl OsRollbackArgs {
 }
 
 impl OsBuildImageArgs {
+    #[expect(clippy::missing_errors_doc)]
     pub fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
         let (_, target_hostname) =
             self.common.setup_build_context(elevation)?;
@@ -1323,6 +1327,7 @@ pub fn toplevel_for<S: AsRef<str>>(
 }
 
 impl OsReplArgs {
+    #[expect(clippy::missing_errors_doc)]
     pub fn run(self) -> Result<()> {
         let mut target_installable =
             self.installable.resolve_or_default()?;
@@ -1355,6 +1360,7 @@ impl OsReplArgs {
 }
 
 impl OsGenerationsArgs {
+    #[expect(clippy::missing_errors_doc)]
     pub fn info(&self) -> Result<()> {
         let profile = match self.profile {
             Some(ref p) => PathBuf::from(p),

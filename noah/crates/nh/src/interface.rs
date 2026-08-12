@@ -141,13 +141,13 @@ impl NHCommand {
     /// Returns an error if required Nix features are unavailable or if the
     /// selected subcommand fails.
     pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-        // Check features specific to this command
-        let requirements = self.get_feature_requirements();
-        requirements.check_features()?;
-
         use nh_nixos::nixos::OsRebuildVariant::{
             Boot, Build, Switch, Test,
         };
+
+        // Check features specific to this command
+        let requirements = self.get_feature_requirements();
+        requirements.check_features()?;
 
         match self {
             Self::Switch(args) => {

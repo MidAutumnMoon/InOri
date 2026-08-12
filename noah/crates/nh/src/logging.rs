@@ -34,10 +34,10 @@ where
                 write!(writer, "{} ", Paint::new("ERROR").fg(Color::Red))?;
             }
             Level::WARN => {
-                write!(writer, "{} ", Paint::new("!").fg(Color::Yellow))?
+                write!(writer, "{} ", Paint::new("!").fg(Color::Yellow))?;
             }
             Level::INFO => {
-                write!(writer, "{} ", Paint::new(">").fg(Color::Green))?
+                write!(writer, "{} ", Paint::new(">").fg(Color::Green))?;
             }
             Level::DEBUG => {
                 write!(
