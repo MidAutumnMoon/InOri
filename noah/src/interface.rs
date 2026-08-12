@@ -2,11 +2,6 @@ use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
 use nh_core::command::ElevationStrategy;
 
-use crate::checks::{
-    FeatureRequirements, FlakeFeatures, LegacyFeatures, NoFeatures,
-    OsReplFeatures,
-};
-
 use crate::Result;
 
 const fn make_style() -> Styles {
@@ -84,48 +79,6 @@ pub enum NHCommand {
 }
 
 impl NHCommand {
-    #[must_use]
-    pub fn get_feature_requirements(
-        &self,
-    ) -> Box<dyn FeatureRequirements> {
-        match self {
-            Self::Repl(args) => {
-                let is_flake = args.uses_flakes();
-                Box::new(OsReplFeatures { is_flake })
-            }
-            Self::Switch(args) | Self::Boot(args) | Self::Test(args) => {
-                if args.rebuild.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            Self::Build(args) => {
-                if args.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            Self::BuildVm(args) => {
-                if args.common.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            Self::Info(_) | Self::Rollback(_) => Box::new(LegacyFeatures),
-            Self::BuildImage(args) => {
-                if args.common.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
-        }
-    }
-
     /// Run the selected subcommand.
     ///
     /// # Errors
@@ -136,10 +89,6 @@ impl NHCommand {
         use nh_nixos::nixos::OsRebuildVariant::{
             Boot, Build, Switch, Test,
         };
-
-        // Check features specific to this command
-        let requirements = self.get_feature_requirements();
-        requirements.check_features()?;
 
         match self {
             Self::Switch(args) => {

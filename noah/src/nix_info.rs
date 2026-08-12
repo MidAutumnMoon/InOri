@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
 
 // use color_eyre::eyre::Context;
 use ino_shell::{Shell, cmd};
 use regex::Regex;
-use rootcause::IntoReport;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -23,10 +21,6 @@ static NIX_VERSION_OUTPUT: LazyLock<Option<String>> =
         cmd!(shell, "nix --version").read().ok()
     });
 
-// Caching only on success so a transient failure is retried on the next call.
-static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> =
-    OnceLock::new();
-
 /// Fetches and caches the raw output from `nix --version`.
 ///
 /// Returns `None` if the command cannot be run (for example, Nix is not
@@ -42,6 +36,7 @@ fn nix_version_output() -> Option<&'static String> {
 /// Returns an error if `nix --version` cannot be run.
 pub fn nix_variant() -> rootcause::Result<NixVariant> {
     let variant = guess_nix_variant_from_version_output()?;
+    ensure_features_needed_are_set()?;
     Ok(variant)
 }
 
@@ -56,6 +51,24 @@ fn guess_nix_variant_from_version_output() -> rootcause::Result<NixVariant>
         Ok(NixVariant::Lix)
     } else {
         Ok(NixVariant::Nix)
+    }
+}
+
+fn ensure_features_needed_are_set() -> rootcause::Result<()> {
+    let shell = Shell::new()?;
+    let expr_features =
+        cmd!(shell, "nix config show experimental-features")
+            .read()
+            .context("Failed to read enabled experimental features")?;
+
+    debug!(expr_features);
+
+    if expr_features.contains("flakes")
+        && expr_features.contains("nix-command")
+    {
+        Ok(())
+    } else {
+        rootcause::bail!("Flake features are not enabled")
     }
 }
 
@@ -144,54 +157,6 @@ pub fn normalize_version_string(version: &str) -> String {
     }
 
     normalized
-}
-
-/// Retrieves all enabled experimental features in Nix (cached).
-///
-/// This function executes the `nix config show experimental-features` command
-/// once, caches the result, and returns a `HashSet` of the enabled features.
-///
-/// # Errors
-///
-/// Returns an error if `nix config show experimental-features` fails to
-/// execute.
-pub fn nix_experimental_features() -> rootcause::Result<HashSet<String>> {
-    if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {
-        return Ok(features.clone());
-    }
-
-    let shell = Shell::new()?;
-    let output = cmd!(shell, "nix config show experimental-features")
-        .read()
-        .context(
-            "Failed to run `nix config show experimental-features`",
-        )?;
-
-    let enabled: HashSet<String> =
-        output.split_whitespace().map(String::from).collect();
-
-    let _ = NIX_EXPERIMENTAL_FEATURES.set(enabled.clone());
-    Ok(enabled)
-}
-
-/// Gets the missing experimental features from a required list.
-///
-/// # Errors
-///
-/// Returns an error if retrieving the list of enabled experimental features
-/// fails.
-pub fn missing_experimental_features(
-    required: &[&str],
-) -> rootcause::Result<Vec<String>> {
-    let enabled = nix_experimental_features()?;
-
-    let missing: Vec<String> = required
-        .iter()
-        .filter(|&feature| !enabled.contains(*feature))
-        .map(|&feature| feature.to_string())
-        .collect();
-
-    Ok(missing)
 }
 
 #[cfg(test)]
