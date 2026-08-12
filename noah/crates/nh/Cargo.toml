@@ -15,10 +15,10 @@ anstyle.workspace             = true
 clap.workspace                = true
 clap-verbosity-flag.workspace = true
 color-eyre.workspace          = true
-nh-clean.workspace            = true
-nh-core.workspace             = true
-nh-nixos.workspace            = true
-nh-search.workspace           = true
+nh-clean = { path = "../nh-clean" }
+nh-core = { path = "../nh-core" }
+nh-nixos = { path = "../nh-nixos" }
+nh-search = { path = "../nh-search" }
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
 yansi.workspace               = true

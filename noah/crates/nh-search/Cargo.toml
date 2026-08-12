@@ -13,7 +13,7 @@ color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
 inquire.workspace             = true
 jiff.workspace                = true
-nh-core.workspace             = true
+nh-core = { path = "../nh-core" }
 regex.workspace               = true
 reqwest.workspace             = true
 secrecy.workspace             = true

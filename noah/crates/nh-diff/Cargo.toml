@@ -10,8 +10,8 @@ rust-version.workspace = true
 [dependencies]
 color-eyre.workspace = true
 dix.workspace        = true
-nh-core.workspace    = true
-nh-remote.workspace  = true
+nh-core = { path = "../nh-core" }
+nh-remote = { path = "../nh-remote" }
 tracing.workspace    = true
 yansi.workspace      = true
 

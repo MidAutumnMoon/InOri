@@ -30,17 +30,6 @@ ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
 ino_tap = { path = "./crates/ino_tap" }
 
-# Noah (nh fork) internal crates
-nh = { path = "./noah/crates/nh", version = "4.4.2" }
-nh-clean = { path = "./noah/crates/nh-clean", version = "4.4.2" }
-nh-core = { path = "./noah/crates/nh-core", version = "4.4.2" }
-nh-diff = { path = "./noah/crates/nh-diff", version = "4.4.2" }
-nh-installable = { path = "./noah/crates/nh-installable", version = "4.4.2" }
-nh-nixos = { path = "./noah/crates/nh-nixos", version = "4.4.2" }
-nh-remote = { path = "./noah/crates/nh-remote", version = "4.4.2" }
-nh-search = { path = "./noah/crates/nh-search", version = "4.4.2" }
-nix-command = { path = "./noah/crates/nix-command", version = "0.2.4" }
-
 # Shared dependencies (InOri + Noah)
 anyhow = "1"
 assert_fs = "1"

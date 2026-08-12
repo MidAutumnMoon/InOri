@@ -14,9 +14,9 @@ path = "src/remote.rs"
 color-eyre.workspace     = true
 dix.workspace            = true
 inquire.workspace        = true
-nh-core.workspace        = true
-nh-installable.workspace = true
-nix-command.workspace    = true
+nh-core = { path = "../nh-core" }
+nh-installable = { path = "../nh-installable" }
+nix-command = { path = "../nix-command" }
 secrecy.workspace        = true
 shlex.workspace          = true
 signal-hook.workspace    = true

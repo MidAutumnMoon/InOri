@@ -12,10 +12,10 @@ clap.workspace           = true
 color-eyre.workspace     = true
 inquire.workspace        = true
 jiff.workspace           = true
-nh-core.workspace        = true
-nh-diff.workspace        = true
-nh-installable.workspace = true
-nh-remote.workspace      = true
+nh-core = { path = "../nh-core" }
+nh-diff = { path = "../nh-diff" }
+nh-installable = { path = "../nh-installable" }
+nh-remote = { path = "../nh-remote" }
 nix.workspace            = true
 serde_json.workspace     = true
 tempfile.workspace       = true

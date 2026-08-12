@@ -12,9 +12,9 @@ clap.workspace           = true
 color-eyre.workspace     = true
 indicatif.workspace      = true
 inquire.workspace        = true
-nh-installable.workspace = true
+nh-installable = { path = "../nh-installable" }
 nix.workspace            = true
-nix-command.workspace    = true
+nix-command = { path = "../nix-command" }
 regex.workspace          = true
 secrecy.workspace        = true
 semver.workspace         = true
