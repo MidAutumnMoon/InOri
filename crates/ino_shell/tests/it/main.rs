@@ -1,7 +1,11 @@
-#![expect(clippy::unwrap_used, clippy::panic, clippy::needless_pass_by_value, reason = "test code")]
-mod tidy;
-mod env;
+#![expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::needless_pass_by_value,
+    reason = "test code"
+)]
 mod compile_failures;
+mod env;
 mod timeout;
 
 use std::{ffi::OsStr, path::Path};
@@ -19,10 +23,14 @@ fn setup() -> Shell {
     ONCE.call_once(|| {
         cmd!(sh, "rustc {xecho_src} --out-dir {target_dir}")
             .run()
-            .unwrap_or_else(|err| panic!("failed to install binaries from mock_bin: {err}"));
+            .unwrap_or_else(|err| {
+                panic!("failed to install binaries from mock_bin: {err}")
+            });
         cmd!(sh, "rustc {xsleep_src} --out-dir {target_dir}")
             .run()
-            .unwrap_or_else(|err| panic!("failed to install binaries from mock_bin: {err}"));
+            .unwrap_or_else(|err| {
+                panic!("failed to install binaries from mock_bin: {err}")
+            });
     });
 
     sh.set_var("PATH", target_dir);
@@ -205,7 +213,10 @@ fn ignore_status_signal() {
 fn read_stderr() {
     let sh = setup();
 
-    let output = cmd!(sh, "xecho -f -e snafu").ignore_status().read_stderr().unwrap();
+    let output = cmd!(sh, "xecho -f -e snafu")
+        .ignore_status()
+        .read_stderr()
+        .unwrap();
     assert!(output.contains("snafu"));
 }
 
@@ -223,7 +234,10 @@ fn args_with_spaces() {
 
     let hello_world = "hello world";
     let cmd = cmd!(sh, "xecho {hello_world} 'hello world' hello world");
-    assert_eq!(cmd.to_string(), r#"xecho "hello world" "hello world" hello world"#);
+    assert_eq!(
+        cmd.to_string(),
+        r#"xecho "hello world" "hello world" hello world"#
+    );
 }
 
 #[test]
@@ -243,7 +257,11 @@ foo
 baz
 bar
 ";
-    let output = cmd!(sh, "xecho -i").stdin(lines).read().unwrap().replace("\r\n", "\n");
+    let output = cmd!(sh, "xecho -i")
+        .stdin(lines)
+        .read()
+        .unwrap()
+        .replace("\r\n", "\n");
     assert_eq!(
         output,
         "\
@@ -258,7 +276,8 @@ bar
 fn no_deadlock() {
     let sh = setup();
 
-    let mut data = "All the work and now paly made Jack a dull boy.\n".repeat(1 << 20);
+    let mut data = "All the work and now paly made Jack a dull boy.\n"
+        .repeat(1 << 20);
     data.pop();
     let res = cmd!(sh, "xecho -i").stdin(&data).read().unwrap();
     assert_eq!(data, res);
@@ -310,7 +329,10 @@ fn push_dir_parent_dir() {
     let dirname = current.file_name().unwrap();
     let sh = sh.with_current_dir("..");
     let sh = sh.with_current_dir(dirname);
-    assert_eq!(sh.current_dir().canonicalize().unwrap(), current.canonicalize().unwrap());
+    assert_eq!(
+        sh.current_dir().canonicalize().unwrap(),
+        current.canonicalize().unwrap()
+    );
 }
 
 const VAR: &str = "SPICA";
@@ -374,7 +396,10 @@ fn test_copy_file() {
         assert_eq!(sh.read_file(&bar).unwrap(), "hello world");
 
         sh.copy_file_to_dir(&foo, &dir).unwrap();
-        assert_eq!(sh.read_file(dir.join("foo.txt")).unwrap(), "hello world");
+        assert_eq!(
+            sh.read_file(dir.join("foo.txt")).unwrap(),
+            "hello world"
+        );
         assert!(path.exists());
     }
     assert!(!path.exists());
@@ -415,7 +440,8 @@ fn test_remove_path() {
 
     let tempdir = sh.create_temp_dir().unwrap();
     sh.set_current_dir(tempdir.path());
-    sh.write_file(Path::new("a/b/c.rs"), "fn main() {}").unwrap();
+    sh.write_file(Path::new("a/b/c.rs"), "fn main() {}")
+        .unwrap();
     assert!(tempdir.path().join("a/b/c.rs").exists());
     sh.remove_path("./a").unwrap();
     assert!(!tempdir.path().join("a/b/c.rs").exists());
@@ -463,7 +489,9 @@ fn nonexistent_current_directory() {
     if cfg!(unix) {
         assert!(message.contains("nonexistent"), "{message}");
         assert!(message.starts_with("failed to get current directory"));
-        assert!(message.ends_with("No such file or directory (os error 2)"));
+        assert!(
+            message.ends_with("No such file or directory (os error 2)")
+        );
     } else {
         assert_eq!(
             message,

@@ -1,7 +1,10 @@
 use ino_shell::{Shell, cmd};
 
 #[track_caller]
-#[expect(clippy::unnecessary_debug_formatting, reason = "Debug fmt provides TOML quoting")]
+#[expect(
+    clippy::unnecessary_debug_formatting,
+    reason = "Debug fmt provides TOML quoting"
+)]
 fn check(code: &str, err_msg: &str) {
     let mut sh = Shell::new().unwrap();
     let xshell_dir = sh.current_dir().to_owned();
@@ -37,7 +40,10 @@ pub fn f() {{
     sh.write_file("Cargo.toml", manifest).unwrap();
     sh.write_file("main.rs", snip).unwrap();
 
-    let stderr = cmd!(sh, "cargo build").ignore_status().read_stderr().unwrap();
+    let stderr = cmd!(sh, "cargo build")
+        .ignore_status()
+        .read_stderr()
+        .unwrap();
     assert!(
         stderr.contains(err_msg),
         "\n\nCompile fail fail!\n\nExpected:\n{err_msg}\n\nActual:\n{stderr}\n"
@@ -98,12 +104,18 @@ fn spalt_program() {
 
 #[test]
 fn unclosed_quote() {
-    check(r#"cmd!(sh, "echo 'hello world")"#, "error: unclosed `'` in command");
+    check(
+        r#"cmd!(sh, "echo 'hello world")"#,
+        "error: unclosed `'` in command",
+    );
 }
 
 #[test]
 fn unclosed_curly() {
-    check(r#"cmd!(sh, "echo {hello world")"#, "error: unclosed `{` in command");
+    check(
+        r#"cmd!(sh, "echo {hello world")"#,
+        "error: unclosed `{` in command",
+    );
 }
 
 #[test]

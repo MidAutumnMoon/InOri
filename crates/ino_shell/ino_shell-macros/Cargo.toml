@@ -5,11 +5,11 @@ version = "0.3.0-pre.2"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/matklad/xshell"
 authors = ["Aleksey Kladov <aleksey.kladov@gmail.com>"]
-edition = "2024"
-rust-version = "1.95.0"
-
+edition.workspace = true
+rust-version.workspace = true
 
 [lints]
 workspace = true
+
 [lib]
 proc-macro = true

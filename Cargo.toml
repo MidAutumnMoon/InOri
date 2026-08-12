@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/*",
+    "./crates/ino_shell/ino_shell-macros",
     "coruma",
     "derputils",
     "lny",

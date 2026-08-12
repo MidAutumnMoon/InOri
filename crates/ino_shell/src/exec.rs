@@ -43,10 +43,7 @@ pub struct ExecResult {
     pub(crate) error: Option<io::Error>,
 }
 
-pub fn wait_deadline(
-    child: &mut Child,
-    deadline: Option<Instant>,
-) -> io::Result<ExitStatus> {
+pub fn wait_deadline(child: &mut Child, deadline: Option<Instant>) -> io::Result<ExitStatus> {
     let Some(deadline) = deadline else {
         return child.wait();
     };
@@ -75,11 +72,7 @@ pub fn exec(
     deadline: Option<Instant>,
 ) -> ExecResult {
     let mut result = ExecResult::default();
-    command.stdin(if stdin_contents.is_some() {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    });
+    command.stdin(if stdin_contents.is_some() { Stdio::piped() } else { Stdio::null() });
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     let mut child = match command.spawn() {
@@ -116,9 +109,7 @@ pub fn exec(
                         return Ok(());
                     }
                     out_deque.extend(buffer[0..n].iter().copied());
-                    let excess = out_deque.len().saturating_sub(
-                        stdout_limit.unwrap_or(usize::MAX),
-                    );
+                    let excess = out_deque.len().saturating_sub(stdout_limit.unwrap_or(usize::MAX));
                     if excess > 0 {
                         out_deque.drain(..excess);
                     }
@@ -134,9 +125,7 @@ pub fn exec(
                         return Ok(());
                     }
                     err_deque.extend(buffer[0..n].iter().copied());
-                    let excess = err_deque.len().saturating_sub(
-                        stderr_limit.unwrap_or(usize::MAX),
-                    );
+                    let excess = err_deque.len().saturating_sub(stderr_limit.unwrap_or(usize::MAX));
                     if excess > 0 {
                         err_deque.drain(..excess);
                     }
