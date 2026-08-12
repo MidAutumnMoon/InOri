@@ -3,6 +3,8 @@ use std::str::FromStr;
 use color_eyre::Result;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
+use crate::nix_info::NixVariant;
+
 mod checks;
 mod interface;
 mod logging;
@@ -13,11 +15,14 @@ const NH_REV: Option<&str> = option_env!("NH_REV");
 
 pub struct Facts {
     envvars: Envvars,
+    nix_variant: NixVariant,
 }
 
 pub struct Envvars {}
 
 fn main() -> Result<()> {
+    ino_tracing::init_tracing_subscriber();
+
     let mut args = <interface::Main as clap::Parser>::parse();
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
@@ -47,7 +52,7 @@ fn main() -> Result<()> {
     }
 
     // Set up logging
-    logging::setup_logging(args.verbosity)?;
+    logging::setup_logging()?;
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
 

@@ -13,7 +13,6 @@ default-run            = "nh"
 [dependencies]
 anstyle = "1.0.13"
 clap.workspace                = true
-clap-verbosity-flag = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
 nh-clean = { path = "./crates/nh-clean" }
@@ -26,6 +25,7 @@ semver = "1.0.27"
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
 yansi = "1.0.1"
+ino_tracing.workspace = true
 
 [dev-dependencies]
 serial_test = "3.2.0"

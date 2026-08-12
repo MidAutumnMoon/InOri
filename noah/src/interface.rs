@@ -1,6 +1,5 @@
 use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
-use clap_verbosity_flag::InfoLevel;
 use nh_core::command::ElevationStrategy;
 
 use crate::checks::{
@@ -35,11 +34,6 @@ const fn make_style() -> Styles {
 )]
 /// Yet another nix helper
 pub struct Main {
-    #[command(flatten)]
-    /// Increase logging verbosity, can be passed multiple times for
-    /// more detailed logs.
-    pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
-
     #[arg(
         short,
         long,
