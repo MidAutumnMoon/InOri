@@ -14,7 +14,7 @@ tracing.workspace    = true
 yansi = "1.0.1"
 
 [dev-dependencies]
-serial_test = "3.2.0"
+serial_test = "4.0.0"
 tempfile = "3.23.0"
 
 [lints]
