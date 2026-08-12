@@ -11,22 +11,22 @@ publish                = true
 path = "src/remote.rs"
 
 [dependencies]
-color-eyre.workspace     = true
-dix.workspace            = true
-inquire.workspace        = true
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+dix = "2.1.0"
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 nh-core = { path = "../nh-core" }
 nh-installable = { path = "../nh-installable" }
 nix-command = { path = "../nix-command" }
-secrecy.workspace        = true
-shlex.workspace          = true
-signal-hook.workspace    = true
-subprocess.workspace     = true
+secrecy = { features = [ "serde" ], version = "0.10.3" }
+shlex = "2.0.1"
+signal-hook = "0.4.1"
+subprocess = "1.0.3"
 tracing.workspace        = true
-which.workspace          = true
+which = "8.0.0"
 
 [dev-dependencies]
-proptest.workspace    = true
-serial_test.workspace = true
+proptest = "1.9.0"
+serial_test = "3.2.0"
 
 [lints]
 workspace = true

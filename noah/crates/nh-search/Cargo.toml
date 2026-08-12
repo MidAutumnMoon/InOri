@@ -9,26 +9,26 @@ publish                = true
 
 [dependencies]
 clap.workspace                = true
-color-eyre.workspace          = true
-elasticsearch-dsl.workspace   = true
-inquire.workspace             = true
-jiff.workspace                = true
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+elasticsearch-dsl = "0.4.24"
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 nh-core = { path = "../nh-core" }
-regex.workspace               = true
-reqwest.workspace             = true
-secrecy.workspace             = true
+regex = "1.12.2"
+reqwest = { default-features = false, features = [ "blocking", "json", "rustls" ], version = "0.13.1" }
+secrecy = { features = [ "serde" ], version = "0.10.3" }
 serde.workspace               = true
 serde_json.workspace          = true
-spam-db.workspace             = true
-supports-hyperlinks.workspace = true
-tempfile.workspace            = true
-textwrap.workspace            = true
+spam-db = "0.2.4"
+supports-hyperlinks = "3.1.0"
+tempfile = "3.23.0"
+textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 tracing.workspace             = true
-yansi.workspace               = true
+yansi = "1.0.1"
 
 [dev-dependencies]
-serial_test.workspace = true
-tempfile.workspace    = true
+serial_test = "3.2.0"
+tempfile = "3.23.0"
 
 [lints]
 workspace = true

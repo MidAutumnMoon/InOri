@@ -9,16 +9,16 @@ rust-version.workspace = true
 
 [dependencies]
 clap.workspace           = true
-color-eyre.workspace     = true
-inquire.workspace        = true
-jiff.workspace           = true
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 nh-core = { path = "../nh-core" }
 nh-diff = { path = "../nh-diff" }
 nh-installable = { path = "../nh-installable" }
 nh-remote = { path = "../nh-remote" }
-nix.workspace            = true
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 serde_json.workspace     = true
-tempfile.workspace       = true
+tempfile = "3.23.0"
 tracing.workspace        = true
 
 [lints]

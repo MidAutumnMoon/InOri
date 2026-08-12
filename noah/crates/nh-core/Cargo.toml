@@ -9,26 +9,26 @@ publish                = true
 
 [dependencies]
 clap.workspace           = true
-color-eyre.workspace     = true
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 indicatif.workspace      = true
-inquire.workspace        = true
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 nh-installable = { path = "../nh-installable" }
-nix.workspace            = true
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 nix-command = { path = "../nix-command" }
-regex.workspace          = true
-secrecy.workspace        = true
-semver.workspace         = true
+regex = "1.12.2"
+secrecy = { features = [ "serde" ], version = "0.10.3" }
+semver = "1.0.27"
 serde_json.workspace     = true
-shlex.workspace          = true
-subprocess.workspace     = true
+shlex = "2.0.1"
+subprocess = "1.0.3"
 thiserror.workspace      = true
 tracing.workspace        = true
-which.workspace          = true
+which = "8.0.0"
 
 [dev-dependencies]
-proptest.workspace    = true
-serial_test.workspace = true
-tempfile.workspace    = true
+proptest = "1.9.0"
+serial_test = "3.2.0"
+tempfile = "3.23.0"
 
 
 [lints]

@@ -12,18 +12,18 @@ path = "src/clean.rs"
 
 [dependencies]
 clap.workspace       = true
-color-eyre.workspace = true
-humantime.workspace  = true
-inquire.workspace    = true
+color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+humantime = "2.3.0"
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 nh-core = { path = "../nh-core" }
-nix.workspace        = true
-regex.workspace      = true
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+regex = "1.12.2"
 tracing.workspace    = true
-walkdir.workspace    = true
-yansi.workspace      = true
+walkdir = "2.5.0"
+yansi = "1.0.1"
 
 [dev-dependencies]
-tempfile.workspace = true
+tempfile = "3.23.0"
 
 [lints]
 workspace = true
