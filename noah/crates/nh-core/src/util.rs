@@ -287,37 +287,17 @@ pub fn ensure_ssh_key_login() -> Result<()> {
 ///
 /// Returns an error if:
 /// - No hostname is supplied and the system hostname cannot be retrieved
-/// - On macOS: the dynamic store hostname lookup fails
 pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
     if let Some(h) = supplied_hostname {
         return Ok(h);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        use color_eyre::eyre::Context;
 
-        nix::unistd::gethostname()
-            .context("Failed to get hostname, and no hostname supplied")?
-            .into_string()
-            .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use color_eyre::eyre::bail;
-        use system_configuration::{
-            core_foundation::{base::TCFType, string::CFString},
-            sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
-        };
+    use color_eyre::eyre::Context;
 
-        let ptr =
-            unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
-        if ptr.is_null() {
-            bail!("Failed to get hostname, and no hostname supplied");
-        }
-        let name = unsafe { CFString::wrap_under_get_rule(ptr) };
-
-        Ok(name.to_string())
-    }
+    nix::unistd::gethostname()
+        .context("Failed to get hostname, and no hostname supplied")?
+        .into_string()
+        .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
 }
 
 /// Retrieves all enabled experimental features in Nix (cached).

@@ -35,9 +35,7 @@ nh = { path = "./noah/crates/nh", version = "4.4.2" }
 nh-clean = { path = "./noah/crates/nh-clean", version = "4.4.2" }
 nh-config = { path = "./noah/crates/nh-config", version = "0.1.0" }
 nh-core = { path = "./noah/crates/nh-core", version = "4.4.2" }
-nh-darwin = { path = "./noah/crates/nh-darwin", version = "4.4.2" }
 nh-diff = { path = "./noah/crates/nh-diff", version = "4.4.2" }
-nh-home = { path = "./noah/crates/nh-home", version = "4.4.2" }
 nh-installable = { path = "./noah/crates/nh-installable", version = "4.4.2" }
 nh-nixos = { path = "./noah/crates/nh-nixos", version = "4.4.2" }
 nh-remote = { path = "./noah/crates/nh-remote", version = "4.4.2" }
@@ -86,7 +84,6 @@ signal-hook = "0.4.1"
 spam-db = "0.2.4"
 subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"
-system-configuration = "0.7.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 toml_edit = "0.25.12"

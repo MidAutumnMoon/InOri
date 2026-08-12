@@ -364,7 +364,6 @@ impl NixCommand {
             "LOCALE_ARCHIVE",
             "PATH",
             "NIX_SSHOPTS",
-            "HOME_MANAGER_BACKUP_EXT",
             "NIX_CONFIG",
             "NIX_PATH",
             "NIX_REMOTE",

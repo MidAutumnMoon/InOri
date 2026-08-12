@@ -15,16 +15,12 @@ use yansi::{Color, Paint};
 #[derive(Debug, Clone, Copy)]
 pub enum CommandContext {
     Os,
-    Home,
-    Darwin,
 }
 
 impl CommandContext {
     const fn specific_flake_env_var(self) -> &'static str {
         match self {
             Self::Os => "NH_OS_FLAKE",
-            Self::Home => "NH_HOME_FLAKE",
-            Self::Darwin => "NH_DARWIN_FLAKE",
         }
     }
 }
@@ -433,8 +429,6 @@ fn default_installable_for(
 ) -> color_eyre::Result<Installable> {
     match context {
         CommandContext::Os => try_find_default_for_os(),
-        CommandContext::Home => try_find_default_for_home(),
-        CommandContext::Darwin => try_find_default_for_darwin(),
     }
 }
 
@@ -814,140 +808,6 @@ fn try_find_default_for_os() -> color_eyre::Result<Installable> {
          either:\n- Pass a flake path as an argument (e.g., 'nh os switch \
          .')\n- Set the NH_FLAKE environment variable\n- Set the NH_OS_FLAKE \
          environment variable\n\n{}",
-            default_dir.display(),
-            FALLBACK_HELP_HINT
-        )),
-    }
-}
-
-/// Attempts to find a default installable for Home Manager builds.
-///
-/// Checks if `$HOME/.config/home-manager/flake.nix` exists and returns a flake
-/// installable pointing to it if found. If the directory is a symlink, it is
-/// resolved to its canonical path. Otherwise, returns an error with
-/// instructions on how to specify an installable.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// - The `HOME` environment variable is not set
-/// - No flake is found at `$HOME/.config/home-manager/flake.nix`
-/// - Permission is denied accessing the path
-/// - The resolved path contains invalid UTF-8
-fn try_find_default_for_home() -> color_eyre::Result<Installable> {
-    use tracing::warn;
-
-    let home = env::var("HOME").map_err(|_| {
-        color_eyre::eyre::eyre!("HOME environment variable not set")
-    })?;
-    let default_dir = PathBuf::from(&home).join(".config/home-manager");
-
-    match resolve_fallback_flake_dir(&default_dir) {
-        Ok(resolved) => {
-            warn!(
-                "No installable was specified, falling back to {}",
-                resolved.display()
-            );
-            Ok(Installable::Flake {
-                reference: resolved
-                    .to_str()
-                    .ok_or_else(|| {
-                        color_eyre::eyre::eyre!(
-                            "Resolved path {} contains invalid UTF-8",
-                            resolved.display()
-                        )
-                    })?
-                    .to_string(),
-                attribute: vec![],
-            })
-        }
-        Err(FallbackError::PermissionDenied(path)) => {
-            Err(color_eyre::eyre::eyre!(
-                "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
-         as an argument (e.g., 'nh home switch .')\n- Set the NH_FLAKE \
-         environment variable\n- Set the NH_HOME_FLAKE environment \
-         variable\n\n{}",
-                path.display(),
-                FALLBACK_HELP_HINT
-            ))
-        }
-        Err(FallbackError::Io(e)) => Err(color_eyre::eyre::eyre!(
-            "I/O error accessing {}: {}\n\n{}",
-            default_dir.display(),
-            e,
-            FALLBACK_HELP_HINT
-        )),
-        Err(FallbackError::NotFound) => Err(color_eyre::eyre::eyre!(
-            "No installable specified and no flake found at {}/flake.nix.\nPlease \
-         either:\n- Pass a flake path as an argument (e.g., 'nh home switch \
-         .')\n- Set the NH_FLAKE environment variable\n- Set the \
-         NH_HOME_FLAKE environment variable\n\n{}",
-            default_dir.display(),
-            FALLBACK_HELP_HINT
-        )),
-    }
-}
-
-/// Attempts to find a default installable for Darwin builds.
-///
-/// Checks if `/etc/nix-darwin/flake.nix` exists and returns a flake installable
-/// pointing to it if found. If the directory is a symlink, it is resolved to
-/// its canonical path. Otherwise, returns an error with instructions on how to
-/// specify an installable.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// - No flake is found at `/etc/nix-darwin/flake.nix`
-/// - Permission is denied accessing the path
-/// - The resolved path contains invalid UTF-8
-fn try_find_default_for_darwin() -> color_eyre::Result<Installable> {
-    use tracing::warn;
-
-    let default_dir = std::path::Path::new("/etc/nix-darwin");
-
-    match resolve_fallback_flake_dir(default_dir) {
-        Ok(resolved) => {
-            warn!(
-                "No installable was specified, falling back to {}",
-                resolved.display()
-            );
-            Ok(Installable::Flake {
-                reference: resolved
-                    .to_str()
-                    .ok_or_else(|| {
-                        color_eyre::eyre::eyre!(
-                            "Resolved path {} contains invalid UTF-8",
-                            resolved.display()
-                        )
-                    })?
-                    .to_string(),
-                attribute: vec![],
-            })
-        }
-        Err(FallbackError::PermissionDenied(path)) => {
-            Err(color_eyre::eyre::eyre!(
-                "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
-         as an argument (e.g., 'nh darwin switch .')\n- Set the NH_FLAKE \
-         environment variable\n- Set the NH_DARWIN_FLAKE environment \
-         variable\n\n{}",
-                path.display(),
-                FALLBACK_HELP_HINT
-            ))
-        }
-        Err(FallbackError::Io(e)) => Err(color_eyre::eyre::eyre!(
-            "I/O error accessing {}: {}\n\n{}",
-            default_dir.display(),
-            e,
-            FALLBACK_HELP_HINT
-        )),
-        Err(FallbackError::NotFound) => Err(color_eyre::eyre::eyre!(
-            "No installable specified and no flake found at {}/flake.nix.\nPlease \
-         either:\n- Pass a flake path as an argument (e.g., 'nh darwin switch \
-         .')\n- Set the NH_FLAKE environment variable\n- Set the \
-         NH_DARWIN_FLAKE environment variable\n\n{}",
             default_dir.display(),
             FALLBACK_HELP_HINT
         )),

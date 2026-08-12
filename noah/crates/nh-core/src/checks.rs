@@ -161,14 +161,6 @@ fn required_flake_features() -> &'static [&'static str] {
     }
 }
 
-fn required_repl_features(is_flake: bool) -> &'static [&'static str] {
-    if is_flake {
-        required_flake_features()
-    } else {
-        &[]
-    }
-}
-
 fn required_os_repl_features(is_flake: bool) -> &'static [&'static str] {
     if !is_flake {
         return &[];
@@ -256,30 +248,6 @@ pub struct OsReplFeatures {
 impl FeatureRequirements for OsReplFeatures {
     fn required_features(&self) -> &'static [&'static str] {
         required_os_repl_features(self.is_flake)
-    }
-}
-
-/// Feature requirements for Home Manager repl commands
-#[derive(Debug)]
-pub struct HomeReplFeatures {
-    pub is_flake: bool,
-}
-
-impl FeatureRequirements for HomeReplFeatures {
-    fn required_features(&self) -> &'static [&'static str] {
-        required_repl_features(self.is_flake)
-    }
-}
-
-/// Feature requirements for Darwin repl commands
-#[derive(Debug)]
-pub struct DarwinReplFeatures {
-    pub is_flake: bool,
-}
-
-impl FeatureRequirements for DarwinReplFeatures {
-    fn required_features(&self) -> &'static [&'static str] {
-        required_repl_features(self.is_flake)
     }
 }
 
@@ -427,31 +395,12 @@ mod tests {
             let os_features = OsReplFeatures { is_flake };
             let os_result = os_features.required_features();
 
-            // Test Home repl features
-            let home_features = HomeReplFeatures { is_flake };
-            let home_result = home_features.required_features();
-
-            // Test Darwin repl features
-            let darwin_features = DarwinReplFeatures { is_flake };
-            let darwin_result = darwin_features.required_features();
-
             if is_flake {
                 // Property: All flake repls should have consistent base features
                 // (when features are required, they should include nix-command and flakes)
-                for result in [os_result, home_result, darwin_result] {
-                    if !result.is_empty() {
-                        prop_assert!(result.contains(&"nix-command"));
-                        prop_assert!(result.contains(&"flakes"));
-                    }
-                }
-
-                // Property: Only OS repl may have additional features (repl-flake for older Lix)
-                // Home and Darwin should never have more than the base features
-                if !home_result.is_empty() {
-                    prop_assert_eq!(home_result.len(), 2);
-                }
-                if !darwin_result.is_empty() {
-                    prop_assert_eq!(darwin_result.len(), 2);
+                if !os_result.is_empty() {
+                    prop_assert!(os_result.contains(&"nix-command"));
+                    prop_assert!(os_result.contains(&"flakes"));
                 }
 
                 // Property: OS repl may have 2 or 3 features (base + optional repl-flake)
@@ -464,8 +413,6 @@ mod tests {
             } else {
                 // Property: Non-flake repls should never require features
                 prop_assert!(os_result.is_empty());
-                prop_assert!(home_result.is_empty());
-                prop_assert!(darwin_result.is_empty());
             }
         }
 
@@ -477,8 +424,6 @@ mod tests {
                 Box::new(FlakeFeatures) as Box<dyn FeatureRequirements>,
                 Box::new(LegacyFeatures) as Box<dyn FeatureRequirements>,
                 Box::new(OsReplFeatures { is_flake }) as Box<dyn FeatureRequirements>,
-                Box::new(HomeReplFeatures { is_flake }) as Box<dyn FeatureRequirements>,
-                Box::new(DarwinReplFeatures { is_flake }) as Box<dyn FeatureRequirements>,
                 Box::new(NoFeatures) as Box<dyn FeatureRequirements>,
             ];
 

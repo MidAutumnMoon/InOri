@@ -515,8 +515,6 @@ impl Command {
             // Make sure NIX_SSHOPTS applies to nix commands that invoke ssh, such as
             // `nix copy`
             "NIX_SSHOPTS",
-            // This is relevant for Home-Manager systems
-            "HOME_MANAGER_BACKUP_EXT",
             // Preserve other Nix-related environment variables
             // TODO: is this everything we need? Previously we only preserved *some*
             // variables and nh continued to work, but any missing vars might
@@ -543,14 +541,6 @@ impl Command {
                 .insert("HOME".to_string(), EnvAction::Set(home));
         }
 
-        // INFO: Set HOME to proper root-owned directory for macos
-        // ref: https://github.com/NixOS/nix/blob/d5d7ca01b3dcf48f43819012c580cfb57cb08e47/src/libutil/unix/users.cc#L52
-        if self.elevate.is_some() && cfg!(target_os = "macos") {
-            self.env_vars.insert(
-                "HOME".to_string(),
-                EnvAction::Set("/var/root".to_string()),
-            );
-        }
 
         // Preserve all variables in PRESERVE_ENV if present
         for &key in PRESERVE_ENV {
@@ -1236,7 +1226,6 @@ mod tests {
             "NIX_SSL_CERT_FILE",
             "NIX_USER_CONF_FILES",
             "LOCALE_ARCHIVE",
-            "HOME_MANAGER_BACKUP_EXT",
         ] {
             if cmd.env_vars.contains_key(key) {
                 assert!(matches!(
@@ -1272,7 +1261,6 @@ mod tests {
             "NIX_SSL_CERT_FILE",
             "NIX_USER_CONF_FILES",
             "LOCALE_ARCHIVE",
-            "HOME_MANAGER_BACKUP_EXT",
         ] {
             if let Some(action) = cmd.env_vars.get(key) {
                 assert!(matches!(action, EnvAction::Preserve));

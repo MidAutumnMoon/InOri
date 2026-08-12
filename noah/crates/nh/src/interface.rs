@@ -64,8 +64,6 @@ pub struct Main {
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
     Os(nh_nixos::args::OsArgs),
-    Home(nh_home::args::HomeArgs),
-    Darwin(nh_darwin::args::DarwinArgs),
     Search(nh_search::args::SearchArgs),
     Clean(nh_clean::args::CleanProxy),
 }
@@ -77,8 +75,6 @@ impl NHCommand {
     ) -> Box<dyn FeatureRequirements> {
         match self {
             Self::Os(args) => args.get_feature_requirements(),
-            Self::Home(args) => args.get_feature_requirements(),
-            Self::Darwin(args) => args.get_feature_requirements(),
             Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
         }
     }
@@ -98,8 +94,6 @@ impl NHCommand {
             Self::Os(args) => args.run(elevation),
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(elevation),
-            Self::Home(args) => args.run(),
-            Self::Darwin(args) => args.run(elevation),
         }
     }
 }

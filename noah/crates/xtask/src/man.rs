@@ -36,19 +36,9 @@ const ENVIRONMENT: &[Entry] = &[
      over NH_FLAKE.",
     ),
     (
-        "NH_HOME_FLAKE",
-        "Command-specific flake reference for nh home commands. Takes precedence \
-     over NH_FLAKE.",
-    ),
-    (
-        "NH_DARWIN_FLAKE",
-        "Command-specific flake reference for nh darwin commands. Takes \
-     precedence over NH_FLAKE.",
-    ),
-    (
         "NH_FILE",
         "Preferred path to a directory/file containing a Nix expression. Chosen \
-     after os/home/darwin-specific env vars, but before NH_FLAKE.",
+     after os-specific env vars, but before NH_FLAKE.",
     ),
     (
         "NH_ATTRP",
@@ -153,18 +143,6 @@ const EXAMPLES: &[Entry] = &[
     (
         "Rollback to a previous NixOS generation",
         "nh os rollback --to 42",
-    ),
-    (
-        "Switch to a home-manager configuration",
-        "nh home switch --configuration alice@work",
-    ),
-    (
-        "Build a home-manager configuration with backup",
-        "nh home build --backup-extension .bak",
-    ),
-    (
-        "Switch to a darwin configuration",
-        "nh darwin switch --hostname mymac",
     ),
     ("Search for ripgrep", "nh search ripgrep"),
     (
