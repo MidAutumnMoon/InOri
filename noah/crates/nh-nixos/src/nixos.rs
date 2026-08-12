@@ -522,11 +522,8 @@ impl OsRebuildArgs {
         target_hostname: &str,
         final_attrs: Option<&[&str]>,
     ) -> Result<Installable> {
-        let installable = self
-            .common
-            .installable
-            .clone()
-            .resolve_or_default()?;
+        let installable =
+            self.common.installable.clone().resolve_or_default()?;
 
         toplevel_for(
             target_hostname,
@@ -1193,19 +1190,19 @@ fn find_previous_generation(
     current_number: u64,
     generations: &[generations::GenerationInfo],
 ) -> Result<generations::GenerationInfo> {
-    let Some(current_idx) =
-        generations.iter().position(|g| g.number == current_number)
-    else {
-        bail!("Current generation not found");
-    };
+    let current = generations
+        .iter()
+        .find(|g| g.number == current_number)
+        .ok_or_else(|| eyre!("Current generation not found"))?;
 
-    if current_idx == 0 {
-        bail!("No generation older than the current one exists");
-    }
-
-    let previous_generation = generations[current_idx - 1].clone();
-
-    Ok(previous_generation)
+    generations
+        .iter()
+        .rev()
+        .find(|g| g.number < current.number)
+        .cloned()
+        .ok_or_else(|| {
+            eyre!("No generation older than the current one exists")
+        })
 }
 
 fn get_generation_by_number(
@@ -1278,32 +1275,37 @@ pub fn toplevel_for<S: AsRef<str>>(
         Installable::Flake {
             ref mut attribute, ..
         } => {
-            if attribute.is_empty() {
-                attribute.push(String::from("nixosConfigurations"));
-                attribute.push(hostname_str.to_owned());
-            } else if attribute.len() == 1
-                && attribute[0] == "nixosConfigurations"
-            {
-                info!(
-                    "Inferring hostname '{}' for nixosConfigurations",
-                    hostname_str
-                );
-                attribute.push(hostname_str.to_owned());
-            } else if attribute[0] == "nixosConfigurations" {
-                if attribute.len() == 2 {
+            let first = attribute.first().cloned();
+            let second = attribute.get(1).cloned();
+            match (first.as_deref(), attribute.len()) {
+                (None, _) => {
+                    attribute.push(String::from("nixosConfigurations"));
+                    attribute.push(hostname_str.to_owned());
+                }
+                (Some("nixosConfigurations"), 1) => {
+                    info!(
+                        "Inferring hostname '{}' for nixosConfigurations",
+                        hostname_str
+                    );
+                    attribute.push(hostname_str.to_owned());
+                }
+                (Some("nixosConfigurations"), 2) => {
                     // nixosConfigurations.hostname - fine
-                } else if attribute.len() > 2 {
+                }
+                (Some("nixosConfigurations"), _) => {
                     bail!(
                         "Attribute path is too specific: {}. Please either:\n  1. Use the \
              flake reference without attributes (e.g., '.')\n  2. Specify \
              only the configuration name (e.g., '.#{}')",
                         attribute.join("."),
-                        attribute[1]
+                        second.as_deref().unwrap_or_default()
                     );
                 }
-            } else {
-                // User provided ".#myhost" - prepend nixosConfigurations
-                attribute.insert(0, String::from("nixosConfigurations"));
+                _ => {
+                    // User provided ".#myhost" - prepend nixosConfigurations
+                    attribute
+                        .insert(0, String::from("nixosConfigurations"));
+                }
             }
             attribute.extend(toplevel);
         }

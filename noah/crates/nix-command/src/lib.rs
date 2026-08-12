@@ -1,6 +1,6 @@
 use std::{
     ffi::{OsStr, OsString},
-    io::{self, Read, Write},
+    io::{self, BufRead, BufReader, Write},
     process::{Command, ExitStatus, Output, Stdio},
     sync::mpsc,
     thread,
@@ -44,64 +44,6 @@ pub struct CommandSpec {
     pub interactive: bool,
 }
 
-pub const COMMAND_SPECS: &[CommandSpec] = &[
-    CommandSpec {
-        name: "build",
-        print_build_logs: true,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "config",
-        print_build_logs: false,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "copy",
-        print_build_logs: false,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "develop",
-        print_build_logs: true,
-        interactive: true,
-    },
-    CommandSpec {
-        name: "eval",
-        print_build_logs: false,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "flake",
-        print_build_logs: false,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "path-info",
-        print_build_logs: false,
-        interactive: false,
-    },
-    CommandSpec {
-        name: "repl",
-        print_build_logs: false,
-        interactive: true,
-    },
-    CommandSpec {
-        name: "run",
-        print_build_logs: true,
-        interactive: true,
-    },
-    CommandSpec {
-        name: "shell",
-        print_build_logs: true,
-        interactive: true,
-    },
-    CommandSpec {
-        name: "store",
-        print_build_logs: false,
-        interactive: false,
-    },
-];
-
 impl CommandKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -111,17 +53,61 @@ impl CommandKind {
     #[must_use]
     pub const fn spec(self) -> CommandSpec {
         match self {
-            Self::Build => COMMAND_SPECS[0],
-            Self::Config => COMMAND_SPECS[1],
-            Self::Copy => COMMAND_SPECS[2],
-            Self::Develop => COMMAND_SPECS[3],
-            Self::Eval => COMMAND_SPECS[4],
-            Self::Flake => COMMAND_SPECS[5],
-            Self::PathInfo => COMMAND_SPECS[6],
-            Self::Repl => COMMAND_SPECS[7],
-            Self::Run => COMMAND_SPECS[8],
-            Self::Shell => COMMAND_SPECS[9],
-            Self::Store => COMMAND_SPECS[10],
+            Self::Build => CommandSpec {
+                name: "build",
+                print_build_logs: true,
+                interactive: false,
+            },
+            Self::Config => CommandSpec {
+                name: "config",
+                print_build_logs: false,
+                interactive: false,
+            },
+            Self::Copy => CommandSpec {
+                name: "copy",
+                print_build_logs: false,
+                interactive: false,
+            },
+            Self::Develop => CommandSpec {
+                name: "develop",
+                print_build_logs: true,
+                interactive: true,
+            },
+            Self::Eval => CommandSpec {
+                name: "eval",
+                print_build_logs: false,
+                interactive: false,
+            },
+            Self::Flake => CommandSpec {
+                name: "flake",
+                print_build_logs: false,
+                interactive: false,
+            },
+            Self::PathInfo => CommandSpec {
+                name: "path-info",
+                print_build_logs: false,
+                interactive: false,
+            },
+            Self::Repl => CommandSpec {
+                name: "repl",
+                print_build_logs: false,
+                interactive: true,
+            },
+            Self::Run => CommandSpec {
+                name: "run",
+                print_build_logs: true,
+                interactive: true,
+            },
+            Self::Shell => CommandSpec {
+                name: "shell",
+                print_build_logs: true,
+                interactive: true,
+            },
+            Self::Store => CommandSpec {
+                name: "store",
+                print_build_logs: false,
+                interactive: false,
+            },
         }
     }
 }
@@ -162,29 +148,31 @@ enum PipeEvent {
     Error(io::Error),
 }
 
-fn read_pipe<R: Read>(
+fn read_pipe<R: BufRead>(
     mut reader: R,
     tx: &mpsc::Sender<PipeEvent>,
     is_stderr: bool,
 ) {
-    let mut buf = [0u8; 4096];
     loop {
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let event = if is_stderr {
-                    PipeEvent::Stderr(buf[..n].to_vec())
-                } else {
-                    PipeEvent::Stdout(buf[..n].to_vec())
-                };
-                if tx.send(event).is_err() {
-                    break;
-                }
-            }
+        let buf = match reader.fill_buf() {
+            Ok(buf) => buf,
             Err(e) => {
                 let _ = tx.send(PipeEvent::Error(e));
                 break;
             }
+        };
+        if buf.is_empty() {
+            break;
+        }
+        let event = if is_stderr {
+            PipeEvent::Stderr(buf.to_vec())
+        } else {
+            PipeEvent::Stdout(buf.to_vec())
+        };
+        let len = buf.len();
+        reader.consume(len);
+        if tx.send(event).is_err() {
+            break;
         }
     }
 }
@@ -429,9 +417,10 @@ impl NixCommand {
 
     #[must_use]
     pub fn to_std_command(&self) -> Command {
-        let argv = self.argv();
-        let mut cmd = Command::new(&argv[0]);
-        cmd.args(&argv[1..]);
+        let mut argv = self.argv();
+        let binary = argv.remove(0);
+        let mut cmd = Command::new(binary);
+        cmd.args(argv);
         for (k, v) in &self.env {
             cmd.env(k, v);
         }
@@ -439,8 +428,9 @@ impl NixCommand {
     }
 
     pub fn to_exec(&self) -> Exec {
-        let argv = self.argv();
-        let mut cmd = Exec::cmd(&argv[0]).args(&argv[1..]);
+        let mut argv = self.argv();
+        let binary = argv.remove(0);
+        let mut cmd = Exec::cmd(binary).args(argv);
         for (key, value) in &self.env {
             cmd = cmd.env(key, value);
         }
@@ -496,10 +486,11 @@ impl NixCommand {
         let (tx, rx) = mpsc::channel();
         let stdout_thread = thread::spawn({
             let tx = tx.clone();
-            move || read_pipe(stdout, &tx, false)
+            move || read_pipe(BufReader::new(stdout), &tx, false)
         });
-        let stderr_thread =
-            thread::spawn(move || read_pipe(stderr, &tx, true));
+        let stderr_thread = thread::spawn(move || {
+            read_pipe(BufReader::new(stderr), &tx, true)
+        });
         let start = Instant::now();
 
         loop {
@@ -595,9 +586,25 @@ mod tests {
 
     #[test]
     fn schema_parses_supported_commands() {
-        for spec in COMMAND_SPECS {
-            let kind = CommandKind::try_from(spec.name).unwrap();
-            assert_eq!(kind.as_str(), spec.name);
+        for kind in [
+            CommandKind::Build,
+            CommandKind::Config,
+            CommandKind::Copy,
+            CommandKind::Develop,
+            CommandKind::Eval,
+            CommandKind::Flake,
+            CommandKind::PathInfo,
+            CommandKind::Repl,
+            CommandKind::Run,
+            CommandKind::Shell,
+            CommandKind::Store,
+        ] {
+            assert_eq!(
+                CommandKind::try_from(kind.as_str()),
+                Ok(kind),
+                "kind {:?} should round-trip through its name",
+                kind
+            );
         }
     }
 

@@ -101,9 +101,7 @@ impl NHCommand {
                 let is_flake = args.uses_flakes();
                 Box::new(OsReplFeatures { is_flake })
             }
-            Self::Switch(args)
-            | Self::Boot(args)
-            | Self::Test(args) => {
+            Self::Switch(args) | Self::Boot(args) | Self::Test(args) => {
                 if args.rebuild.uses_flakes() {
                     Box::new(FlakeFeatures)
                 } else {
@@ -147,7 +145,9 @@ impl NHCommand {
         let requirements = self.get_feature_requirements();
         requirements.check_features()?;
 
-        use nh_nixos::nixos::OsRebuildVariant::{Boot, Build, Switch, Test};
+        use nh_nixos::nixos::OsRebuildVariant::{
+            Boot, Build, Switch, Test,
+        };
 
         match self {
             Self::Switch(args) => {

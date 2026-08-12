@@ -243,15 +243,21 @@ impl NixBuildPassthroughArgs {
         if self.json {
             args.push("--json".into());
         }
-        for pair in self.option.chunks(2) {
+        for pair in self.option.chunks_exact(2) {
+            let [name, value] = pair else {
+                continue;
+            };
             args.push("--option".into());
-            args.push(pair[0].clone());
-            args.push(pair[1].clone());
+            args.push(name.clone());
+            args.push(value.clone());
         }
-        for pair in self.override_input.chunks(2) {
+        for pair in self.override_input.chunks_exact(2) {
+            let [input, flake_url] = pair else {
+                continue;
+            };
             args.push("--override-input".into());
-            args.push(pair[0].clone());
-            args.push(pair[1].clone());
+            args.push(input.clone());
+            args.push(flake_url.clone());
         }
 
         args

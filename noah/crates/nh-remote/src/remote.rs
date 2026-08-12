@@ -1173,11 +1173,10 @@ pub fn activate_remote(
     match config.platform {
         Platform::NixOS => {
             activate_nixos_remote(host, system_profile, config)
-        }
-        // TODO:
-        // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
-        // Platform::HomeManager => activate_home_remote(host, system_profile,
-        // config),
+        } // TODO:
+          // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
+          // Platform::HomeManager => activate_home_remote(host, system_profile,
+          // config),
     }
 }
 

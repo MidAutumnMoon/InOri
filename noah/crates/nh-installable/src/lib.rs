@@ -347,9 +347,7 @@ impl InstallableArgs {
     ///
     /// Returns an error when a configured flake environment variable is
     /// malformed.
-    fn resolve(
-        self,
-    ) -> color_eyre::Result<Option<Installable>> {
+    fn resolve(self) -> color_eyre::Result<Option<Installable>> {
         match self {
             Self::Unspecified => env_installable_source()
                 .map(EnvInstallableSource::into_installable)
@@ -370,9 +368,7 @@ impl InstallableArgs {
     /// Returns an error when environment resolution fails, when a local flake
     /// reference does not point at a flake directory, or when no default
     /// installable can be found.
-    pub fn resolve_or_default(
-        self,
-    ) -> color_eyre::Result<Installable> {
+    pub fn resolve_or_default(self) -> color_eyre::Result<Installable> {
         let Some(installable) = self.resolve()? else {
             return default_installable_for();
         };
@@ -465,9 +461,7 @@ impl Installable {
         res
     }
 
-    fn validate_local_flake_ref(
-        &self,
-    ) -> color_eyre::Result<()> {
+    fn validate_local_flake_ref(&self) -> color_eyre::Result<()> {
         let Self::Flake { reference, .. } = self else {
             return Ok(());
         };

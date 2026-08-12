@@ -60,39 +60,27 @@ fn test_resolve_non_unspecified_returns_unchanged() {
         reference: String::from("/path/to/flake"),
         attribute: vec![String::from("host")],
     };
-    let resolved = specified(flake.clone())
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved = specified(flake.clone()).resolve().unwrap().unwrap();
     assert_eq!(flake.to_args(), resolved.to_args());
 
     let file = Installable::File {
         path: PathBuf::from("/path/to/file.nix"),
         attribute: vec![String::from("config")],
     };
-    let resolved = specified(file.clone())
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved = specified(file.clone()).resolve().unwrap().unwrap();
     assert_eq!(file.to_args(), resolved.to_args());
 
     let store = Installable::Store {
         path: PathBuf::from("/nix/store/abc"),
     };
-    let resolved = specified(store.clone())
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved = specified(store.clone()).resolve().unwrap().unwrap();
     assert_eq!(store.to_args(), resolved.to_args());
 
     let expr = Installable::Expression {
         expression: String::from("{ pkgs }: pkgs.hello"),
         attribute: vec![],
     };
-    let resolved = specified(expr.clone())
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved = specified(expr.clone()).resolve().unwrap().unwrap();
     assert_eq!(expr.to_args(), resolved.to_args());
 }
 
@@ -103,9 +91,7 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
         attribute: vec![String::from("host")],
     };
 
-    let resolved = specified(flake.clone())
-        .resolve_or_default()
-        .unwrap();
+    let resolved = specified(flake.clone()).resolve_or_default().unwrap();
 
     assert_eq!(flake.to_args(), resolved.to_args());
 }
@@ -121,9 +107,8 @@ fn test_resolve_or_default_uses_env_before_default() {
         &format!("{}#myhost", flake_dir.path().display()),
     );
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve_or_default()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve_or_default().unwrap();
 
     match resolved {
         Installable::Flake {
@@ -147,9 +132,7 @@ fn test_resolve_or_default_accepts_existing_local_flake_path() {
         attribute: vec![],
     };
 
-    let resolved = specified(installable)
-        .resolve_or_default()
-        .unwrap();
+    let resolved = specified(installable).resolve_or_default().unwrap();
 
     assert_eq!(
         resolved.to_args(),
@@ -254,9 +237,8 @@ fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
             attribute: vec![],
         };
 
-        let resolved = specified(installable)
-            .resolve_or_default()
-            .unwrap();
+        let resolved =
+            specified(installable).resolve_or_default().unwrap();
 
         assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
     }
@@ -270,9 +252,7 @@ fn test_resolve_or_default_ignores_registry_and_url_refs() {
             attribute: vec![],
         };
 
-        specified(installable)
-            .resolve_or_default()
-            .unwrap();
+        specified(installable).resolve_or_default().unwrap();
     }
 }
 
@@ -442,10 +422,8 @@ fn test_resolve_os_context_uses_nh_os_flake() {
     let env_guard = EnvGuard::clear();
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -465,10 +443,8 @@ fn test_resolve_os_context_prefers_os_flake_over_generic() {
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
     env_guard.set("NH_FLAKE", "/home/user/flake#other");
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -487,10 +463,8 @@ fn test_resolve_os_context_falls_back_to_nh_flake() {
     let env_guard = EnvGuard::clear();
     env_guard.set("NH_FLAKE", "/home/user/flake#fallback");
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -508,9 +482,7 @@ fn test_resolve_os_context_falls_back_to_nh_flake() {
 fn test_resolve_no_env_vars_returns_unspecified() {
     let _env_guard = EnvGuard::clear();
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap();
+    let resolved = InstallableArgs::Unspecified.resolve().unwrap();
     assert!(resolved.is_none());
 }
 
@@ -520,10 +492,8 @@ fn test_resolve_with_empty_attribute() {
     let env_guard = EnvGuard::clear();
     env_guard.set("NH_OS_FLAKE", "/etc/nixos");
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -542,20 +512,15 @@ fn test_resolve_with_nested_attribute() {
     let env_guard = EnvGuard::clear();
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#nixosConfigurations.myhost");
 
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,
             attribute,
         } => {
             assert_eq!(reference, "/etc/nixos");
-            assert_eq!(
-                attribute,
-                vec!["nixosConfigurations", "myhost"]
-            );
+            assert_eq!(attribute, vec!["nixosConfigurations", "myhost"]);
         }
         _ => panic!("Expected Flake, got {resolved:?}"),
     }
@@ -568,10 +533,8 @@ fn test_resolve_command_specific_isolation() {
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
 
     // OS-specific flake should be used by Os context
-    let resolved = InstallableArgs::Unspecified
-        .resolve()
-        .unwrap()
-        .unwrap();
+    let resolved =
+        InstallableArgs::Unspecified.resolve().unwrap().unwrap();
     match resolved {
         Installable::Flake {
             reference,

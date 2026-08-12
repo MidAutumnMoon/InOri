@@ -3,7 +3,7 @@ use std::{
     convert::Infallible,
     env,
     ffi::{OsStr, OsString},
-    io::{Read, Write},
+    io::{BufRead, Write},
     path::PathBuf,
     str::FromStr,
     sync::{Mutex, OnceLock},
@@ -81,23 +81,25 @@ pub fn exec_with_streaming(
     let stdout_thread = std::thread::spawn(move || {
         let mut stdout_reader = std::io::BufReader::new(stdout_pipe);
         let mut stdout_bytes = Vec::new();
-        let mut stdout_buf = [0u8; 4096];
 
         loop {
-            match stdout_reader.read(&mut stdout_buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let _ = std::io::stdout().write_all(&stdout_buf[..n]);
-                    let _ = std::io::stdout().flush();
-                    if capture_output {
-                        stdout_bytes.extend_from_slice(&stdout_buf[..n]);
-                    }
-                }
+            let buf = match stdout_reader.fill_buf() {
+                Ok(buf) => buf,
                 Err(e) => {
                     debug!("stdout read error: {e}");
                     break;
                 }
+            };
+            if buf.is_empty() {
+                break;
             }
+            let _ = std::io::stdout().write_all(buf);
+            let _ = std::io::stdout().flush();
+            if capture_output {
+                stdout_bytes.extend_from_slice(buf);
+            }
+            let len = buf.len();
+            stdout_reader.consume(len);
         }
 
         if capture_output {
@@ -111,25 +113,25 @@ pub fn exec_with_streaming(
         std::thread::spawn(move || {
             let mut stderr_reader = std::io::BufReader::new(stderr_pipe);
             let mut stderr_bytes = Vec::new();
-            let mut stderr_buf = [0u8; 4096];
 
             loop {
-                match stderr_reader.read(&mut stderr_buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let _ =
-                            std::io::stderr().write_all(&stderr_buf[..n]);
-                        let _ = std::io::stderr().flush();
-                        if capture_output {
-                            stderr_bytes
-                                .extend_from_slice(&stderr_buf[..n]);
-                        }
-                    }
+                let buf = match stderr_reader.fill_buf() {
+                    Ok(buf) => buf,
                     Err(e) => {
                         debug!("stderr read error: {e}");
                         break;
                     }
+                };
+                if buf.is_empty() {
+                    break;
                 }
+                let _ = std::io::stderr().write_all(buf);
+                let _ = std::io::stderr().flush();
+                if capture_output {
+                    stderr_bytes.extend_from_slice(buf);
+                }
+                let len = buf.len();
+                stderr_reader.consume(len);
             }
 
             if capture_output {
@@ -541,7 +543,6 @@ impl Command {
                 .insert("HOME".to_string(), EnvAction::Set(home));
         }
 
-
         // Preserve all variables in PRESERVE_ENV if present
         for &key in PRESERVE_ENV {
             if env::var(key).is_ok() {
@@ -750,20 +751,23 @@ impl Command {
 
         let mut sudo_parts = cmd_builder.build_sudo_parts()?;
 
+        // The first element is always the elevation program.
+        let uses_askpass = sudo_parts.iter().any(|p| p == "-A");
+
         // Add the target executable and arguments
         sudo_parts.push(current_exe.to_string_lossy().to_string());
         let args: Vec<String> = env::args().skip(1).collect();
         sudo_parts.extend(args);
 
-        let mut std_cmd = std::process::Command::new(&sudo_parts[0]);
-        if sudo_parts.len() > 1 {
-            std_cmd.args(&sudo_parts[1..]);
-        }
+        let mut parts_iter = sudo_parts.into_iter();
+        let program = parts_iter
+            .next()
+            .ok_or_else(|| eyre::eyre!("Elevation program is missing"))?;
+        let mut std_cmd = std::process::Command::new(program);
+        std_cmd.args(parts_iter);
 
         // check if using SUDO_ASKPASS
-        if sudo_parts[1] == "-A"
-            && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
-        {
+        if uses_askpass && let Ok(askpass) = env::var("NH_SUDO_ASKPASS") {
             std_cmd.env("SUDO_ASKPASS", askpass);
         }
         Ok(std_cmd)

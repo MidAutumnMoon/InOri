@@ -223,7 +223,11 @@ impl args::CleanMode {
         }
 
         // Query gcroots
-        let regexes = &[&*DIRENV_REGEX][..usize::from(!args.no_direnv)];
+        let regexes: &[&Regex] = if args.no_direnv {
+            &[]
+        } else {
+            &[&*DIRENV_REGEX]
+        };
         let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
         if !is_profile_clean && !args.no_gcroots {

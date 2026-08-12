@@ -85,6 +85,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
     Ok(())
 }
 
+#[expect(clippy::expect_used, reason = "pr_index is bounded by prs.len()")]
 fn probe_reachability_by_pr(
     client: &GitHubClient,
     prs: &[PullRequest],
@@ -112,7 +113,12 @@ fn probe_reachability_by_pr(
         .into_iter()
         .zip(client.probe_branch_reachability(&requests))
     {
-        reachability_by_pr[pr_index].push(reachability);
+        // `pr_index` was pushed while enumerating `prs`, so it is always in
+        // bounds for a vector sized `prs.len()`.
+        reachability_by_pr
+            .get_mut(pr_index)
+            .expect("pr_index is bounded by prs.len()")
+            .push(reachability);
     }
 
     reachability_by_pr
