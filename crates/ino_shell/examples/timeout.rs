@@ -27,7 +27,9 @@ fn main() -> Result<()> {
 
     // Run the command with a timeout and get the full output
     match command.output() {
-        Ok(output) => println!("Command completed successfully.{output:?}"),
+        Ok(output) => {
+            println!("Command completed successfully.{output:?}")
+        }
         Err(e) => eprintln!("Command failed: {e}"),
     }
 

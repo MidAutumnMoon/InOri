@@ -137,3 +137,11 @@ fn splat_fn_pointer() {
         r"is not implemented",
     );
 }
+
+#[test]
+fn empty_interpolation() {
+    check(
+        r#"cmd!(sh, "echo {}")"#,
+        "error: empty interpolation in command",
+    );
+}

@@ -1,4 +1,8 @@
-#![expect(clippy::unwrap_used, clippy::or_fun_call, reason = "example code")]
+#![expect(
+    clippy::unwrap_used,
+    clippy::or_fun_call,
+    reason = "example code"
+)]
 //! This CI script for `xshell`.
 //!
 //! It also serves as a real-world example, yay bootstrap!
@@ -15,7 +19,11 @@ fn main() {
 
 fn try_main() -> Result<()> {
     let sh = Shell::new()?;
-    if env::args().nth(1).as_deref() == Some("publish") { publish(&sh) } else { test(&sh) }
+    if env::args().nth(1).as_deref() == Some("publish") {
+        publish(&sh)
+    } else {
+        test(&sh)
+    }
 }
 
 fn test(sh: &Shell) -> Result<()> {
@@ -54,10 +62,17 @@ fn publish(sh: &Shell) -> Result<()> {
 
     if current_branch == "master" && !tag_exists {
         // Could also just use `CARGO_REGISTRY_TOKEN` environmental variable.
-        let token = sh.var("CRATES_IO_TOKEN").unwrap_or("DUMMY_TOKEN".to_string());
+        let token = sh
+            .var("CRATES_IO_TOKEN")
+            .unwrap_or("DUMMY_TOKEN".to_string());
         cmd!(sh, "git tag v{version}").run_echo()?;
-        cmd!(sh, "cargo publish --token {token} --package ino_shell-macros").run_echo()?;
-        cmd!(sh, "cargo publish --token {token} --package ino_shell").run_echo()?;
+        cmd!(
+            sh,
+            "cargo publish --token {token} --package ino_shell-macros"
+        )
+        .run_echo()?;
+        cmd!(sh, "cargo publish --token {token} --package ino_shell")
+            .run_echo()?;
         cmd!(sh, "git push --tags").run_echo()?;
     }
     Ok(())

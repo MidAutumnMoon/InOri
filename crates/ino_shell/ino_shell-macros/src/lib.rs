@@ -1,7 +1,16 @@
-//! Private implementation details of `xshell`.
+//! Private implementation of the `cmd!` macro.
+//!
+//! The macro turns a shell-ish command string into a chain of `Cmd` builder
+//! calls. The pipeline has three stages:
+//!
+//! 1. [`tokenize`] — split the raw string into [`Token`]s (bare words, quoted
+//!    strings, interpolations, splats), recording adjacency between them.
+//! 2. [`emit`] — turn each token into a [`Fragment`]: a snippet of token
+//!    stream to splice into the expansion.
+//! 3. [`try_cmd`] — assemble the fragments into the final program, rejecting
+//!    the few invalid combinations (splat program, splat concatenation).
 
 #![deny(missing_debug_implementations)]
-#![deny(rust_2018_idioms)]
 #![expect(
     clippy::expect_used,
     reason = "proc-macro invariants guaranteed by the cmd! macro"
@@ -21,195 +30,278 @@ pub fn __cmd(macro_arg: TokenStream) -> TokenStream {
     })
 }
 
-type Result<T> = std::result::Result<T, String>;
-
+type Result<T, E = String> = std::result::Result<T, E>;
+/// Assembles the expansion: `<closure> ("prog").arg(...)…`.
 fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
     let (cmd, literal) = {
         let mut iter = macro_arg.into_iter();
         let cmd = iter.next().ok_or("expected command expression")?;
         let literal = iter.next().ok_or("expected string literal")?;
-        assert!(iter.next().is_none());
+        if iter.next().is_some() {
+            return Err("expected exactly two arguments".to_string());
+        }
         (cmd, literal)
     };
 
     let literal = into_literal(&literal)
         .ok_or_else(|| "expected a plain string literal".to_string())?;
-
     let literal_text = literal.to_string();
     if !literal_text.starts_with('"') {
         return Err("expected a plain string literal".to_string());
     }
 
-    let mut args = shell_lex(literal_text.as_str(), literal.span());
+    let call_site = literal.span();
+    let mut words = shell_words(&literal_text, call_site);
 
     let mut res = TokenStream::new();
 
+    // The first word is the program. The `cmd!` macro passes a closure which
+    // turns it into a `Cmd`, so the expansion opens with `<closure> ("prog")`.
+    // The remaining words are appended as builder calls.
     {
-        let (_joined_to_prev, splat, program) = args
+        let program = words
             .next()
-            .ok_or_else(|| "command can't be empty".to_string())??;
-        if splat {
+            .transpose()?
+            .ok_or_else(|| "command can't be empty".to_string())?;
+        if program.splat_name.is_some() {
             return Err("can't splat program name".to_string());
         }
         res.extend(Some(cmd));
-        res.extend(program);
+        res.extend(program.ts);
     }
 
-    let mut prev_spat = false;
-    for arg in args {
-        let (joined_to_prev, splat, arg) = arg?;
-        if prev_spat && joined_to_prev {
-            return Err(format!(
-                "can't combine splat with concatenation, add spaces around `{{{}...}}`",
-                trim_decorations(
-                    &res.into_iter()
-                        .last()
-                        .expect("res has program")
-                        .to_string()
-                ),
-            ));
-        }
-        prev_spat = splat;
+    let mut prev_splat: Option<String> = None;
+    for frag in words {
+        let frag = frag?;
 
-        let method = match (joined_to_prev, splat) {
-            (false, false) => ".arg",
-            (false, true) => ".args",
-            (true, false) => ".__extend_arg",
-            (true, true) => {
-                return Err(format!(
-                    "can't combine splat with concatenation, add spaces around `{{{}...}}`",
-                    trim_decorations(&arg.to_string()),
-                ));
+        // A splat must be separated from its neighbors by whitespace: it can
+        // neither concatenate onto the previous word, nor have the next word
+        // concatenated onto it.
+        if frag.joined_to_prev {
+            if let Some(name) = &frag.splat_name {
+                return Err(splat_concat_error(name));
             }
-        };
+            if let Some(name) = &prev_splat {
+                return Err(splat_concat_error(name));
+            }
+        }
 
-        res.extend(parse_ts(method));
-        res.extend(arg);
+        res.extend(parse_ts(frag.append_method()));
+        res.extend(frag.ts);
+        prev_splat = frag.splat_name;
     }
 
     Ok(res)
 }
 
+fn splat_concat_error(name: &str) -> String {
+    format!(
+        "can't combine splat with concatenation, add spaces around `{{{name}...}}`"
+    )
+}
+
+/// Extracts the string literal from the second argument of `__cmd!`.
+///
+/// A `None`-delimited group wrapping a single literal is also accepted: the
+/// declarative `cmd!` macro passes the literal through as such a group.
 fn into_literal(ts: &TokenTree) -> Option<Literal> {
     match ts {
         TokenTree::Literal(l) => Some(l.clone()),
-        TokenTree::Group(g) => match g.delimiter() {
-            Delimiter::None => {
-                match g.stream().into_iter().collect::<Vec<_>>().as_slice()
-                {
-                    [TokenTree::Literal(l)] => Some(l.clone()),
-                    _ => None,
-                }
+        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+            let mut it = g.stream().into_iter();
+            match (it.next(), it.next()) {
+                (Some(TokenTree::Literal(l)), None) => Some(l),
+                _ => None,
             }
-            Delimiter::Parenthesis
-            | Delimiter::Brace
-            | Delimiter::Bracket => None,
-        },
+        }
         _ => None,
     }
 }
 
-fn trim_decorations(s: &str) -> &str {
-    &s[1..s.len() - 1]
-}
-
-fn shell_lex(
+/// Lexes `cmd` into words and emits a [`Fragment`] for each.
+fn shell_words(
     cmd: &str,
     call_site: Span,
-) -> impl Iterator<Item = Result<(bool, bool, TokenStream)>> + '_ {
+) -> impl Iterator<Item = Result<Fragment>> + '_ {
     tokenize(cmd).map(move |token| {
         let token = token?;
-        let mut splat = false;
-        let ts = match token.kind {
-            TokenKind::Word => parse_ts(&format!("(\"{}\")", token.text)),
-            TokenKind::String => parse_ts(&format!("(\"{}\")", trim_decorations(token.text))),
-            TokenKind::Interpolation { splat: s } => {
-                splat = s;
-                let text = trim_decorations(token.text);
-                let text = &text[..text.len() - (if splat { "...".len() } else { 0 })];
-                if !(text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
-                    return Err(format!(
-                        "can only interpolate simple variables, got this expression instead: `{text}`"
-                    ));
-                }
-                let ts = if splat { format!("({text})") } else { format!("(&({text}))") };
-                respan(parse_ts(&ts), call_site)
-            }
-        };
-        Ok((token.joined_to_prev, splat, ts))
+        emit(&token, call_site)
     })
 }
 
-/// Like `trim_matches` except only trims a maximum of 1 match
-fn strip_matches<'a>(s: &'a str, pattern: &str) -> &'a str {
-    s.strip_prefix(pattern)
-        .unwrap_or(s)
-        .strip_suffix(pattern)
-        .unwrap_or(s)
+/// Turns a [`Token`] into the [`Fragment`] spliced into the expansion.
+fn emit(token: &Token, call_site: Span) -> Result<Fragment> {
+    let (ts, splat_name) = match token.kind {
+        TokenKind::Word | TokenKind::Quoted => {
+            (parse_ts(&format!("(\"{}\")", token.text)), None)
+        }
+        TokenKind::Interpolation => {
+            let name = &token.text;
+            validate_ident(name)?;
+            let ts = respan(parse_ts(&format!("(&({name}))")), call_site);
+            (ts, None)
+        }
+        TokenKind::Splat => {
+            let name = token
+                .text
+                .strip_suffix("...")
+                .unwrap_or(token.text.as_str());
+            validate_ident(name)?;
+            let ts = respan(parse_ts(&format!("({name})")), call_site);
+            (ts, Some(name.to_string()))
+        }
+    };
+
+    Ok(Fragment {
+        joined_to_prev: token.joined_to_prev,
+        splat_name,
+        ts,
+    })
 }
 
-fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token<'_>>> + '_ {
-    let mut cmd = strip_matches(cmd, "\"");
+/// Splits `cmd` into [`Token`]s.
+///
+/// Yields a single `Err` (and then nothing) if the string is malformed.
+fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token>> + '_ {
+    let cmd = strip_outer_quotes(cmd);
+    let mut rest = cmd;
 
     iter::from_fn(move || {
-        let old_len = cmd.len();
-        cmd = cmd.trim_start();
-        let joined_to_prev = old_len == cmd.len();
-        if cmd.is_empty() {
+        // A token is "joined" to the previous one when there is no whitespace
+        // between them; adjacent tokens are concatenated during assembly.
+        let joined_to_prev =
+            !rest.chars().next().is_some_and(char::is_whitespace);
+        rest = rest.trim_start();
+        if rest.is_empty() {
             return None;
         }
-        let (len, kind) = match next_token(cmd) {
-            Ok(it) => it,
-            Err(err) => {
-                cmd = "";
-                return Some(Err(err));
+
+        match next_token(rest) {
+            Ok((len, text, kind)) => {
+                rest = &rest[len..];
+                Some(Ok(Token {
+                    joined_to_prev,
+                    text,
+                    kind,
+                }))
             }
-        };
-        let token = Token {
-            joined_to_prev,
-            text: &cmd[..len],
-            kind,
-        };
-        cmd = &cmd[len..];
-        Some(Ok(token))
+            Err(err) => {
+                rest = "";
+                Some(Err(err))
+            }
+        }
     })
 }
 
-#[derive(Debug)]
-struct Token<'a> {
-    joined_to_prev: bool,
-    text: &'a str,
-    kind: TokenKind,
-}
-#[derive(Debug)]
-enum TokenKind {
-    Word,
-    String,
-    Interpolation { splat: bool },
-}
-
-fn next_token(s: &str) -> Result<(usize, TokenKind)> {
+/// Classifies the token at the start of `s`, returning how many bytes it
+/// consumes, its normalized text (quotes and braces already stripped), and its
+/// kind.
+fn next_token(s: &str) -> Result<(usize, String, TokenKind)> {
+    // `{name}` or `{name...}` — whitespace inside the braces is tolerated.
     if s.starts_with('{') {
-        let len = s
+        let close = s
             .find('}')
-            .ok_or_else(|| "unclosed `{` in command".to_string())?
-            + 1;
-        let splat = s[..len].ends_with("...}");
-        return Ok((len, TokenKind::Interpolation { splat }));
+            .ok_or_else(|| "unclosed `{` in command".to_string())?;
+        let inner = s[1..close].trim();
+        let kind = if inner.ends_with("...") {
+            TokenKind::Splat
+        } else {
+            TokenKind::Interpolation
+        };
+        return Ok((close + 1, inner.to_string(), kind));
     }
+
+    // `'...'` — a quoted word; interpolation is disabled inside.
     if let Some(rest) = s.strip_prefix('\'') {
-        let len = rest
+        let close = rest
             .find('\'')
-            .ok_or_else(|| "unclosed `'` in command".to_string())?
-            + 2;
-        return Ok((len, TokenKind::String));
+            .ok_or_else(|| "unclosed `'` in command".to_string())?;
+        return Ok((
+            close + 2,
+            rest[..close].to_string(),
+            TokenKind::Quoted,
+        ));
     }
+
+    // A bare word, running up to the next whitespace, quote or interpolation.
     let len = s
         .find(|it: char| {
             it.is_ascii_whitespace() || it == '\'' || it == '{'
         })
         .unwrap_or(s.len());
-    Ok((len, TokenKind::Word))
+    Ok((len, s[..len].to_string(), TokenKind::Word))
+}
+
+/// A single shell word.
+#[derive(Debug)]
+struct Token {
+    /// Whether this word directly follows the previous one, with no whitespace
+    /// between them.
+    joined_to_prev: bool,
+    /// The normalized word text.
+    text: String,
+    kind: TokenKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TokenKind {
+    /// A bare word: `clone`.
+    Word,
+    /// A single-quoted word: `'hello world'` (interpolation disabled).
+    Quoted,
+    /// An interpolation: `{var}`.
+    Interpolation,
+    /// A splat interpolation: `{args...}`.
+    Splat,
+}
+
+/// A code fragment ready to be spliced into the expansion.
+#[derive(Debug)]
+struct Fragment {
+    /// Whether this fragment is adjacent to the previous one (no whitespace).
+    joined_to_prev: bool,
+    /// The variable name for splats; `None` otherwise.
+    splat_name: Option<String>,
+    /// The emitted expression.
+    ts: TokenStream,
+}
+
+impl Fragment {
+    /// The `Cmd` builder method this fragment appends with. A splat maps to
+    /// `.args` regardless of adjacency — adjacency is validated separately,
+    /// as a splat must be whitespace-separated.
+    fn append_method(&self) -> &'static str {
+        match (&self.splat_name, self.joined_to_prev) {
+            (Some(_), _) => ".args",
+            (None, true) => ".__extend_arg",
+            (None, false) => ".arg",
+        }
+    }
+}
+
+/// Strips one pair of surrounding double quotes from `s`.
+///
+/// Unlike [`str::trim_matches`], at most one quote is removed from each side,
+/// so `""` becomes an empty string and `"""` becomes `"`.
+fn strip_outer_quotes(s: &str) -> &str {
+    s.strip_prefix('"')
+        .unwrap_or(s)
+        .strip_suffix('"')
+        .unwrap_or(s)
+}
+
+/// Validates that `name` is a plain identifier (ASCII alphanumerics and
+/// underscores). Interpolation targets must be simple variables.
+fn validate_ident(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err("empty interpolation in command".to_string());
+    }
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!(
+            "can only interpolate simple variables, got this expression instead: `{name}`"
+        ));
+    }
+    Ok(())
 }
 
 fn respan(ts: TokenStream, span: Span) -> TokenStream {

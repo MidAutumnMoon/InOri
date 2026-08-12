@@ -16,7 +16,8 @@ fn fixed_cost_compile_times() {
     let baseline = compile_bench(&sh, "baseline");
     let _ducted = compile_bench(&sh, "ducted");
     let xshelled = compile_bench(&sh, "xshelled");
-    let ratio = (xshelled.as_millis() as f64) / (baseline.as_millis() as f64);
+    let ratio =
+        (xshelled.as_millis() as f64) / (baseline.as_millis() as f64);
     assert!(1.0 < ratio && ratio < 10.0);
 
     fn compile_bench(sh: &Shell, name: &str) -> Duration {

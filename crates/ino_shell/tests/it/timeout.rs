@@ -10,7 +10,10 @@ fn test_run_timeout_success() {
 
     // Run the command with a timeout of 3 seconds
     let result = command.timeout(Duration::from_secs(3)).run();
-    assert!(result.is_ok(), "Command should complete successfully within the timeout");
+    assert!(
+        result.is_ok(),
+        "Command should complete successfully within the timeout"
+    );
 }
 
 #[test]
@@ -30,7 +33,10 @@ fn test_read_timeout_success() {
 
     // Run the command with a timeout of 3 seconds and read stdout
     let result = command.timeout(Duration::from_secs(3)).read();
-    assert!(result.is_ok(), "Command should complete successfully within the timeout");
+    assert!(
+        result.is_ok(),
+        "Command should complete successfully within the timeout"
+    );
     assert_eq!(result.unwrap(), "Hello, world!");
 }
 
@@ -51,7 +57,10 @@ fn test_read_stderr_timeout_success() {
 
     // Run the command with a timeout of 3 seconds and read stderr
     let result = command.timeout(Duration::from_secs(3)).read_stderr();
-    assert!(result.is_ok(), "Command should complete successfully within the timeout");
+    assert!(
+        result.is_ok(),
+        "Command should complete successfully within the timeout"
+    );
     assert_eq!(result.unwrap(), "Error message");
 }
 
@@ -72,9 +81,15 @@ fn test_output_timeout_success() {
 
     // Run the command with a timeout of 3 seconds and get the full output
     let result = command.timeout(Duration::from_secs(3)).output();
-    assert!(result.is_ok(), "Command should complete successfully within the timeout");
+    assert!(
+        result.is_ok(),
+        "Command should complete successfully within the timeout"
+    );
     let output = result.unwrap();
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Hello, world!");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Hello, world!"
+    );
 }
 
 #[test]

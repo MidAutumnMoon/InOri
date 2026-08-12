@@ -151,6 +151,24 @@ fn splat_idiom() {
 }
 
 #[test]
+fn interpolation_tolerates_whitespace() {
+    let sh = setup();
+
+    let hello = "hello";
+    let output = cmd!(sh, "xecho { hello }").read().unwrap();
+    assert_eq!(output, "hello");
+}
+
+#[test]
+fn splat_tolerates_whitespace() {
+    let sh = setup();
+
+    let args = ["hello", "world"];
+    let output = cmd!(sh, "xecho { args... }").read().unwrap();
+    assert_eq!(output, "hello world");
+}
+
+#[test]
 fn exit_status() {
     let sh = setup();
 

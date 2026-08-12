@@ -14,10 +14,14 @@ fn test_env() {
     let cloned_sh = sh.clone();
 
     for sh in [&sh, &cloned_sh] {
-        assert_env(cmd!(sh, "xecho -$ {v1}").env(v1, "123"), &[(v1, Some("123"))]);
+        assert_env(
+            cmd!(sh, "xecho -$ {v1}").env(v1, "123"),
+            &[(v1, Some("123"))],
+        );
 
         assert_env(
-            cmd!(sh, "xecho -$ {v1} {v2}").envs([(v1, "123"), (v2, "456")].iter().copied()),
+            cmd!(sh, "xecho -$ {v1} {v2}")
+                .envs([(v1, "123"), (v2, "456")].iter().copied()),
             &[(v1, Some("123")), (v2, Some("456"))],
         );
         assert_env(
@@ -37,15 +41,24 @@ fn test_env() {
     sh.set_var(v1, "foobar");
     sh.set_var(v2, "quark");
 
-    assert_env(cmd!(sh, "xecho -$ {v1} {v2}"), &[(v1, Some("foobar")), (v2, Some("quark"))]);
-    assert_env(cmd!(cloned_sh, "xecho -$ {v1} {v2}"), &[(v1, None), (v2, None)]);
+    assert_env(
+        cmd!(sh, "xecho -$ {v1} {v2}"),
+        &[(v1, Some("foobar")), (v2, Some("quark"))],
+    );
+    assert_env(
+        cmd!(cloned_sh, "xecho -$ {v1} {v2}"),
+        &[(v1, None), (v2, None)],
+    );
 
     assert_env(
         cmd!(sh, "xecho -$ {v1} {v2}").env(v1, "wombo"),
         &[(v1, Some("wombo")), (v2, Some("quark"))],
     );
 
-    assert_env(cmd!(sh, "xecho -$ {v1} {v2}").env_remove(v1), &[(v1, None), (v2, Some("quark"))]);
+    assert_env(
+        cmd!(sh, "xecho -$ {v1} {v2}").env_remove(v1),
+        &[(v1, None), (v2, Some("quark"))],
+    );
     assert_env(
         cmd!(sh, "xecho -$ {v1} {v2}").env_remove(v1).env(v1, "baz"),
         &[(v1, Some("baz")), (v2, Some("quark"))],
@@ -82,7 +95,10 @@ fn test_env_clear() {
     sh.set_var(v1, "foobar");
     sh.set_var(v2, "quark");
 
-    assert_env(cmd!(sh, "{xecho} -$ {v1} {v2}").env_clear(), &[(v1, None), (v2, None)]);
+    assert_env(
+        cmd!(sh, "{xecho} -$ {v1} {v2}").env_clear(),
+        &[(v1, None), (v2, None)],
+    );
     assert_env(
         cmd!(sh, "{xecho} -$ {v1} {v2}").env_clear().env(v1, "baz"),
         &[(v1, Some("baz")), (v2, None)],
@@ -94,15 +110,20 @@ fn test_env_clear() {
 }
 
 #[track_caller]
-fn assert_env(xecho_env_cmd: ino_shell::Cmd, want_env: &[(&str, Option<&str>)]) {
+fn assert_env(
+    xecho_env_cmd: ino_shell::Cmd,
+    want_env: &[(&str, Option<&str>)],
+) {
     let output = xecho_env_cmd.output().unwrap();
     let env = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|line| !line.is_empty())
         .map(|line| {
-            let (key, val) = line
-                .split_once('=')
-                .unwrap_or_else(|| panic!("failed to parse line from `xecho -$` output: {line:?}"));
+            let (key, val) = line.split_once('=').unwrap_or_else(|| {
+                panic!(
+                    "failed to parse line from `xecho -$` output: {line:?}"
+                )
+            });
             (key.to_owned(), val.to_owned())
         })
         .collect::<BTreeMap<_, _>>();
@@ -110,7 +131,10 @@ fn assert_env(xecho_env_cmd: ino_shell::Cmd, want_env: &[(&str, Option<&str>)]) 
 }
 
 #[track_caller]
-fn check_env(env: &BTreeMap<String, String>, wanted_env: &[(&str, Option<&str>)]) {
+fn check_env(
+    env: &BTreeMap<String, String>,
+    wanted_env: &[(&str, Option<&str>)],
+) {
     let mut failed = false;
     let mut seen = env.clone();
     for &(k, val) in wanted_env {
@@ -118,7 +142,9 @@ fn check_env(env: &BTreeMap<String, String>, wanted_env: &[(&str, Option<&str>)]
             (Some(env_v), Some(want_v)) if env_v == want_v => {}
             (None, None) => {}
             (have, want) => {
-                eprintln!("mismatch on env var {k:?}: have `{have:?}`, want `{want:?}` ");
+                eprintln!(
+                    "mismatch on env var {k:?}: have `{have:?}`, want `{want:?}` "
+                );
                 failed = true;
             }
         }
