@@ -14,12 +14,9 @@ use color_eyre::{
     Report, Result,
     eyre::{Context, bail, eyre},
 };
-use nh_core::{
-    command::{
-        CommandKind, ElevationStrategy, NixCommand, cache_password,
-        get_cached_password, get_sudo_opts,
-    },
-    util::NixVariant,
+use nh_core::command::{
+    CommandKind, ElevationStrategy, NixCommand, cache_password,
+    get_cached_password, get_sudo_opts,
 };
 use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
@@ -872,24 +869,14 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
 
 /// Get the flake experimental feature flags required for `nix` commands.
 ///
-/// Returns the flags needed for `--extra-experimental-features "nix-command
-/// flakes"` based on the detected Nix variant:
-///
-/// - Determinate Nix: No flags needed (features are stable)
-/// - Nix/Lix: Returns `["--extra-experimental-features", "nix-command flakes"]`
+/// Returns `["--extra-experimental-features", "nix-command flakes"]`.
 ///
 /// Technically this is inconsistent with our default behaviour, which is to
 /// *warn* on missing features but since this is for *remote deployment* it is
 /// safer to assist the user instead. Without those features, remote deployment
 /// may never succeed.
 fn get_flake_flags() -> Vec<&'static str> {
-    let variant = nh_core::util::get_nix_variant();
-    match variant {
-        NixVariant::Determinate => vec![],
-        NixVariant::Nix | NixVariant::Lix => {
-            vec!["--extra-experimental-features", "nix-command flakes"]
-        }
-    }
+    vec!["--extra-experimental-features", "nix-command flakes"]
 }
 
 /// Convert `OsString` arguments to UTF-8 Strings.

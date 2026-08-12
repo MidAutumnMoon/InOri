@@ -1,12 +1,11 @@
 use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
-use nh_core::{
-    checks::{
-        FeatureRequirements, FlakeFeatures, LegacyFeatures, NoFeatures,
-        OsReplFeatures,
-    },
-    command::ElevationStrategy,
+use nh_core::command::ElevationStrategy;
+
+use crate::checks::{
+    FeatureRequirements, FlakeFeatures, LegacyFeatures, NoFeatures,
+    OsReplFeatures,
 };
 
 use crate::Result;

@@ -1,9 +1,7 @@
 use std::{
-    collections::HashSet,
     ffi::OsString,
     os::unix::process::CommandExt,
     process::{Command as StdCommand, Stdio},
-    sync::{LazyLock, OnceLock},
 };
 
 use color_eyre::{
@@ -11,22 +9,9 @@ use color_eyre::{
     eyre::{self, Context, bail, eyre},
 };
 use nix_command::{CommandKind, NixCommand};
-use regex::Regex;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::command::{Command, ElevationStrategy};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NixVariant {
-    Nix,
-    Lix,
-    Determinate,
-}
-
-static NIX_VERSION_OUTPUT: OnceLock<Option<String>> = OnceLock::new();
-static NIX_VARIANT: OnceLock<NixVariant> = OnceLock::new();
-static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> =
-    OnceLock::new();
 
 fn format_argv(argv: &[OsString]) -> String {
     argv.iter()
@@ -64,166 +49,6 @@ fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
     String::from_utf8(output.stdout).wrap_err_with(|| {
         format!("{command_text} produced non-UTF-8 stdout")
     })
-}
-
-/// Fetches and caches the raw output from `nix --version` command.
-/// This is called once and shared by both variant and version detection.
-fn get_nix_version_output() -> Option<&'static String> {
-    NIX_VERSION_OUTPUT
-        .get_or_init(|| {
-            capture_nix_stdout(&NixCommand::raw().arg("--version")).ok()
-        })
-        .as_ref()
-}
-
-/// Get the Nix variant
-///
-/// # Panics
-///
-/// If any of the Nix commands fail, or the regex fails to compile, this will
-/// function will panic.
-pub fn get_nix_variant() -> &'static NixVariant {
-    NIX_VARIANT.get_or_init(|| {
-        let output = get_nix_version_output();
-
-        // XXX: If running with dry=true or Nix is not installed, output might be
-        // None The latter is less likely to occur, but we still want graceful
-        // handling.
-        let Some(output_str) = output else {
-            warn!(
-                "Failed to get Nix version output. Assuming mainline Nix"
-            );
-            return NixVariant::Nix;
-        };
-
-        let output_lower = output_str.to_lowercase();
-
-        // FIXME: This fails to account for Nix variants we don't check for and
-        // assumes the environment is mainstream Nix.
-        if output_lower.contains("determinate") {
-            NixVariant::Determinate
-        } else if output_lower.contains("lix") {
-            NixVariant::Lix
-        } else {
-            NixVariant::Nix
-        }
-    });
-
-    #[allow(clippy::expect_used)]
-    NIX_VARIANT
-        .get()
-        .expect("NIX_VARIANT should be initialized by get_nix_variant")
-}
-
-// Matches and captures major, minor, and optional patch numbers from semantic
-// version strings, optionally followed by a "pre" pre-release suffix.
-#[allow(clippy::expect_used)]
-static VERSION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?")
-        .expect("VERSION_REGEX should be valid")
-});
-
-/// Normalizes a version string to be compatible with semver parsing.
-///
-/// This function handles, or at least tries to handle, various Nix
-/// vendors' complex version formats by extracting just the semantic
-/// version part.
-///
-/// Examples of supported formats:
-/// - "2.25.0-pre" -> "2.25.0"
-/// - "2.24.14-1" -> "2.24.14"
-/// - "`2.30pre20250521_76a4d4c2`" -> "2.30.0"
-/// - "2.91.1" -> "2.91.1"
-///
-/// # Arguments
-///
-/// * `version` - The raw version string to normalize
-///
-/// # Returns
-///
-/// * `String` - The normalized version string suitable for semver parsing
-pub fn normalize_version_string(version: &str) -> String {
-    if let Some(captures) = VERSION_REGEX.captures(version) {
-        let major =
-            captures.get(1).map_or_else(
-                || {
-                    debug!(
-                        "Failed to extract major version from '{version}'",
-                    );
-                    version
-                },
-                |m| m.as_str(),
-            );
-        let minor = captures.get(2).map_or_else(
-            || {
-                debug!("Failed to extract minor version from '{version}'");
-                version
-            },
-            |m| m.as_str(),
-        );
-        let patch = captures.get(3).map_or("0", |m| m.as_str());
-
-        let normalized = format!("{major}.{minor}.{patch}");
-        if version != normalized {
-            debug!("Version normalized: '{version}' -> '{normalized}'");
-        }
-
-        return normalized;
-    }
-
-    // Fallback: split on common separators and take the first part
-    let base_version = version
-        .split(&['-', '+', 'p', '_'][..])
-        .next()
-        .unwrap_or(version);
-
-    // Version should have all three components (major.minor.patch)
-    let normalized =
-        match base_version.split('.').collect::<Vec<_>>().as_slice() {
-            [major] => format!("{major}.0.0"),
-            [major, minor] => format!("{major}.{minor}.0"),
-            _ => base_version.to_string(),
-        };
-
-    if version != normalized {
-        debug!("Version normalized: '{}' -> '{}'", version, normalized);
-    }
-
-    normalized
-}
-
-/// Retrieves the installed Nix version as a string (cached).
-///
-/// This function parses the cached output from `nix --version` command.
-/// The command is only executed once per program run and shared with
-/// `get_nix_variant()` for optimal performance.
-/// This function does not perform any kind of validation; its sole purpose is
-/// to get the version. To validate a version string, use
-/// `normalize_version_string()`.
-///
-/// # Returns
-///
-/// * `Result<String>` - The Nix version string or an error if the version
-///   cannot be retrieved.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The `nix --version` command produces no output
-/// - The output contains no valid version string
-pub fn get_nix_version() -> Result<String> {
-    let output = get_nix_version_output();
-
-    let version_str = output
-        .as_ref()
-        .ok_or_else(|| {
-            eyre::eyre!("No output from nix --version command")
-        })?
-        .lines()
-        .next()
-        .ok_or_else(|| eyre::eyre!("No version string found"))?;
-
-    Ok(version_str.to_string())
 }
 
 /// Prompts the user for ssh key login if needed.
@@ -298,71 +123,6 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
         .context("Failed to get hostname, and no hostname supplied")?
         .into_string()
         .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
-}
-
-/// Retrieves all enabled experimental features in Nix (cached).
-///
-/// This function executes the `nix config show experimental-features` command
-/// once, caches the result, and returns a `HashSet` of the enabled features.
-/// Subsequent calls return the cached value for optimal performance.
-///
-/// # Returns
-///
-/// * `Result<HashSet<String>>` - A `HashSet` of enabled experimental features
-///   or an error.
-///
-/// # Errors
-///
-/// Returns an error if the `nix config show experimental-features` command
-/// fails to execute.
-pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
-    // Try to get cached features first
-    if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {
-        return Ok(features.clone());
-    }
-
-    // Not cached, fetch them
-    let output = capture_nix_stdout(
-        &NixCommand::new(CommandKind::Config)
-            .args(["show", "experimental-features"]),
-    )?;
-
-    let enabled_features: HashSet<String> =
-        output.split_whitespace().map(String::from).collect();
-
-    // Cache the result and return
-    let _ = NIX_EXPERIMENTAL_FEATURES.set(enabled_features.clone());
-    Ok(enabled_features)
-}
-
-/// Gets the missing experimental features from a required list.
-///
-/// # Arguments
-///
-/// * `required_features` - A slice of string slices representing the features
-///   required.
-///
-/// # Returns
-///
-/// * `Result<Vec<String>>` - A vector of missing experimental features or an
-///   error.
-///
-/// # Errors
-///
-/// Returns an error if retrieving the list of enabled experimental features
-/// fails.
-pub fn get_missing_experimental_features(
-    required_features: &[&str],
-) -> Result<Vec<String>> {
-    let enabled_features = get_nix_experimental_features()?;
-
-    let missing_features: Vec<String> = required_features
-        .iter()
-        .filter(|&feature| !enabled_features.contains(*feature))
-        .map(|&s| s.to_string())
-        .collect();
-
-    Ok(missing_features)
 }
 
 /// Self-elevates the current process by re-executing it with `sudo`

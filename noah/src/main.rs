@@ -3,9 +3,10 @@ use std::str::FromStr;
 use color_eyre::Result;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
+mod checks;
 mod interface;
 mod logging;
-mod nix_variant;
+mod nix_info;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
@@ -17,7 +18,6 @@ pub struct Facts {
 pub struct Envvars {}
 
 fn main() -> Result<()> {
-    nix_variant::nix_variant();
     let mut args = <interface::Main as clap::Parser>::parse();
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
@@ -52,12 +52,12 @@ fn main() -> Result<()> {
     tracing::debug!(%NH_VERSION, ?NH_REV);
 
     // Check Nix version upfront
-    nh_core::checks::verify_nix_environment()?;
+    checks::verify_nix_environment()?;
 
     // Once we assert required Nix features, validate NH environment checks
     // For now, this is just NH_* variables being set. More checks may be
     // added to setup_environment in the future.
-    nh_core::checks::verify_variables()?;
+    checks::verify_variables()?;
 
     let elevation = args.elevation_strategy.as_ref().map_or(
         ElevationStrategy::Auto,

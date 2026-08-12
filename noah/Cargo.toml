@@ -21,12 +21,15 @@ nh-core = { path = "./crates/nh-core" }
 nh-nixos = { path = "./crates/nh-nixos" }
 nh-search = { path = "./crates/nh-search" }
 rootcause.workspace = true
+regex = "1.12.2"
+semver = "1.0.27"
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
 yansi = "1.0.1"
 
 [dev-dependencies]
 serial_test = "3.2.0"
+proptest = "1.9.0"
 
 [lints]
 workspace = true
