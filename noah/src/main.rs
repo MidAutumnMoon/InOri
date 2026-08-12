@@ -7,7 +7,6 @@ use crate::nix_info::NixVariant;
 
 mod checks;
 mod interface;
-mod logging;
 mod nix_info;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -22,8 +21,15 @@ pub struct Envvars {}
 
 fn main() -> Result<()> {
     ino_tracing::init_tracing_subscriber();
-
     let mut args = <interface::Main as clap::Parser>::parse();
+
+    color_eyre::config::HookBuilder::default()
+        .display_location_section(true)
+        .panic_section(
+            "Please report the bug at https://github.com/nix-community/nh/issues",
+        )
+        .display_env_section(false)
+        .install()?;
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
@@ -51,8 +57,6 @@ fn main() -> Result<()> {
         }
     }
 
-    // Set up logging
-    logging::setup_logging()?;
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
 
