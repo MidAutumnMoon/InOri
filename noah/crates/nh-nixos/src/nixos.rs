@@ -15,15 +15,14 @@ use nh_core::{
     },
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
-use nh_installable::{CommandContext, Installable};
+use nh_installable::Installable;
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
 
 use crate::{
     args::{
-        self, OsBuildImageArgs, OsBuildVmArgs, OsGenerationsArgs,
+        OsBuildImageArgs, OsBuildVmArgs, OsGenerationsArgs,
         OsRebuildActivateArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
-        OsSubcommand::{self},
     },
     generations,
 };
@@ -43,57 +42,8 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
     ("sw/bin", "system path"),
 ];
 
-impl args::OsSubcommand {
-    /// Executes the NixOS subcommand.
-    ///
-    /// # Parameters
-    ///
-    /// * `self` - The NixOS operation arguments
-    /// * `elevation` - The privilege elevation strategy (sudo/doas/none)
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the operation succeeds.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// - Build or activation operations fail
-    /// - Remote operations encounter network or SSH issues
-    /// - Nix evaluation or building fails
-    /// - File system operations fail
-    pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-        use OsRebuildVariant::{Boot, Build, Switch, Test};
-        match self {
-            OsSubcommand::Boot(args) => {
-                args.rebuild_and_activate(&Boot, None, elevation)
-            }
-            OsSubcommand::Test(args) => {
-                args.rebuild_and_activate(&Test, None, elevation)
-            }
-            OsSubcommand::Switch(args) => {
-                args.rebuild_and_activate(&Switch, None, elevation)
-            }
-            OsSubcommand::Build(args) => {
-                if args.common.ask || args.common.dry {
-                    warn!(
-                        "`--ask` and `--dry` have no effect for `nh os build`"
-                    );
-                }
-                args.build_only(&Build, None, &elevation)
-            }
-            OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
-            OsSubcommand::Repl(args) => args.run(),
-            OsSubcommand::Info(args) => args.info(),
-            OsSubcommand::Rollback(args) => args.rollback(elevation),
-            OsSubcommand::BuildImage(args) => args.build_image(&elevation),
-        }
-    }
-}
-
 #[derive(Debug)]
-enum OsRebuildVariant {
+pub enum OsRebuildVariant {
     Build,
     Switch,
     Boot,
@@ -103,7 +53,7 @@ enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
-    fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
+    pub fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
         let attr = if self.with_bootloader {
             "vmWithBootLoader"
         } else {
@@ -145,7 +95,7 @@ impl OsBuildVmArgs {
 
 impl OsRebuildActivateArgs {
     // final_attr is the attribute of config.system.build.X to evaluate.
-    fn rebuild_and_activate(
+    pub fn rebuild_and_activate(
         self,
         variant: &OsRebuildVariant,
         final_attrs: Option<&[&str]>,
@@ -576,7 +526,7 @@ impl OsRebuildArgs {
             .common
             .installable
             .clone()
-            .resolve_or_default(CommandContext::Os)?;
+            .resolve_or_default()?;
 
         toplevel_for(
             target_hostname,
@@ -693,7 +643,7 @@ impl OsRebuildArgs {
 
     // final_attr is the attribute of config.system.build.X to evaluate.
     // Used by Build and BuildVm subcommands which don't activate
-    fn build_only(
+    pub fn build_only(
         self,
         variant: &OsRebuildVariant,
         final_attrs: Option<&[&str]>,
@@ -755,7 +705,7 @@ impl OsRebuildArgs {
 
 impl OsRollbackArgs {
     #[expect(clippy::too_many_lines)]
-    fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
+    pub fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
         let elevate =
             has_elevation_status(self.bypass_root_check, &elevation)?;
 
@@ -926,7 +876,7 @@ impl OsRollbackArgs {
 }
 
 impl OsBuildImageArgs {
-    fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
+    pub fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
         let (_, target_hostname) =
             self.common.setup_build_context(elevation)?;
 
@@ -944,7 +894,7 @@ impl OsBuildImageArgs {
             .common
             .installable
             .clone()
-            .resolve_or_default(CommandContext::Os)?;
+            .resolve_or_default()?;
 
         // Get the available image variants for validation
         let valid_variants = match &installable {
@@ -1371,9 +1321,9 @@ pub fn toplevel_for<S: AsRef<str>>(
 }
 
 impl OsReplArgs {
-    fn run(self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
         let mut target_installable =
-            self.installable.resolve_or_default(CommandContext::Os)?;
+            self.installable.resolve_or_default()?;
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
@@ -1403,7 +1353,7 @@ impl OsReplArgs {
 }
 
 impl OsGenerationsArgs {
-    fn info(&self) -> Result<()> {
+    pub fn info(&self) -> Result<()> {
         let profile = match self.profile {
             Some(ref p) => PathBuf::from(p),
             None => bail!("Profile path is required"),

@@ -11,20 +11,6 @@ use yansi::{Color, Paint};
 
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
-/// Command context for resolving installable env var priority
-#[derive(Debug, Clone, Copy)]
-pub enum CommandContext {
-    Os,
-}
-
-impl CommandContext {
-    const fn specific_flake_env_var(self) -> &'static str {
-        match self {
-            Self::Os => "NH_OS_FLAKE",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum InstallableArgs {
     Specified(Installable),
@@ -336,13 +322,13 @@ impl InstallableArgs {
     /// Returns whether the parsed CLI input or non-empty flake environment
     /// variables select flake mode for the command context.
     #[must_use]
-    pub fn uses_flakes(&self, context: CommandContext) -> bool {
+    pub fn uses_flakes(&self) -> bool {
         // Empty flake env vars are invalid inputs. Do not count them as feature
         // requirements here; resolution reports the targeted validation error.
         match self {
             Self::Specified(Installable::Flake { .. }) => true,
             Self::Specified(_) => false,
-            Self::Unspecified => env_installable_source(context)
+            Self::Unspecified => env_installable_source()
                 .is_some_and(|source| source.uses_flakes()),
         }
     }
@@ -350,9 +336,8 @@ impl InstallableArgs {
     /// Resolves an installable from the CLI value or environment.
     ///
     /// If an installable was supplied on the CLI, returns it as-is. Otherwise,
-    /// checks env vars in priority order based on the command context:
-    /// - The command-specific flake env var: `NH_OS_FLAKE`, `NH_HOME_FLAKE`, or
-    ///   `NH_DARWIN_FLAKE`
+    /// checks env vars in priority order:
+    /// - `NH_OS_FLAKE`
     /// - `NH_FILE`, with `NH_ATTRP` as the optional attribute path
     /// - `NH_FLAKE`
     ///
@@ -364,18 +349,17 @@ impl InstallableArgs {
     /// malformed.
     fn resolve(
         self,
-        context: CommandContext,
     ) -> color_eyre::Result<Option<Installable>> {
         match self {
-            Self::Unspecified => env_installable_source(context)
+            Self::Unspecified => env_installable_source()
                 .map(EnvInstallableSource::into_installable)
                 .transpose(),
             Self::Specified(installable) => Ok(Some(installable)),
         }
     }
 
-    /// Resolve an installable and fall back to the command-specific default when
-    /// the installable is unspecified.
+    /// Resolve an installable and fall back to the default when the installable
+    /// is unspecified.
     ///
     /// Explicit local flake references are validated before command execution. A
     /// supplied local path must point at the directory containing `flake.nix`;
@@ -385,27 +369,23 @@ impl InstallableArgs {
     ///
     /// Returns an error when environment resolution fails, when a local flake
     /// reference does not point at a flake directory, or when no default
-    /// installable can be found for the command context.
+    /// installable can be found.
     pub fn resolve_or_default(
         self,
-        context: CommandContext,
     ) -> color_eyre::Result<Installable> {
-        let Some(installable) = self.resolve(context)? else {
-            return default_installable_for(context);
+        let Some(installable) = self.resolve()? else {
+            return default_installable_for();
         };
 
-        installable.validate_local_flake_ref(context)?;
+        installable.validate_local_flake_ref()?;
         Ok(installable)
     }
 }
 
-fn env_installable_source(
-    context: CommandContext,
-) -> Option<EnvInstallableSource> {
-    let specific_var = context.specific_flake_env_var();
-    if let Ok(value) = env::var(specific_var) {
+fn env_installable_source() -> Option<EnvInstallableSource> {
+    if let Ok(value) = env::var("NH_OS_FLAKE") {
         return Some(EnvInstallableSource::SpecificFlake {
-            env_var: specific_var,
+            env_var: "NH_OS_FLAKE",
             value,
         });
     }
@@ -424,12 +404,8 @@ fn env_installable_source(
     None
 }
 
-fn default_installable_for(
-    context: CommandContext,
-) -> color_eyre::Result<Installable> {
-    match context {
-        CommandContext::Os => try_find_default_for_os(),
-    }
+fn default_installable_for() -> color_eyre::Result<Installable> {
+    try_find_default_for_os()
 }
 
 fn flake_from_env_var(
@@ -491,7 +467,6 @@ impl Installable {
 
     fn validate_local_flake_ref(
         &self,
-        context: CommandContext,
     ) -> color_eyre::Result<()> {
         let Self::Flake { reference, .. } = self else {
             return Ok(());
@@ -508,11 +483,10 @@ impl Installable {
             Err(FallbackError::NotFound) => Err(color_eyre::eyre::eyre!(
                 "Flake reference `{}` points to local path `{}`, but that path does \
            not exist or does not contain a flake.nix file.\nPass an existing \
-           flake path or update NH_FLAKE/{} if this value came from the \
-           environment.",
+           flake path or update NH_FLAKE/NH_OS_FLAKE if this value came from \
+           the environment.",
                 reference,
-                path.display(),
-                context.specific_flake_env_var()
+                path.display()
             )),
             Err(FallbackError::PermissionDenied(path)) => {
                 Err(color_eyre::eyre::eyre!(

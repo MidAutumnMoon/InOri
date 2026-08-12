@@ -61,7 +61,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
         attribute: vec![String::from("host")],
     };
     let resolved = specified(flake.clone())
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     assert_eq!(flake.to_args(), resolved.to_args());
@@ -71,7 +71,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
         attribute: vec![String::from("config")],
     };
     let resolved = specified(file.clone())
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     assert_eq!(file.to_args(), resolved.to_args());
@@ -80,7 +80,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
         path: PathBuf::from("/nix/store/abc"),
     };
     let resolved = specified(store.clone())
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     assert_eq!(store.to_args(), resolved.to_args());
@@ -90,7 +90,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
         attribute: vec![],
     };
     let resolved = specified(expr.clone())
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     assert_eq!(expr.to_args(), resolved.to_args());
@@ -104,7 +104,7 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
     };
 
     let resolved = specified(flake.clone())
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap();
 
     assert_eq!(flake.to_args(), resolved.to_args());
@@ -122,7 +122,7 @@ fn test_resolve_or_default_uses_env_before_default() {
     );
 
     let resolved = InstallableArgs::Unspecified
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap();
 
     match resolved {
@@ -148,7 +148,7 @@ fn test_resolve_or_default_accepts_existing_local_flake_path() {
     };
 
     let resolved = specified(installable)
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap();
 
     assert_eq!(
@@ -169,7 +169,7 @@ fn test_resolve_or_default_rejects_missing_absolute_path() {
     };
 
     let err = specified(installable)
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap_err()
         .to_string();
 
@@ -190,7 +190,7 @@ fn test_resolve_or_default_rejects_existing_dir_without_flake_nix() {
     };
 
     let err = specified(installable)
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap_err()
         .to_string();
 
@@ -212,7 +212,7 @@ fn test_resolve_or_default_rejects_subdir_inside_flake() {
     };
 
     let err = specified(installable)
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap_err()
         .to_string();
 
@@ -233,7 +233,7 @@ fn test_resolve_or_default_rejects_missing_path_scheme() {
     };
 
     let err = specified(installable)
-        .resolve_or_default(CommandContext::Os)
+        .resolve_or_default()
         .unwrap_err()
         .to_string();
 
@@ -255,7 +255,7 @@ fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
         };
 
         let resolved = specified(installable)
-            .resolve_or_default(CommandContext::Os)
+            .resolve_or_default()
             .unwrap();
 
         assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
@@ -271,7 +271,7 @@ fn test_resolve_or_default_ignores_registry_and_url_refs() {
         };
 
         specified(installable)
-            .resolve_or_default(CommandContext::Os)
+            .resolve_or_default()
             .unwrap();
     }
 }
@@ -283,7 +283,7 @@ fn test_resolve_rejects_empty_nh_flake() {
     env_guard.set("NH_FLAKE", "");
 
     let err = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap_err()
         .to_string();
 
@@ -298,7 +298,7 @@ fn test_resolve_rejects_empty_command_specific_flake() {
     env_guard.set("NH_FLAKE", "github:user/repo");
 
     let err = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap_err()
         .to_string();
 
@@ -312,7 +312,7 @@ fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
     env_guard.set("NH_FLAKE", "#fallback");
 
     let err = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap_err()
         .to_string();
 
@@ -327,7 +327,7 @@ fn test_resolve_rejects_malformed_nh_attrp() {
     env_guard.set("NH_ATTRP", r#"foo."bar"#);
 
     let err = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap_err()
         .to_string();
 
@@ -389,22 +389,22 @@ fn test_cli_file_rejects_malformed_attribute() {
 fn test_uses_flakes_checks_cli_and_env_inputs() {
     let env_guard = EnvGuard::clear();
 
-    assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+    assert!(!InstallableArgs::Unspecified.uses_flakes());
 
     let file = specified(Installable::File {
         path: PathBuf::from("/path/to/file.nix"),
         attribute: vec![],
     });
-    assert!(!file.uses_flakes(CommandContext::Os));
+    assert!(!file.uses_flakes());
 
     let flake = specified(Installable::Flake {
         reference: String::from("github:user/repo"),
         attribute: vec![],
     });
-    assert!(flake.uses_flakes(CommandContext::Os));
+    assert!(flake.uses_flakes());
 
     env_guard.set("NH_FLAKE", "github:user/repo");
-    assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+    assert!(InstallableArgs::Unspecified.uses_flakes());
 }
 
 #[test]
@@ -417,13 +417,13 @@ fn test_uses_flakes_respects_resolution_precedence() {
         path: PathBuf::from("/path/to/file.nix"),
         attribute: vec![],
     });
-    assert!(!file.uses_flakes(CommandContext::Os));
+    assert!(!file.uses_flakes());
 
     env_guard.set("NH_FILE", "/path/to/file.nix");
-    assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+    assert!(!InstallableArgs::Unspecified.uses_flakes());
 
     env_guard.set("NH_OS_FLAKE", "github:user/os");
-    assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+    assert!(InstallableArgs::Unspecified.uses_flakes());
 }
 
 #[test]
@@ -433,7 +433,7 @@ fn test_uses_flakes_ignores_empty_env_values() {
     env_guard.set("NH_OS_FLAKE", "");
     env_guard.set("NH_FLAKE", "");
 
-    assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+    assert!(!InstallableArgs::Unspecified.uses_flakes());
 }
 
 #[test]
@@ -443,7 +443,7 @@ fn test_resolve_os_context_uses_nh_os_flake() {
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {
@@ -466,7 +466,7 @@ fn test_resolve_os_context_prefers_os_flake_over_generic() {
     env_guard.set("NH_FLAKE", "/home/user/flake#other");
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {
@@ -488,7 +488,7 @@ fn test_resolve_os_context_falls_back_to_nh_flake() {
     env_guard.set("NH_FLAKE", "/home/user/flake#fallback");
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {
@@ -509,7 +509,7 @@ fn test_resolve_no_env_vars_returns_unspecified() {
     let _env_guard = EnvGuard::clear();
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap();
     assert!(resolved.is_none());
 }
@@ -521,7 +521,7 @@ fn test_resolve_with_empty_attribute() {
     env_guard.set("NH_OS_FLAKE", "/etc/nixos");
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {
@@ -543,7 +543,7 @@ fn test_resolve_with_nested_attribute() {
     env_guard.set("NH_OS_FLAKE", "/etc/nixos#nixosConfigurations.myhost");
 
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {
@@ -569,7 +569,7 @@ fn test_resolve_command_specific_isolation() {
 
     // OS-specific flake should be used by Os context
     let resolved = InstallableArgs::Unspecified
-        .resolve(CommandContext::Os)
+        .resolve()
         .unwrap()
         .unwrap();
     match resolved {

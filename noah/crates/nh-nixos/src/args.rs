@@ -1,41 +1,11 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::Args;
 use nh_core::args::{DiffType, NixBuildPassthroughArgs};
-use nh_installable::{CommandContext, InstallableArgs};
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 
 use crate::generations::Field;
-
-#[derive(Debug, Subcommand)]
-pub enum OsSubcommand {
-    /// Build and activate the new configuration, and make it the boot default
-    Switch(OsRebuildActivateArgs),
-
-    /// Build the new configuration and make it the boot default
-    Boot(OsRebuildActivateArgs),
-
-    /// Build and activate the new configuration
-    Test(OsRebuildActivateArgs),
-
-    /// Build the new configuration
-    Build(OsRebuildArgs),
-
-    /// Load system in a repl
-    Repl(OsReplArgs),
-
-    /// List available generations from profile path
-    Info(OsGenerationsArgs),
-
-    /// Rollback to a previous generation
-    Rollback(OsRollbackArgs),
-
-    /// Build a `NixOS` VM image
-    BuildVm(OsBuildVmArgs),
-
-    /// Build a `NixOS` disk-image variant
-    BuildImage(OsBuildImageArgs),
-}
 
 #[derive(Debug, Args)]
 pub struct OsBuildImageArgs {
@@ -124,7 +94,7 @@ pub struct OsRebuildActivateArgs {
 impl OsRebuildArgs {
     #[must_use]
     pub fn uses_flakes(&self) -> bool {
-        self.common.installable.uses_flakes(CommandContext::Os)
+        self.common.installable.uses_flakes()
     }
 }
 
@@ -213,7 +183,7 @@ pub struct OsReplArgs {
 impl OsReplArgs {
     #[must_use]
     pub fn uses_flakes(&self) -> bool {
-        self.installable.uses_flakes(CommandContext::Os)
+        self.installable.uses_flakes()
     }
 }
 

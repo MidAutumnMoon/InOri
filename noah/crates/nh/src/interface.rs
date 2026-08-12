@@ -147,34 +147,31 @@ impl NHCommand {
         let requirements = self.get_feature_requirements();
         requirements.check_features()?;
 
+        use nh_nixos::nixos::OsRebuildVariant::{Boot, Build, Switch, Test};
+
         match self {
             Self::Switch(args) => {
-                nh_nixos::args::OsSubcommand::Switch(args).run(elevation)
+                args.rebuild_and_activate(&Switch, None, elevation)
             }
             Self::Boot(args) => {
-                nh_nixos::args::OsSubcommand::Boot(args).run(elevation)
+                args.rebuild_and_activate(&Boot, None, elevation)
             }
             Self::Test(args) => {
-                nh_nixos::args::OsSubcommand::Test(args).run(elevation)
+                args.rebuild_and_activate(&Test, None, elevation)
             }
             Self::Build(args) => {
-                nh_nixos::args::OsSubcommand::Build(args).run(elevation)
+                if args.common.ask || args.common.dry {
+                    tracing::warn!(
+                        "`--ask` and `--dry` have no effect for `nh build`"
+                    );
+                }
+                args.build_only(&Build, None, &elevation)
             }
-            Self::Repl(args) => {
-                nh_nixos::args::OsSubcommand::Repl(args).run(elevation)
-            }
-            Self::Info(args) => {
-                nh_nixos::args::OsSubcommand::Info(args).run(elevation)
-            }
-            Self::Rollback(args) => {
-                nh_nixos::args::OsSubcommand::Rollback(args).run(elevation)
-            }
-            Self::BuildVm(args) => {
-                nh_nixos::args::OsSubcommand::BuildVm(args).run(elevation)
-            }
-            Self::BuildImage(args) => {
-                nh_nixos::args::OsSubcommand::BuildImage(args).run(elevation)
-            }
+            Self::Repl(args) => args.run(),
+            Self::Info(args) => args.info(),
+            Self::Rollback(args) => args.rollback(elevation),
+            Self::BuildVm(args) => args.build_vm(&elevation),
+            Self::BuildImage(args) => args.build_image(&elevation),
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(elevation),
         }
