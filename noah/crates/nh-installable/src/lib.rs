@@ -194,8 +194,6 @@ Nix accepts various kinds of installables:
     Flake reference with an optional attribute path.
     [env: NH_FLAKE={}]
     [env: NH_OS_FLAKE={}]
-    [env: NH_HOME_FLAKE={}]
-    [env: NH_DARWIN_FLAKE={}]
 
 {}, {} <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
@@ -210,8 +208,6 @@ Nix accepts various kinds of installables:
 ",
                     env::var("NH_FLAKE").unwrap_or_default(),
                     env::var("NH_OS_FLAKE").unwrap_or_default(),
-                    env::var("NH_HOME_FLAKE").unwrap_or_default(),
-                    env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
                     Paint::new("-f").fg(Color::Yellow),
                     Paint::new("--file").fg(Color::Yellow),
                     env::var("NH_FILE").unwrap_or_default(),

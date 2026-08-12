@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use color_eyre::Result;
@@ -7,15 +8,15 @@ use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
-mod checks;
 mod interface;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
 
-pub struct Facts {
+struct GlobalFacts {
     envvars: Envvars,
     nix_variant: NixVariant,
+    flake_path: PathBuf,
 }
 
 pub struct Envvars {}
@@ -39,7 +40,11 @@ fn main() -> rootcause::Result<()> {
         .display_env_section(false)
         .install().into_rootcause()?;
 
-    let _variant = nix_variant()?;
+    let _facts = GlobalFacts {
+        envvars: Envvars {},
+        nix_variant: nix_variant()?,
+        flake_path: PathBuf::from(".."),
+    };
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
@@ -69,11 +74,6 @@ fn main() -> rootcause::Result<()> {
 
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
-
-    // Once we assert required Nix features, validate NH environment checks
-    // For now, this is just NH_* variables being set. More checks may be
-    // added to setup_environment in the future.
-    checks::verify_variables().into_rootcause()?;
 
     let elevation = args.elevation_strategy.as_ref().map_or(
         ElevationStrategy::Auto,
@@ -130,4 +130,8 @@ fn ensure_features_needed_are_set() -> rootcause::Result<()> {
             "Required flake features (nix-command, flakes) are not enabled"
         )
     }
+}
+
+fn flake_path() -> rootcause::Result<PathBuf> {
+    todo!()
 }
