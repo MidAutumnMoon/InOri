@@ -8,7 +8,6 @@ use nh_core::{
     },
     command::ElevationStrategy,
 };
-use nh_nixos;
 
 use crate::Result;
 

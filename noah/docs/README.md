@@ -516,18 +516,12 @@ run `nix develop`. We also provide a `.envrc` for Direnv users, who may use
 
 ### Structure
 
-[cargo-xtask]: https://github.com/matklad/cargo-xtask
-
 NH is written in the Rust programming language, and consists of two modules. The
 core of NH is found in the `src` directory, and is separated into different
 modules. Some of the critical modules that you may want to be aware of are
-`nh::commands` for command interfaces, `nh::checks` for pre-startup checks and
-`nh::util` to store shared logic. Platform-specific logic is placed in the
-appropriate platform module, such as `nh::nixos` or `nh::darwin` with generic
-helpers placed in `nh::util`.
-
-The `xtask` directory contains the [cargo-xtask] tasks used by NH, used to
-generate manpages and possibly more in the future.
+`nh::interface` for command interfaces and `nh::logging` for log setup.
+Platform-specific logic is placed in the appropriate platform module, such as
+`nh::nixos` with generic helpers placed in `nh::util`.
 
 ### Submitting Changes
 

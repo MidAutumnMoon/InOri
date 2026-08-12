@@ -580,7 +580,6 @@ fn kill_wait_join(
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {
     use super::*;
 
@@ -602,8 +601,7 @@ mod tests {
             assert_eq!(
                 CommandKind::try_from(kind.as_str()),
                 Ok(kind),
-                "kind {:?} should round-trip through its name",
-                kind
+                "kind {kind:?} should round-trip through its name",
             );
         }
     }
