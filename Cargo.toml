@@ -33,7 +33,6 @@ ino_tap = { path = "./crates/ino_tap" }
 # Noah (nh fork) internal crates
 nh = { path = "./noah/crates/nh", version = "4.4.2" }
 nh-clean = { path = "./noah/crates/nh-clean", version = "4.4.2" }
-nh-config = { path = "./noah/crates/nh-config", version = "0.1.0" }
 nh-core = { path = "./noah/crates/nh-core", version = "4.4.2" }
 nh-diff = { path = "./noah/crates/nh-diff", version = "4.4.2" }
 nh-installable = { path = "./noah/crates/nh-installable", version = "4.4.2" }
