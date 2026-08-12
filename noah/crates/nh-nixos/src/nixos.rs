@@ -43,7 +43,7 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
     ("sw/bin", "system path"),
 ];
 
-impl args::OsArgs {
+impl args::OsSubcommand {
     /// Executes the NixOS subcommand.
     ///
     /// # Parameters
@@ -65,7 +65,7 @@ impl args::OsArgs {
     /// - File system operations fail
     pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
-        match self.subcommand {
+        match self {
             OsSubcommand::Boot(args) => {
                 args.rebuild_and_activate(&Boot, None, elevation)
             }

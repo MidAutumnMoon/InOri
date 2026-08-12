@@ -1,74 +1,11 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
-use nh_core::{
-    args::{DiffType, NixBuildPassthroughArgs},
-    checks::{
-        FeatureRequirements, FlakeFeatures, LegacyFeatures, OsReplFeatures,
-    },
-};
+use nh_core::args::{DiffType, NixBuildPassthroughArgs};
 use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
 use crate::generations::Field;
-
-#[derive(Args, Debug)]
-#[clap(verbatim_doc_comment)]
-/// `NixOS` functionality
-///
-/// Implements functionality mostly around but not exclusive to nixos-rebuild
-pub struct OsArgs {
-    #[command(subcommand)]
-    pub subcommand: OsSubcommand,
-}
-
-impl OsArgs {
-    #[must_use]
-    pub fn get_feature_requirements(
-        &self,
-    ) -> Box<dyn FeatureRequirements> {
-        match &self.subcommand {
-            OsSubcommand::Repl(args) => {
-                let is_flake = args.uses_flakes();
-                Box::new(OsReplFeatures { is_flake })
-            }
-            OsSubcommand::Switch(args)
-            | OsSubcommand::Boot(args)
-            | OsSubcommand::Test(args) => {
-                if args.rebuild.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            OsSubcommand::Build(args) => {
-                if args.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            OsSubcommand::BuildVm(args) => {
-                if args.common.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-            OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => {
-                Box::new(LegacyFeatures)
-            }
-
-            OsSubcommand::BuildImage(args) => {
-                if args.common.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug, Subcommand)]
 pub enum OsSubcommand {

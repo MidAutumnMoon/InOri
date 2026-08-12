@@ -2,7 +2,10 @@ use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
 use nh_core::{
-    checks::{FeatureRequirements, NoFeatures},
+    checks::{
+        FeatureRequirements, FlakeFeatures, LegacyFeatures, NoFeatures,
+        OsReplFeatures,
+    },
     command::ElevationStrategy,
 };
 use nh_nixos;
@@ -63,8 +66,28 @@ pub struct Main {
 #[derive(Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
-    Os(nh_nixos::args::OsArgs),
+    /// Build and activate the new configuration, and make it the boot default
+    Switch(nh_nixos::args::OsRebuildActivateArgs),
+    /// Build the new configuration and make it the boot default
+    Boot(nh_nixos::args::OsRebuildActivateArgs),
+    /// Build and activate the new configuration
+    Test(nh_nixos::args::OsRebuildActivateArgs),
+    /// Build the new configuration
+    Build(nh_nixos::args::OsRebuildArgs),
+    /// Load system in a repl
+    Repl(nh_nixos::args::OsReplArgs),
+    /// List available generations from profile path
+    Info(nh_nixos::args::OsGenerationsArgs),
+    /// Rollback to a previous generation
+    Rollback(nh_nixos::args::OsRollbackArgs),
+    /// Build a `NixOS` VM image
+    BuildVm(nh_nixos::args::OsBuildVmArgs),
+    /// Build a `NixOS` disk-image variant
+    BuildImage(nh_nixos::args::OsBuildImageArgs),
+    /// Searches packages or NixOS/home-manager options via search.nixos.org,
+    /// or a local SPAM database
     Search(nh_search::args::SearchArgs),
+    /// Enhanced nix cleanup
     Clean(nh_clean::args::CleanProxy),
 }
 
@@ -74,7 +97,41 @@ impl NHCommand {
         &self,
     ) -> Box<dyn FeatureRequirements> {
         match self {
-            Self::Os(args) => args.get_feature_requirements(),
+            Self::Repl(args) => {
+                let is_flake = args.uses_flakes();
+                Box::new(OsReplFeatures { is_flake })
+            }
+            Self::Switch(args)
+            | Self::Boot(args)
+            | Self::Test(args) => {
+                if args.rebuild.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+            Self::Build(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+            Self::BuildVm(args) => {
+                if args.common.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+            Self::Info(_) | Self::Rollback(_) => Box::new(LegacyFeatures),
+            Self::BuildImage(args) => {
+                if args.common.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
             Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
         }
     }
@@ -91,7 +148,33 @@ impl NHCommand {
         requirements.check_features()?;
 
         match self {
-            Self::Os(args) => args.run(elevation),
+            Self::Switch(args) => {
+                nh_nixos::args::OsSubcommand::Switch(args).run(elevation)
+            }
+            Self::Boot(args) => {
+                nh_nixos::args::OsSubcommand::Boot(args).run(elevation)
+            }
+            Self::Test(args) => {
+                nh_nixos::args::OsSubcommand::Test(args).run(elevation)
+            }
+            Self::Build(args) => {
+                nh_nixos::args::OsSubcommand::Build(args).run(elevation)
+            }
+            Self::Repl(args) => {
+                nh_nixos::args::OsSubcommand::Repl(args).run(elevation)
+            }
+            Self::Info(args) => {
+                nh_nixos::args::OsSubcommand::Info(args).run(elevation)
+            }
+            Self::Rollback(args) => {
+                nh_nixos::args::OsSubcommand::Rollback(args).run(elevation)
+            }
+            Self::BuildVm(args) => {
+                nh_nixos::args::OsSubcommand::BuildVm(args).run(elevation)
+            }
+            Self::BuildImage(args) => {
+                nh_nixos::args::OsSubcommand::BuildImage(args).run(elevation)
+            }
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(elevation),
         }
