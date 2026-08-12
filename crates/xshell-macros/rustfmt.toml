@@ -1,0 +1,6 @@
+# Per-crate rustfmt config: upstream xshell uses ~100-col width.
+# This overrides the workspace max_width=75 so `cargo fmt --all` doesn't
+# reformat vendored code, keeping diffs against upstream minimal.
+max_width = 100
+reorder_modules = false
+use_small_heuristics = "Max"

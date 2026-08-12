@@ -29,6 +29,8 @@ ino_color = { path = "./crates/ino_color" }
 ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
 ino_tap = { path = "./crates/ino_tap" }
+xshell = { path = "./crates/xshell" }
+xshell-macros = { path = "./crates/xshell-macros" }
 
 # Shared dependencies (InOri + Noah)
 anyhow = "1"

@@ -20,7 +20,6 @@ fn main() -> Result<()> {
     nix_variant::nix_variant();
     let mut args = <interface::Main as clap::Parser>::parse();
 
-
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
     // TODO: Remove this fallback in a future version

@@ -21,8 +21,8 @@ use tracing::{debug, info, warn};
 
 use crate::{
     args::{
-        OsBuildImageArgs, RebuildVmArgs, OsGenerationsArgs,
-        OsRebuildActivateArgs, RebuildArgs, OsReplArgs, OsRollbackArgs,
+        OsBuildImageArgs, OsGenerationsArgs, OsRebuildActivateArgs,
+        OsReplArgs, OsRollbackArgs, RebuildArgs, RebuildVmArgs,
     },
     generations,
 };

@@ -1,0 +1,3 @@
+/target
+tests/data/*/target
+tests/data/*/Cargo.lock
