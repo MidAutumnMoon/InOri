@@ -21,8 +21,8 @@ use tracing::{debug, info, warn};
 
 use crate::{
     args::{
-        OsBuildImageArgs, OsBuildVmArgs, OsGenerationsArgs,
-        OsRebuildActivateArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
+        OsBuildImageArgs, RebuildVmArgs, OsGenerationsArgs,
+        OsRebuildActivateArgs, RebuildArgs, OsReplArgs, OsRollbackArgs,
     },
     generations,
 };
@@ -52,7 +52,7 @@ pub enum OsRebuildVariant {
     BuildIso,
 }
 
-impl OsBuildVmArgs {
+impl RebuildVmArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
         let attr = if self.with_bootloader {
@@ -428,7 +428,7 @@ impl OsRebuildActivateArgs {
     }
 }
 
-impl OsRebuildArgs {
+impl RebuildArgs {
     /// Performs initial setup and gathers context for an OS rebuild operation.
     ///
     /// This includes:

@@ -10,7 +10,7 @@ use crate::generations::Field;
 #[derive(Debug, Args)]
 pub struct OsBuildImageArgs {
     #[command(flatten)]
-    pub common: OsRebuildArgs,
+    pub common: RebuildArgs,
 
     /// Image variant
     #[arg(long)]
@@ -18,9 +18,9 @@ pub struct OsBuildImageArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsBuildVmArgs {
+pub struct RebuildVmArgs {
     #[command(flatten)]
-    pub common: OsRebuildArgs,
+    pub common: RebuildArgs,
 
     /// Build with bootloader. Bootloader is bypassed by default.
     #[arg(long, short = 'B')]
@@ -32,7 +32,7 @@ pub struct OsBuildVmArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsRebuildArgs {
+pub struct RebuildArgs {
     #[command(flatten)]
     pub common: CommonRebuildArgs,
 
@@ -84,14 +84,14 @@ pub struct OsRebuildArgs {
 #[derive(Debug, Args)]
 pub struct OsRebuildActivateArgs {
     #[command(flatten)]
-    pub rebuild: OsRebuildArgs,
+    pub rebuild: RebuildArgs,
 
     /// Show activation logs
     #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
     pub show_activation_logs: bool,
 }
 
-impl OsRebuildArgs {
+impl RebuildArgs {
     #[must_use]
     pub fn uses_flakes(&self) -> bool {
         self.common.installable.uses_flakes()
@@ -106,11 +106,11 @@ pub struct OsRollbackArgs {
 
     /// Ask for confirmation
     #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+        long,
+        short,
+        env = "NH_ASK",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub ask: bool,
 
     /// Explicitly select some specialisation
@@ -143,11 +143,11 @@ pub struct CommonRebuildArgs {
 
     /// Ask for confirmation
     #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+        long,
+        short,
+        env = "NH_ASK",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     pub ask: bool,
 
     #[command(flatten)]

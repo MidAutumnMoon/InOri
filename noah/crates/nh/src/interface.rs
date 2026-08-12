@@ -72,7 +72,7 @@ pub enum NHCommand {
     /// Build and activate the new configuration
     Test(nh_nixos::args::OsRebuildActivateArgs),
     /// Build the new configuration
-    Build(nh_nixos::args::OsRebuildArgs),
+    Build(nh_nixos::args::RebuildArgs),
     /// Load system in a repl
     Repl(nh_nixos::args::OsReplArgs),
     /// List available generations from profile path
@@ -80,7 +80,7 @@ pub enum NHCommand {
     /// Rollback to a previous generation
     Rollback(nh_nixos::args::OsRollbackArgs),
     /// Build a `NixOS` VM image
-    BuildVm(nh_nixos::args::OsBuildVmArgs),
+    BuildVm(nh_nixos::args::RebuildVmArgs),
     /// Build a `NixOS` disk-image variant
     BuildImage(nh_nixos::args::OsBuildImageArgs),
     /// Searches packages or NixOS/home-manager options via search.nixos.org,
