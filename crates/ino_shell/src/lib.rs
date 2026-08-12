@@ -344,8 +344,6 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 #[macro_export]
 macro_rules! cmd {
     ($sh:expr, $cmd:literal) => {{
-        #[cfg(any())] // Trick rust analyzer into highlighting interpolated bits
-        format_args!($cmd);
         let f = |prog| $sh.cmd(prog);
         let cmd: $crate::Cmd = $crate::__cmd!(f $cmd);
         cmd

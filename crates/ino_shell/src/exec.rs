@@ -104,7 +104,7 @@ pub fn exec(
     let status = std::thread::scope(|scope| {
         if let Some(stdin_contents) = stdin_contents {
             scope.spawn(|| {
-                in_error = stdin.unwrap().write_all(stdin_contents)
+                in_error = stdin.unwrap().write_all(stdin_contents);
             });
         }
         scope.spawn(|| {
