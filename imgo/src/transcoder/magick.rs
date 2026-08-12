@@ -126,6 +126,7 @@ impl External for CleanScan {
 
 #[inline]
 #[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
 fn eighth_of_total_cores() -> NonZeroU64 {
     let cores = available_parallelism()
         .expect("Failed to get core numbers")

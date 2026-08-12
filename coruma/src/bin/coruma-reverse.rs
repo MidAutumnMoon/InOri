@@ -46,6 +46,7 @@ impl AbsolutePath {
     /// directory and cleaned, producing an absolute path.
     fn resolve_target(&self, target: &Path) -> Self {
         let resolved = if target.is_relative() {
+            #[expect(clippy::expect_used)]
             let parent_dir =
                 self.0.parent().expect("symlink path always has a parent");
             path_clean::PathClean::clean(&parent_dir.join(target))
@@ -95,7 +96,7 @@ impl App {
             AbsolutePath::resolve(Path::new(&self.program))?
         } else {
             let errmsg = || {
-                anyhow::anyhow!(r#"Program "{}" not found"#, &self.program)
+                anyhow::anyhow!(r#"Program "{}" not found"#, self.program)
             };
             let hits = coruma::lookup_executable_in_path(&self.program);
             AbsolutePath::resolve(hits.first().ok_or_else(errmsg)?)?

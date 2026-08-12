@@ -55,6 +55,10 @@ pub fn decrypt(
         }
         DecryptAction::Light => {
             // Stamp the known PNG header over the XOR'd bytes
+            #[expect(
+                clippy::expect_used,
+                reason = "length was already validated"
+            )]
             content
                 .get_mut(..ENCRYPTED_PART_LEN)
                 .expect("length validated above")
