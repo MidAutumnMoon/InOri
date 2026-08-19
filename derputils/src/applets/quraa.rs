@@ -142,7 +142,7 @@ mod test {
     use super::*;
 
     fn parse(args: &[&str]) -> Result<Source, bpaf::ParseFailure> {
-        cli().run_inner(Args::from(&args[..]).set_name(NAME))
+        cli().run_inner(Args::from(args).set_name(NAME))
     }
 
     #[test]

@@ -139,7 +139,7 @@ pub fn select<'a>(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod test {
     use super::*;
 
@@ -150,7 +150,7 @@ mod test {
     #[test]
     fn applet_via_argv0() {
         let arg0 = args(&[]);
-        let sel = select(&OsStr::new("quraa"), &arg0);
+        let sel = select(OsStr::new("quraa"), &arg0);
         match sel {
             Selection::Run { applet, args } => {
                 assert_eq!(applet.name, "quraa");
@@ -163,7 +163,7 @@ mod test {
     #[test]
     fn applet_via_argv0_with_path() {
         let arg0 = args(&["-c"]);
-        let sel = select(&OsStr::new("/usr/bin/quraa"), &arg0);
+        let sel = select(OsStr::new("/usr/bin/quraa"), &arg0);
         match sel {
             Selection::Run { applet, args } => {
                 assert_eq!(applet.name, "quraa");
@@ -176,10 +176,10 @@ mod test {
     #[test]
     fn uuid7_via_argv0() {
         let arg0 = args(&[]);
-        let sel = select(&OsStr::new("uuid7"), &arg0);
+        let sel = select(OsStr::new("uuid7"), &arg0);
         match sel {
             Selection::Run { applet, .. } => {
-                assert_eq!(applet.name, "uuid7")
+                assert_eq!(applet.name, "uuid7");
             }
             other => panic!("expected Run, got {other:?}"),
         }
@@ -189,7 +189,7 @@ mod test {
     fn dispatcher_without_args_is_no_applet() {
         let arg0 = args(&[]);
         assert_eq!(
-            select(&OsStr::new("derputils"), &arg0),
+            select(OsStr::new("derputils"), &arg0),
             Selection::NoApplet
         );
     }
@@ -198,12 +198,12 @@ mod test {
     fn dispatcher_help_and_version() {
         let help = args(&["--help"]);
         assert_eq!(
-            select(&OsStr::new("derputils"), &help),
+            select(OsStr::new("derputils"), &help),
             Selection::Help
         );
         let version = args(&["version"]);
         assert_eq!(
-            select(&OsStr::new("derputils"), &version),
+            select(OsStr::new("derputils"), &version),
             Selection::Version
         );
     }
@@ -211,7 +211,7 @@ mod test {
     #[test]
     fn dispatcher_subcommand() {
         let arg0 = args(&["quraa", "-s"]);
-        let sel = select(&OsStr::new("derputils"), &arg0);
+        let sel = select(OsStr::new("derputils"), &arg0);
         match sel {
             Selection::Run { applet, args } => {
                 assert_eq!(applet.name, "quraa");
@@ -225,7 +225,7 @@ mod test {
     fn dispatcher_unknown_applet() {
         let arg0 = args(&["nope"]);
         assert_eq!(
-            select(&OsStr::new("derputils"), &arg0),
+            select(OsStr::new("derputils"), &arg0),
             Selection::UnknownApplet {
                 name: "nope".to_owned()
             }
@@ -236,7 +236,7 @@ mod test {
     fn unknown_argv0() {
         let arg0 = args(&[]);
         assert_eq!(
-            select(&OsStr::new("weird"), &arg0),
+            select(OsStr::new("weird"), &arg0),
             Selection::UnknownApplet {
                 name: "weird".to_owned()
             }
