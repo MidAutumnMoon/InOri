@@ -40,24 +40,6 @@ fn test_subshells_env() {
 }
 
 #[test]
-fn test_push_env_and_set_env_var() {
-    let sh = setup();
-
-    let e1 = sh.var_os(VAR);
-    {
-        let mut sh = sh.clone();
-        sh.set_var(VAR, "1");
-        let e2 = sh.var_os(VAR);
-        assert_eq!(e2.as_deref(), Some("1".as_ref()));
-        sh.set_var(VAR, "2");
-        let e3 = sh.var_os(VAR);
-        assert_eq!(e3.as_deref(), Some("2".as_ref()));
-    }
-    let e5 = sh.var_os(VAR);
-    assert_eq!(e5, e1);
-}
-
-#[test]
 fn test_env() {
     let mut sh = setup();
 

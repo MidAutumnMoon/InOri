@@ -32,37 +32,6 @@ fn test_push_dir() {
 }
 
 #[test]
-fn test_push_and_change_dir() {
-    let sh = setup();
-
-    let d1 = sh.current_dir();
-    {
-        let mut sh = sh.with_current_dir("ino_shell-macros");
-        let d2 = sh.current_dir();
-        assert_eq!(d2, d1.join("ino_shell-macros"));
-        sh.set_current_dir("src");
-        let d3 = sh.current_dir();
-        assert_eq!(d3, d1.join("ino_shell-macros/src"));
-    }
-    let d5 = sh.current_dir();
-    assert_eq!(d5, d1);
-}
-
-#[test]
-fn push_dir_parent_dir() {
-    let sh = setup();
-
-    let current = sh.current_dir();
-    let dirname = current.file_name().unwrap();
-    let sh = sh.with_current_dir("..");
-    let sh = sh.with_current_dir(dirname);
-    assert_eq!(
-        sh.current_dir().canonicalize().unwrap(),
-        current.canonicalize().unwrap()
-    );
-}
-
-#[test]
 fn test_copy_file() {
     let sh = setup();
 

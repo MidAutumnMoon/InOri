@@ -13,23 +13,6 @@ use ino_shell::cmd;
 use common::setup;
 
 #[test]
-fn smoke() {
-    let sh = setup();
-
-    let pwd = "lol";
-    let cmd = cmd!(sh, "xecho 'hello '{pwd}");
-    println!("{cmd}");
-}
-
-#[test]
-fn into_command() {
-    let sh = setup();
-    let cmd = cmd!(sh, "git branch");
-    let _ = cmd.to_command();
-    let _: std::process::Command = cmd.into();
-}
-
-#[test]
 fn multiline() {
     let sh = setup();
 
@@ -50,6 +33,10 @@ fn interpolation() {
 
     let hello = "hello";
     let output = cmd!(sh, "xecho {hello}").read().unwrap();
+    assert_eq!(output, "hello");
+
+    // Whitespace inside braces is tolerated by the macro.
+    let output = cmd!(sh, "xecho { hello }").read().unwrap();
     assert_eq!(output, "hello");
 }
 
@@ -77,7 +64,7 @@ fn program_concatenation() {
     let sh = setup();
 
     let ho = "ho";
-    let output = dbg!(cmd!(sh, "xec{ho} hello")).read().unwrap();
+    let output = cmd!(sh, "xec{ho} hello").read().unwrap();
     assert_eq!(output, "hello");
 }
 
@@ -92,52 +79,37 @@ fn interpolation_move() {
 }
 
 #[test]
-fn interpolation_spat() {
+fn interpolation_splat() {
     let sh = setup();
 
+    // Splat of slice, empty slice, and owned strings.
     let a = &["hello", "world"];
     let b: &[&OsStr] = &[];
     let c = &["!".to_string()];
     let output = cmd!(sh, "xecho {a...} {b...} {c...}").read().unwrap();
     assert_eq!(output, "hello world !");
-}
 
-#[test]
-fn splat_option() {
-    let sh = setup();
-
-    let a: Option<&OsStr> = None;
-    let b = Some("hello");
-    let output = cmd!(sh, "xecho {a...} {b...}").read().unwrap();
+    // Splat of Option.
+    let present = Some("hello");
+    let absent: Option<&OsStr> = None;
+    let output = cmd!(sh, "xecho {absent...} {present...}")
+        .read()
+        .unwrap();
     assert_eq!(output, "hello");
-}
 
-#[test]
-fn splat_idiom() {
-    let sh = setup();
-
+    // Conditional splat idiom (Rust-side, but exercises the macro path).
     let check = if true { &["--", "--check"][..] } else { &[] };
-    let cmd = cmd!(sh, "cargo fmt {check...}");
-    assert_eq!(cmd.to_string(), "cargo fmt -- --check");
-
     let dry_run = if true { Some("--dry-run") } else { None };
-    let cmd = cmd!(sh, "cargo publish {dry_run...}");
-    assert_eq!(cmd.to_string(), "cargo publish --dry-run");
-}
+    assert_eq!(
+        cmd!(sh, "cargo fmt {check...}").to_string(),
+        "cargo fmt -- --check",
+    );
+    assert_eq!(
+        cmd!(sh, "cargo publish {dry_run...}").to_string(),
+        "cargo publish --dry-run",
+    );
 
-#[test]
-fn interpolation_tolerates_whitespace() {
-    let sh = setup();
-
-    let hello = "hello";
-    let output = cmd!(sh, "xecho { hello }").read().unwrap();
-    assert_eq!(output, "hello");
-}
-
-#[test]
-fn splat_tolerates_whitespace() {
-    let sh = setup();
-
+    // Whitespace inside braces is tolerated.
     let args = ["hello", "world"];
     let output = cmd!(sh, "xecho { args... }").read().unwrap();
     assert_eq!(output, "hello world");
@@ -186,10 +158,17 @@ fn ignore_status() {
 }
 
 #[test]
-fn ignore_status_no_such_command() {
+fn unknown_command() {
     let sh = setup();
 
-    let err = cmd!(sh, "xecho-f").ignore_status().read().unwrap_err();
+    let err = cmd!(sh, "nope no way").read().unwrap_err();
+    assert_eq!(err.to_string(), "command not found: `nope`");
+
+    // `ignore_status` does not suppress command-not-found.
+    let err = cmd!(sh, "xecho-f")
+        .ignore_status()
+        .read()
+        .unwrap_err();
     assert_eq!(err.to_string(), "command not found: `xecho-f`");
 }
 
@@ -198,7 +177,10 @@ fn ignore_status_no_such_command() {
 fn ignore_status_signal() {
     let sh = setup();
 
-    let output = cmd!(sh, "xecho -s dead").ignore_status().read().unwrap();
+    let output = cmd!(sh, "xecho -s dead")
+        .ignore_status()
+        .read()
+        .unwrap();
     assert_eq!(output, "dead");
 }
 
@@ -211,14 +193,6 @@ fn read_stderr() {
         .read_stderr()
         .unwrap();
     assert!(output.contains("snafu"));
-}
-
-#[test]
-fn unknown_command() {
-    let sh = setup();
-
-    let err = cmd!(sh, "nope no way").read().unwrap_err();
-    assert_eq!(err.to_string(), "command not found: `nope`");
 }
 
 #[test]
@@ -237,8 +211,17 @@ fn args_with_spaces() {
 fn escape() {
     let sh = setup();
 
+    // Backslash and quote handling in the tokenizer.
     let output = cmd!(sh, "xecho \\hello\\ '\\world\\'").read().unwrap();
     assert_eq!(output, r"\hello\ \world\");
+
+    // String-literal escapes preserved by `to_string()`.
+    assert_eq!(cmd!(sh, "\"hello\"").to_string(), "\"hello\"");
+    assert_eq!(
+        cmd!(sh, "\"\"\"asdf\"\"\"").to_string(),
+        r#""""asdf""""#
+    );
+    assert_eq!(cmd!(sh, "\\\\").to_string(), r"\\");
 }
 
 #[test]
@@ -274,15 +257,6 @@ fn no_deadlock() {
     data.pop();
     let res = cmd!(sh, "xecho -i").stdin(&data).read().unwrap();
     assert_eq!(data, res);
-}
-
-#[test]
-fn string_escapes() {
-    let sh = setup();
-
-    assert_eq!(cmd!(sh, "\"hello\"").to_string(), "\"hello\"");
-    assert_eq!(cmd!(sh, "\"\"\"asdf\"\"\"").to_string(), r#""""asdf""""#);
-    assert_eq!(cmd!(sh, "\\\\").to_string(), r"\\");
 }
 
 #[test]

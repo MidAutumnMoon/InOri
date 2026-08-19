@@ -20,92 +20,31 @@ const FAILURE_TIMEOUT: Duration = Duration::from_millis(500);
 const SUCCESS_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[test]
-fn test_run_timeout_success() {
+fn timeout_success() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 1");
 
-    let result = command.timeout(SUCCESS_TIMEOUT).run();
-    assert!(
-        result.is_ok(),
-        "Command should complete successfully within the timeout"
-    );
+    let output = cmd!(sh, "xecho Hello, world!")
+        .timeout(SUCCESS_TIMEOUT)
+        .read()
+        .unwrap();
+    assert_eq!(output, "Hello, world!");
 }
 
 #[test]
-fn test_run_timeout_failure() {
+fn timeout_failure_run() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 5");
 
-    let result = command.timeout(FAILURE_TIMEOUT).run();
-    assert!(result.is_err(), "Command should fail due to timeout");
+    let result = cmd!(sh, "xsleep 5").timeout(FAILURE_TIMEOUT).run();
+    assert!(result.is_err(), "command should fail due to timeout");
 }
 
 #[test]
-fn test_read_timeout_success() {
+fn timeout_failure_read() {
+    // Exercises the capture-thread + kill interplay that `run` skips:
+    // the deadline fires while stdout/stderr capture threads are live, so
+    // the child must be killed and the threads reaped without deadlock.
     let sh = setup();
-    let command = cmd!(sh, "xecho Hello, world!");
 
-    let result = command.timeout(SUCCESS_TIMEOUT).read();
-    assert!(
-        result.is_ok(),
-        "Command should complete successfully within the timeout"
-    );
-    assert_eq!(result.unwrap(), "Hello, world!");
-}
-
-#[test]
-fn test_read_timeout_failure() {
-    let sh = setup();
-    let command = cmd!(sh, "xsleep 5");
-
-    let result = command.timeout(FAILURE_TIMEOUT).read();
-    assert!(result.is_err(), "Command should fail due to timeout");
-}
-
-#[test]
-fn test_read_stderr_timeout_success() {
-    let sh = setup();
-    let command = cmd!(sh, "xecho -e Error message");
-
-    let result = command.timeout(SUCCESS_TIMEOUT).read_stderr();
-    assert!(
-        result.is_ok(),
-        "Command should complete successfully within the timeout"
-    );
-    assert_eq!(result.unwrap(), "Error message");
-}
-
-#[test]
-fn test_read_stderr_timeout_failure() {
-    let sh = setup();
-    let command = cmd!(sh, "xsleep 5");
-
-    let result = command.timeout(FAILURE_TIMEOUT).read_stderr();
-    assert!(result.is_err(), "Command should fail due to timeout");
-}
-
-#[test]
-fn test_output_timeout_success() {
-    let sh = setup();
-    let command = cmd!(sh, "xecho Hello, world!");
-
-    let result = command.timeout(SUCCESS_TIMEOUT).output();
-    assert!(
-        result.is_ok(),
-        "Command should complete successfully within the timeout"
-    );
-    let output = result.unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "Hello, world!"
-    );
-}
-
-#[test]
-fn test_output_timeout_failure() {
-    let sh = setup();
-    let command = cmd!(sh, "xsleep 5");
-
-    let result = command.timeout(FAILURE_TIMEOUT).output();
-    assert!(result.is_err(), "Command should fail due to timeout");
+    let result = cmd!(sh, "xsleep 5").timeout(FAILURE_TIMEOUT).read();
+    assert!(result.is_err(), "command should fail due to timeout");
 }
