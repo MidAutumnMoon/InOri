@@ -20,7 +20,7 @@ fn try_main() -> io::Result<()> {
             "-e" => tee_stderr = true,
             "-i" => echo_stdin = true,
             "-$" => echo_env = true,
-"-f" => fail = true,
+            "-f" => fail = true,
             "-s" => suicide = true,
             _ => break,
         }
