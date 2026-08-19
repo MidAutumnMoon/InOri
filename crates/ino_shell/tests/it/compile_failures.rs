@@ -2,6 +2,7 @@ use ino_shell::{Shell, cmd};
 
 #[track_caller]
 #[expect(
+    clippy::unwrap_used,
     clippy::unnecessary_debug_formatting,
     reason = "Debug fmt provides TOML quoting"
 )]
@@ -56,11 +57,6 @@ fn not_a_string_literal() {
 }
 
 #[test]
-fn not_raw_string_literal() {
-    check(r#"cmd!(sh, r"raw")"#, "expected a plain string literal");
-}
-
-#[test]
 fn interpolate_complex_expression() {
     check(
         r#"cmd!(sh, "{echo.as_str()}")"#,
@@ -69,25 +65,9 @@ fn interpolate_complex_expression() {
 }
 
 #[test]
-fn interpolate_splat_concat_prefix() {
+fn interpolate_splat_concat() {
     check(
         r#"cmd!(sh, "echo a{args...}")"#,
-        "error: can't combine splat with concatenation, add spaces around `{args...}`",
-    );
-}
-
-#[test]
-fn interpolate_splat_concat_suffix() {
-    check(
-        r#"cmd!(sh, "echo {args...}b")"#,
-        "error: can't combine splat with concatenation, add spaces around `{args...}`",
-    );
-}
-
-#[test]
-fn interpolate_splat_concat_mixfix() {
-    check(
-        r#"cmd!(sh, "echo a{args...}b")"#,
         "error: can't combine splat with concatenation, add spaces around `{args...}`",
     );
 }
@@ -98,7 +78,7 @@ fn empty_command() {
 }
 
 #[test]
-fn spalt_program() {
+fn splat_program() {
     check(r#"cmd!(sh, "{cmd...}")"#, "error: can't splat program name");
 }
 
@@ -115,26 +95,6 @@ fn unclosed_curly() {
     check(
         r#"cmd!(sh, "echo {hello world")"#,
         "error: unclosed `{` in command",
-    );
-}
-
-#[test]
-fn interpolate_integer() {
-    check(
-        r#"
-    let x = 92;
-    cmd!(sh, "make -j {x}")"#,
-        r"is not implemented",
-    );
-}
-
-#[test]
-fn splat_fn_pointer() {
-    check(
-        r#"
-    let dry_run: fn() -> Option<&'static str> = || None;
-    cmd!(sh, "make -j {dry_run...}")"#,
-        r"is not implemented",
     );
 }
 

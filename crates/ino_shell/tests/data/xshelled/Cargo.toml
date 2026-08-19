@@ -1,8 +1,0 @@
-[package]
-name = "xshelled"
-version = "0.0.0"
-edition = "2021"
-[workspace]
-
-[dependencies]
-ino_shell = { path = "../../../" }
