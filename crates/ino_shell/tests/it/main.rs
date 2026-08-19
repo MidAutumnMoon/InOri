@@ -5,7 +5,6 @@
     clippy::needless_pass_by_value,
     reason = "test code"
 )]
-mod compile_failures;
 mod env;
 mod timeout;
 
