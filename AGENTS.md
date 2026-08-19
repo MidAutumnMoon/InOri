@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-InOri is a Rust workspace containing CLI tools and shared utility crates, authored by MidAutumnMoon and licensed under GPL-3.0-or-later.
+InOri is a Rust workspace monorepo containing CLI tools and shared utility crates, authored by MidAutumnMoon and licensed under GPL-3.0-or-later.
 
 - **Repository**: <https://github.com/MidAutumnMoon/InOri>
 
@@ -19,12 +19,6 @@ InOri is a Rust workspace containing CLI tools and shared utility crates, author
 - Prefer Context7 for library docs — it pulls real examples and up-to-date signatures.
 - Don't hallucinate option names, function signatures, or CLI flags. Look it up.
 
-## Complex Tasks
-
-- Break large tasks into sub-tasks. Tackle them in parallel with sub-agents when they don't depend on each other.
-- Give each sub-agent full context — it won't see your conversation history.
-- Keep sub-tasks scoped to one concern. If two sub-agents might edit the same file, don't run them in parallel.
-
 ## Workspace Layout
 
 ### Binary Crates
@@ -32,7 +26,7 @@ InOri is a Rust workspace containing CLI tools and shared utility crates, author
 | Crate | Description |
 |---|---|
 | `coruma` | Comma replacement and symlink reverse-tracing |
-| `derputils` | Miscellaneous utilities (QR code, clipboard, UUIDv7) |
+| `derputils` | Miscellaneous utilities |
 | `imgo` | Image batch processing and transcoding |
 | `lny` | Symlink manager driven by JSON blueprints with templates |
 | `rpgdemake` | Batch decryption of RPG Maker MV/MZ encrypted assets |
@@ -47,21 +41,7 @@ InOri is a Rust workspace containing CLI tools and shared utility crates, author
 | `ino_tap` | `tap` extension traits with `tracing` integration |
 | `ino_tracing` | Opinionated `tracing-subscriber` initialization |
 
-## Build & Test
-
-```sh
-cargo build --all-features
-cargo test --all-features
-cargo check --all-features
-```
-
-CI runs `cargo test --all-features` on every push and PR (see `.github/workflows/ci-tests.yml`).
-
 ## Coding Conventions
-
-### Style & Formatting
-
-- `rustfmt` and `.editorconfig` are configured — run `cargo fmt` before committing.
 
 ### Linting
 
@@ -69,8 +49,8 @@ CI runs `cargo test --all-features` on every push and PR (see `.github/workflows
 
 ### Error Handling
 
-- Use `anyhow` for application crates; `thiserror` for library crates that define custom error types.
-- Prefer `context()` / `with_context()` to add meaningful error messages.
+- New apps should use `rootcause` crate instead of `anyhow`. Usage of `anyhow` is legacy and is gradually being replaced.
+- Prefer richer return types instead of convention.
 - Avoid `unwrap()` and `panic` in production code (Clippy will warn).
 
 ### Logging
@@ -80,20 +60,18 @@ CI runs `cargo test --all-features` on every push and PR (see `.github/workflows
 
 ### CLI Structure
 
-- All CLI tools use `clap` with derive macros.
+- New apps should use `bpaf` CLI parser, `clap` is legacy and is gradually being replaced.
 
 ### Dependency Management
 
 - Workspace-level dependencies are declared in the root `Cargo.toml` under `[workspace.dependencies]`.
 - Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
 - Renovate bot is configured for automated dependency updates.
-- When looking for the Cargo registry directory, read from `$CARGO_HOME` (defaults to `~/.cargo` but may differ). Never hardcode `~/.cargo`.
 
 ## Verify Changes
 
-After making changes:
+After making changes (scope to the relevant app/crate):
 
-1. **Format**: `cargo fmt --all`
-2. **Lint**: `cargo clippy --all-features -- -D warnings`
-3. **Test**: `cargo test --all-features`
-4. Ensure the above all pass before considering the change complete.
+1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>`
+2. **Test**: `cargo test --all-features --package <crate>`
+3. Ensure the above all pass before considering the change complete.
