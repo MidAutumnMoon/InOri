@@ -6,7 +6,6 @@ use bpaf::Args;
 use bpaf::OptionParser;
 use bpaf::Parser;
 
-use crate::applet::Outcome;
 use crate::applet::RunFailure;
 
 /// Applet selector name.
@@ -27,20 +26,15 @@ pub fn cli() -> OptionParser<()> {
 ///
 /// Returns a [`RunFailure::Cli`] for parse/help/version exits and a
 /// [`RunFailure::Applet`] for runtime failures.
-pub fn applet_main(args: &[OsString]) -> Result<Outcome, RunFailure> {
+pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
     cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
-    Ok(run())
-}
-
-fn run() -> Outcome {
     println!("{}", uuid::Uuid::now_v7());
-    Outcome::Quiet
+    Ok(())
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod test {
     use super::*;
 

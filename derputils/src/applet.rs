@@ -7,18 +7,6 @@ use std::path::Path;
 use crate::BIN_NAME;
 use crate::applets;
 
-/// What an applet reports to the dispatcher on success.
-#[derive(Debug)]
-pub enum Outcome {
-    /// Finished; nothing further to report.
-    Quiet,
-    /// Finished; `main` prints this human notice to stderr.
-    Notice(String),
-}
-
-/// Successful run result of an applet.
-pub type AppletResult = rootcause::Result<Outcome>;
-
 /// Failure that `main` must interpret.
 #[derive(Debug)]
 pub enum RunFailure {
@@ -35,21 +23,11 @@ pub struct Applet {
     pub name: &'static str,
     /// One-line description for the applet listing.
     pub descr: &'static str,
-    /// Parse `args` (applet's own `argv[1..]`) and run.
-    pub run: fn(args: &[OsString]) -> Result<Outcome, RunFailure>,
+    /// Parse `args` (the applet's own `argv[1..]`), run, and print any output.
+    pub run: fn(args: &[OsString]) -> Result<(), RunFailure>,
 }
 
-// Manual: fn pointers are not meaningfully comparable (addresses can vary
-// between codegen units), so equality is defined on the identity fields only.
-impl PartialEq for Applet {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.descr == other.descr
-    }
-}
-
-impl Eq for Applet {}
-
-/// All applets, in listing order.
+/// All applets, in listing order; names are unique.
 pub const APPLETS: &[Applet] = &[
     Applet {
         name: applets::quraa::NAME,
@@ -73,14 +51,14 @@ pub fn usage() -> String {
     use std::fmt::Write;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
-    for a in APPLETS {
-        let _ = writeln!(out, "  {:<8}{}", a.name, a.descr);
+    for applet in APPLETS {
+        let _ = writeln!(out, "  {:<8}{}", applet.name, applet.descr);
     }
     out
 }
 
 /// What `main` should do after inspecting `argv`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Selection<'a> {
     /// Run `applet` with the given argument slice.
     Run {
@@ -97,6 +75,15 @@ pub enum Selection<'a> {
     UnknownApplet { name: String },
 }
 
+/// Resolve an applet name into a selection: run it with `args`, or report it
+/// unknown.
+fn resolve_applet(name: String, args: &[OsString]) -> Selection<'_> {
+    find_applet(&name).map_or_else(
+        || Selection::UnknownApplet { name },
+        |applet| Selection::Run { applet, args },
+    )
+}
+
 /// Multicall dispatch: decide what to run from `argv[0]` and the raw args.
 #[must_use]
 pub fn select<'a>(
@@ -108,38 +95,24 @@ pub fn select<'a>(
         |n| n.to_string_lossy().into_owned(),
     );
 
-    if basename == BIN_NAME {
-        // Dispatcher name: the first argument selects the applet.
-        let Some(first) = args.first() else {
-            return Selection::NoApplet;
-        };
-        match first.to_str() {
-            Some("-h" | "--help" | "help") => Selection::Help,
-            Some("-V" | "--version" | "version") => Selection::Version,
-            Some(name) => find_applet(name).map_or_else(
-                || Selection::UnknownApplet {
-                    name: name.to_owned(),
-                },
-                |applet| Selection::Run {
-                    applet,
-                    args: args.get(1..).unwrap_or(&[]),
-                },
-            ),
-            None => Selection::UnknownApplet {
-                name: first.to_string_lossy().into_owned(),
-            },
-        }
-    } else {
-        // Multicall name: `argv[0]` is the applet.
-        find_applet(&basename).map_or_else(
-            || Selection::UnknownApplet { name: basename },
-            |applet| Selection::Run { applet, args },
-        )
+    if basename != BIN_NAME {
+        // Multicall name: `argv[0]` selects the applet.
+        return resolve_applet(basename, args);
+    }
+
+    // Dispatcher name: the first argument selects the applet.
+    let Some((first, rest)) = args.split_first() else {
+        return Selection::NoApplet;
+    };
+    match first.to_str() {
+        Some("-h" | "--help" | "help") => Selection::Help,
+        Some("-V" | "--version" | "version") => Selection::Version,
+        _ => resolve_applet(first.to_string_lossy().into_owned(), rest),
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[allow(clippy::panic)]
 mod test {
     use super::*;
 
@@ -188,24 +161,24 @@ mod test {
     #[test]
     fn dispatcher_without_args_is_no_applet() {
         let arg0 = args(&[]);
-        assert_eq!(
+        assert!(matches!(
             select(OsStr::new("derputils"), &arg0),
             Selection::NoApplet
-        );
+        ));
     }
 
     #[test]
     fn dispatcher_help_and_version() {
         let help = args(&["--help"]);
-        assert_eq!(
+        assert!(matches!(
             select(OsStr::new("derputils"), &help),
             Selection::Help
-        );
+        ));
         let version = args(&["version"]);
-        assert_eq!(
+        assert!(matches!(
             select(OsStr::new("derputils"), &version),
             Selection::Version
-        );
+        ));
     }
 
     #[test]
@@ -224,22 +197,18 @@ mod test {
     #[test]
     fn dispatcher_unknown_applet() {
         let arg0 = args(&["nope"]);
-        assert_eq!(
+        assert!(matches!(
             select(OsStr::new("derputils"), &arg0),
-            Selection::UnknownApplet {
-                name: "nope".to_owned()
-            }
-        );
+            Selection::UnknownApplet { name } if name == "nope"
+        ));
     }
 
     #[test]
     fn unknown_argv0() {
         let arg0 = args(&[]);
-        assert_eq!(
+        assert!(matches!(
             select(OsStr::new("weird"), &arg0),
-            Selection::UnknownApplet {
-                name: "weird".to_owned()
-            }
-        );
+            Selection::UnknownApplet { name } if name == "weird"
+        ));
     }
 }

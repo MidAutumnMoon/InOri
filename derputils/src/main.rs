@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 use derputils::BIN_NAME;
-use derputils::Outcome;
 use derputils::RunFailure;
 use derputils::Selection;
 use derputils::select;
@@ -20,11 +19,7 @@ fn main() -> ExitCode {
 
     match select(&invoked_as, &args) {
         Selection::Run { applet, args } => match (applet.run)(args) {
-            Ok(Outcome::Quiet) => ExitCode::SUCCESS,
-            Ok(Outcome::Notice(msg)) => {
-                eprintln!("{msg}");
-                ExitCode::SUCCESS
-            }
+            Ok(()) => ExitCode::SUCCESS,
             Err(RunFailure::Cli(failure)) => {
                 // 100 is bpaf's own default max width.
                 failure.print_message(100);

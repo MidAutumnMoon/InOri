@@ -12,8 +12,6 @@ use bpaf::short;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
-use crate::applet::AppletResult;
-use crate::applet::Outcome;
 use crate::applet::RunFailure;
 
 /// Applet selector name.
@@ -54,14 +52,14 @@ pub fn cli() -> OptionParser<Source> {
 ///
 /// Returns a [`RunFailure::Cli`] for parse/help/version exits and a
 /// [`RunFailure::Applet`] for runtime failures.
-pub fn applet_main(args: &[OsString]) -> Result<Outcome, RunFailure> {
+pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
     let source = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
     run(source).map_err(RunFailure::Applet)
 }
 
-fn run(source: Source) -> AppletResult {
+fn run(source: Source) -> rootcause::Result<()> {
     debug!("read data for QR code");
     let data = match source {
         Source::Clipboard => read_clipboard()?,
@@ -79,10 +77,8 @@ fn run(source: Source) -> AppletResult {
     debug!("showing generated QR code");
     open_viewer(&svg_path)?;
 
-    Ok(Outcome::Notice(format!(
-        "QR code opened: {}",
-        svg_path.display()
-    )))
+    eprintln!("QR code opened: {}", svg_path.display());
+    Ok(())
 }
 
 fn read_clipboard() -> rootcause::Result<String> {
@@ -137,7 +133,6 @@ fn open_viewer(svg_path: &Path) -> rootcause::Result<()> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod test {
     use super::*;
 
