@@ -111,8 +111,8 @@ fn test_env_clear() {
     let v1 = "xshell_test_123";
     let v2 = "xshell_test_456";
 
-    // `env_clear()` wipes PATH, so `xecho` can't be resolved via `$PATH`.
-    // Use the absolute path Cargo gives us via `CARGO_BIN_EXE_xecho`.
+    // `env_clear()` wipes the ambient environment including `PATH`, so
+    // `xecho` can't be resolved via `$PATH`. Invoke it by absolute path.
     let xecho = std::env::var("CARGO_BIN_EXE_xecho")
         .expect("CARGO_BIN_EXE_xecho must be set by the test harness");
 

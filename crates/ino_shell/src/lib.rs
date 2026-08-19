@@ -763,6 +763,9 @@ pub struct Cmd {
     deadline: Option<Instant>,
     ignore_status: bool,
     secret: bool,
+    /// Whether `env_clear` was called: when true, `to_command` wipes the
+    /// ambient environment before applying explicit overrides.
+    env_cleared: bool,
 }
 
 impl fmt::Display for Cmd {
@@ -802,6 +805,7 @@ impl Cmd {
                 ignore_status: false,
                 deadline: None,
                 secret: false,
+                env_cleared: false,
             }
         }
         inner(sh, program.as_ref())
@@ -881,8 +885,13 @@ impl Cmd {
     }
 
     /// Removes all of the environment variables from this command.
+    ///
+    /// The spawned process will receive *only* the variables explicitly set
+    /// via [`Cmd::env`] / [`Cmd::envs`] *after* this call. The ambient
+    /// environment (including `PATH`) is not inherited.
     pub fn env_clear(mut self) -> Self {
         Arc::make_mut(&mut self.sh.env).clear();
+        self.env_cleared = true;
         self
     }
 
@@ -1170,6 +1179,9 @@ impl Cmd {
         let mut result = Command::new(&self.prog);
         result.current_dir(&self.sh.cwd);
         result.args(&self.args);
+        if self.env_cleared {
+            result.env_clear();
+        }
         result.envs(&*self.sh.env);
         result
     }
