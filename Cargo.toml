@@ -31,6 +31,7 @@ ino_color = { path = "./crates/ino_color" }
 ino_tracing = { path = "./crates/ino_tracing" }
 ino_path = { path = "./crates/ino_path" }
 ino_tap = { path = "./crates/ino_tap" }
+ino_shell = { path = "./crates/ino_shell" }
 
 # Shared dependencies (InOri + Noah)
 anyhow = "1"

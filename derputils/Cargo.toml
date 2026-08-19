@@ -11,7 +11,7 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
-arboard = { version = "3", default-features = false }
+ino_shell.workspace = true
 bpaf.workspace = true
 ino_tracing.workspace = true
 qrcode = { version = "0", features = ["svg"] }

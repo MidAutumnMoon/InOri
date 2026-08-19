@@ -9,6 +9,8 @@ use bpaf::OptionParser;
 use bpaf::Parser;
 use bpaf::construct;
 use bpaf::short;
+use ino_shell::Shell;
+use ino_shell::cmd;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -73,11 +75,13 @@ fn run(source: Source) -> rootcause::Result<()> {
     Ok(())
 }
 
+/// Reads the clipboard via `wl-paste`, so this works only under Wayland.
 fn read_clipboard() -> rootcause::Result<String> {
     debug!("data source is clipboard");
-    let mut cb =
-        arboard::Clipboard::new().context("Unable to handle clipboard")?;
-    Ok(cb.get_text().context("Unable to read from clipboard")?)
+    let sh = Shell::new().context("Unable to create a shell")?;
+    Ok(cmd!(sh, "wl-paste --no-newline")
+        .read()
+        .context("Unable to read from clipboard")?)
 }
 
 fn read_stdin() -> rootcause::Result<String> {
