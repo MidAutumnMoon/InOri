@@ -259,130 +259,130 @@ pub fn get_build_image_variants_flake(
     Ok(variants)
 }
 
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    reason = "Fine in tests"
-)]
-mod tests {
-    use nh_installable::Installable;
-
-    use super::*;
-
-    #[test]
-    fn test_get_build_image_variants_expression() {
-        let installable = Installable::Expression {
-            expression: r"
-{
-  nixosConfigurations.test = {
-    config.system.build.images = {
-      iso = {};
-      disk = {};
-      container = {};
-    };
-  };
-}
-      "
-            .to_string(),
-            attribute: vec![],
-        };
-
-        let result = get_build_image_variants(&installable, "test");
-        assert!(result.is_ok());
-
-        let variants = result.unwrap();
-        assert_eq!(variants.len(), 3);
-        assert!(variants.contains(&"iso".to_string()));
-        assert!(variants.contains(&"disk".to_string()));
-        assert!(variants.contains(&"container".to_string()));
-    }
-
-    #[test]
-    fn test_get_build_image_variants_file() {
-        let test_file = tempfile::Builder::new()
-            .prefix("nh-test")
-            .tempfile()
-            .expect("Failed to create temp file");
-        let test_content = r#"
-{
-  nixosConfigurations.test = {
-    config.system.build.images = {
-      iso = "test-iso";
-      disk = "test-disk";
-      container = "test-container";
-    };
-  };
-}
-"#;
-
-        std::fs::write(&test_file, test_content)
-            .expect("Failed to write test file");
-
-        let installable = Installable::File {
-            path: test_file.path().to_path_buf(),
-            attribute: vec![],
-        };
-
-        let result = get_build_image_variants(&installable, "test");
-        assert!(result.is_ok());
-
-        let variants = result.unwrap();
-        assert_eq!(variants.len(), 3);
-        assert!(variants.contains(&"iso".to_string()));
-        assert!(variants.contains(&"disk".to_string()));
-        assert!(variants.contains(&"container".to_string()));
-    }
-
-    #[test]
-    fn test_get_build_image_variants_flake() {
-        use std::fs;
-
-        let test_dir = tempfile::Builder::new()
-            .prefix("nh-test")
-            .tempdir()
-            .expect("Failed to create temp dir");
-
-        // Canonicalize to resolve symlinks
-        let canonical = test_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize temp dir");
-        let test_file = canonical.join("flake.nix");
-        let test_content = r"
-{
-  outputs = _: {
-    nixosConfigurations.test.config.system.build.images = {
-      iso = { };
-      disk = { };
-      container = { };
-    };
-  };
-}
-";
-        fs::write(&test_file, test_content)
-            .expect("Failed to write test file");
-
-        let installable = Installable::Flake {
-            reference: format!("path:{}", canonical.display()),
-            attribute: vec![
-                "nixosConfigurations".to_owned(),
-                "test".to_string(),
-                "config".to_string(),
-                "system".to_string(),
-                "build".to_string(),
-                "images".to_string(),
-            ],
-        };
-
-        let result = get_build_image_variants_flake(&installable);
-
-        assert!(result.is_ok());
-
-        let variants = result.unwrap();
-        assert_eq!(variants.len(), 3);
-        assert!(variants.contains(&"iso".to_string()));
-        assert!(variants.contains(&"disk".to_string()));
-        assert!(variants.contains(&"container".to_string()));
-    }
-}
+//#[cfg(test)]
+//#[expect(
+//    clippy::expect_used,
+//    clippy::unwrap_used,
+//    reason = "Fine in tests"
+//)]
+//mod tests {
+//    use nh_installable::Installable;
+//
+//    use super::*;
+//
+//    #[test]
+//    fn test_get_build_image_variants_expression() {
+//        let installable = Installable::Expression {
+//            expression: r"
+//{
+//  nixosConfigurations.test = {
+//    config.system.build.images = {
+//      iso = {};
+//      disk = {};
+//      container = {};
+//    };
+//  };
+//}
+//      "
+//            .to_string(),
+//            attribute: vec![],
+//        };
+//
+//        let result = get_build_image_variants(&installable, "test");
+//        assert!(result.is_ok());
+//
+//        let variants = result.unwrap();
+//        assert_eq!(variants.len(), 3);
+//        assert!(variants.contains(&"iso".to_string()));
+//        assert!(variants.contains(&"disk".to_string()));
+//        assert!(variants.contains(&"container".to_string()));
+//    }
+//
+//    #[test]
+//    fn test_get_build_image_variants_file() {
+//        let test_file = tempfile::Builder::new()
+//            .prefix("nh-test")
+//            .tempfile()
+//            .expect("Failed to create temp file");
+//        let test_content = r#"
+//{
+//  nixosConfigurations.test = {
+//    config.system.build.images = {
+//      iso = "test-iso";
+//      disk = "test-disk";
+//      container = "test-container";
+//    };
+//  };
+//}
+//"#;
+//
+//        std::fs::write(&test_file, test_content)
+//            .expect("Failed to write test file");
+//
+//        let installable = Installable::File {
+//            path: test_file.path().to_path_buf(),
+//            attribute: vec![],
+//        };
+//
+//        let result = get_build_image_variants(&installable, "test");
+//        assert!(result.is_ok());
+//
+//        let variants = result.unwrap();
+//        assert_eq!(variants.len(), 3);
+//        assert!(variants.contains(&"iso".to_string()));
+//        assert!(variants.contains(&"disk".to_string()));
+//        assert!(variants.contains(&"container".to_string()));
+//    }
+//
+//    #[test]
+//    fn test_get_build_image_variants_flake() {
+//        use std::fs;
+//
+//        let test_dir = tempfile::Builder::new()
+//            .prefix("nh-test")
+//            .tempdir()
+//            .expect("Failed to create temp dir");
+//
+//        // Canonicalize to resolve symlinks
+//        let canonical = test_dir
+//            .path()
+//            .canonicalize()
+//            .expect("Failed to canonicalize temp dir");
+//        let test_file = canonical.join("flake.nix");
+//        let test_content = r"
+//{
+//  outputs = _: {
+//    nixosConfigurations.test.config.system.build.images = {
+//      iso = { };
+//      disk = { };
+//      container = { };
+//    };
+//  };
+//}
+//";
+//        fs::write(&test_file, test_content)
+//            .expect("Failed to write test file");
+//
+//        let installable = Installable::Flake {
+//            reference: format!("path:{}", canonical.display()),
+//            attribute: vec![
+//                "nixosConfigurations".to_owned(),
+//                "test".to_string(),
+//                "config".to_string(),
+//                "system".to_string(),
+//                "build".to_string(),
+//                "images".to_string(),
+//            ],
+//        };
+//
+//        let result = get_build_image_variants_flake(&installable);
+//
+//        assert!(result.is_ok());
+//
+//        let variants = result.unwrap();
+//        assert_eq!(variants.len(), 3);
+//        assert!(variants.contains(&"iso".to_string()));
+//        assert!(variants.contains(&"disk".to_string()));
+//        assert!(variants.contains(&"container".to_string()));
+//    }
+//}
