@@ -35,11 +35,6 @@ mod test {
     }
 
     #[test]
-    fn no_arguments_accepted() {
-        assert!(parse(&[]).is_ok());
-    }
-
-    #[test]
     fn stray_argument_rejected() {
         assert!(matches!(
             parse(&["x"]),

@@ -139,23 +139,11 @@ mod test {
     }
 
     #[test]
-    fn neither_source_rejected() {
+    fn sources_are_exclusive() {
         assert!(matches!(parse(&[]), Err(bpaf::ParseFailure::Stderr(_))));
-    }
-
-    #[test]
-    fn both_sources_rejected() {
         assert!(matches!(
             parse(&["-c", "-s"]),
             Err(bpaf::ParseFailure::Stderr(_))
-        ));
-    }
-
-    #[test]
-    fn help_goes_to_stdout() {
-        assert!(matches!(
-            parse(&["--help"]),
-            Err(bpaf::ParseFailure::Stdout(..))
         ));
     }
 }

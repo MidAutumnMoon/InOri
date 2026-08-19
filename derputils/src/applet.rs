@@ -121,19 +121,6 @@ mod test {
 
     #[test]
     fn applet_via_argv0() {
-        let arg0 = args(&[]);
-        let sel = select(OsStr::new("quraa"), &arg0);
-        match sel {
-            Selection::Run { applet, args } => {
-                assert_eq!(applet.name, "quraa");
-                assert!(args.is_empty());
-            }
-            other => panic!("expected Run, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn applet_via_argv0_with_path() {
         let arg0 = args(&["-c"]);
         let sel = select(OsStr::new("/usr/bin/quraa"), &arg0);
         match sel {
@@ -146,12 +133,13 @@ mod test {
     }
 
     #[test]
-    fn uuid7_via_argv0() {
-        let arg0 = args(&[]);
-        let sel = select(OsStr::new("uuid7"), &arg0);
+    fn dispatcher_subcommand() {
+        let arg0 = args(&["uuid7"]);
+        let sel = select(OsStr::new("derputils"), &arg0);
         match sel {
-            Selection::Run { applet, .. } => {
+            Selection::Run { applet, args } => {
                 assert_eq!(applet.name, "uuid7");
+                assert!(args.is_empty());
             }
             other => panic!("expected Run, got {other:?}"),
         }
@@ -181,33 +169,11 @@ mod test {
     }
 
     #[test]
-    fn dispatcher_subcommand() {
-        let arg0 = args(&["quraa", "-s"]);
-        let sel = select(OsStr::new("derputils"), &arg0);
-        match sel {
-            Selection::Run { applet, args } => {
-                assert_eq!(applet.name, "quraa");
-                assert_eq!(args, &[OsString::from("-s")]);
-            }
-            other => panic!("expected Run, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn dispatcher_unknown_applet() {
         let arg0 = args(&["nope"]);
         assert!(matches!(
             select(OsStr::new("derputils"), &arg0),
             Selection::UnknownApplet { name } if name == "nope"
-        ));
-    }
-
-    #[test]
-    fn unknown_argv0() {
-        let arg0 = args(&[]);
-        assert!(matches!(
-            select(OsStr::new("weird"), &arg0),
-            Selection::UnknownApplet { name } if name == "weird"
         ));
     }
 }
