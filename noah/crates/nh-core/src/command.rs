@@ -14,7 +14,7 @@ use color_eyre::{
     eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
-pub use nix_command::{CommandKind, NixCommand};
+pub use nix_command::{CommandKind, NixCommand, SubprocessEnv};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
@@ -23,24 +23,64 @@ use which::which;
 
 use crate::args::NixBuildPassthroughArgs;
 
+/// Privilege-elevation configuration captured from environment variables.
+///
+/// Replaces ad-hoc `env::var("NH_SUDOOPTS")` etc. reads. Construct once
+/// in `main()` via `from_env()`, pass by reference.
+#[derive(Debug, Clone)]
+pub struct SudoConfig {
+    /// `NH_SUDOOPTS` (preferred) or `NIX_SUDOOPTS` (legacy), shell-split.
+    pub opts: Vec<String>,
+    /// `NH_SUDO_ASKPASS` — path to askpass helper.
+    pub askpass: Option<String>,
+    /// `NH_PRESERVE_ENV` — defaults to `true` when unset; `false` when "0".
+    pub preserve_env: bool,
+}
+
+impl Default for SudoConfig {
+    fn default() -> Self {
+        Self {
+            opts: Vec::new(),
+            askpass: None,
+            preserve_env: true,
+        }
+    }
+}
+
+impl SudoConfig {
+    /// Capture sudo-related env vars from the current process.
+    ///
+    /// Called once in `main()`. Tests should construct `SudoConfig` directly.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let opts = env::var("NH_SUDOOPTS")
+            .or_else(|_| env::var("NIX_SUDOOPTS"))
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                shlex::split(&s).unwrap_or_else(|| {
+                    warn!(
+                        "Failed to parse NH_SUDOOPTS/NIX_SUDOOPTS, \
+                         ignoring. Value: {s}"
+                    );
+                    Vec::new()
+                })
+            })
+            .unwrap_or_default();
+
+        Self {
+            opts,
+            askpass: env::var("NH_SUDO_ASKPASS").ok(),
+            preserve_env: env::var("NH_PRESERVE_ENV")
+                .as_deref()
+                .map_or(true, |x| !matches!(x, "0")),
+        }
+    }
+}
+
 #[must_use]
-pub fn get_sudo_opts() -> Vec<String> {
-    let sudoopts = env::var("NH_SUDOOPTS")
-        .or_else(|_| env::var("NIX_SUDOOPTS"))
-        .ok()
-        .filter(|s| !s.is_empty());
-
-    let Some(opts) = sudoopts else {
-        return Vec::new();
-    };
-
-    shlex::split(&opts).unwrap_or_else(|| {
-    warn!(
-      "Failed to parse sudo opts from NH_SUDOOPTS/NIX_SUDOOPTS, ignoring. \
-       Value: {opts}"
-    );
-    Vec::new()
-  })
+pub fn get_sudo_opts(config: &SudoConfig) -> Vec<String> {
+    config.opts.clone()
 }
 
 /// Execute a command, streaming output to stdout/stderr while optionally
@@ -412,10 +452,16 @@ pub struct Command {
     ssh: Option<String>,
     show_output: bool,
     env_vars: HashMap<String, EnvAction>,
+    subprocess_env: SubprocessEnv,
+    sudo_config: SudoConfig,
 }
 
 impl Command {
-    pub fn new<S: AsRef<OsStr>>(command: S) -> Self {
+    pub fn new<S: AsRef<OsStr>>(
+        command: S,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+    ) -> Self {
         Self {
             dry: false,
             message: None,
@@ -425,6 +471,8 @@ impl Command {
             ssh: None,
             show_output: false,
             env_vars: HashMap::new(),
+            subprocess_env: subprocess_env.clone(),
+            sudo_config: sudo_config.clone(),
         }
     }
 
@@ -504,57 +552,34 @@ impl Command {
         self
     }
 
-    /// Configure environment for Nix and NH operations
+    /// Apply subprocess environment from the stored `SubprocessEnv`.
+    ///
+    /// Replaces the old `with_required_env()` which read `env::var`
+    /// directly. The env was captured at `Command::new` time.
     #[must_use]
-    pub fn with_required_env(mut self) -> Self {
-        // Centralized list of environment variables to preserve
-        // This is not a part of Nix's environment, but it might be necessary.
-        // nixos-rebuild preserves it, so we do too.
-        const PRESERVE_ENV: &[&str] = &[
-            "LOCALE_ARCHIVE",
-            // PATH needs to be preserved so that NH can invoke CLI utilities.
-            "PATH",
-            // Make sure NIX_SSHOPTS applies to nix commands that invoke ssh, such as
-            // `nix copy`
-            "NIX_SSHOPTS",
-            // Preserve other Nix-related environment variables
-            // TODO: is this everything we need? Previously we only preserved *some*
-            // variables and nh continued to work, but any missing vars might
-            // break functionality completely unexpectedly. This list could
-            // change at any moment. This better be enough. Ugh.
-            "NIX_CONFIG",
-            "NIX_PATH",
-            "NIX_REMOTE",
-            "NIX_SSL_CERT_FILE",
-            "NIX_USER_CONF_FILES",
-        ];
-
-        // Always explicitly set USER if present
-        if let Ok(user) = env::var("USER") {
+    pub fn with_env(mut self) -> Self {
+        if let Some(user) = &self.subprocess_env.user {
             self.env_vars
-                .insert("USER".to_string(), EnvAction::Set(user));
+                .insert("USER".to_string(), EnvAction::Set(user.clone()));
         }
 
         // Only propagate HOME for non-elevated commands
         if self.elevate.is_none()
-            && let Ok(home) = env::var("HOME")
+            && let Some(home) = &self.subprocess_env.home
         {
             self.env_vars
-                .insert("HOME".to_string(), EnvAction::Set(home));
+                .insert("HOME".to_string(), EnvAction::Set(home.clone()));
         }
 
-        // Preserve all variables in PRESERVE_ENV if present
-        for &key in PRESERVE_ENV {
-            if env::var(key).is_ok() {
-                self.env_vars.insert(key.to_string(), EnvAction::Preserve);
-            }
+        // Preserve all captured Nix-related variables
+        for (key, _value) in &self.subprocess_env.nix_preserve {
+            self.env_vars.insert(key.clone(), EnvAction::Preserve);
         }
 
         // Explicitly set NH_* variables
-        for (key, value) in env::vars() {
-            if key.starts_with("NH_") {
-                self.env_vars.insert(key, EnvAction::Set(value));
-            }
+        for (key, value) in &self.subprocess_env.nh_vars {
+            self.env_vars
+                .insert(key.clone(), EnvAction::Set(value.clone()));
         }
 
         debug!(
@@ -584,8 +609,8 @@ impl Command {
                     cmd = cmd.env(key, value);
                 }
                 EnvAction::Preserve => {
-                    // Only preserve if present in current environment
-                    if let Ok(value) = env::var(key) {
+                    // Resolve from captured subprocess env
+                    if let Some(value) = self.subprocess_env.lookup(key) {
                         cmd = cmd.env(key, value);
                     }
                 }
@@ -628,7 +653,7 @@ impl Command {
                 elevation_strategy,
                 ElevationStrategy::Passwordless
             )
-            && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
+            && let Some(askpass) = &self.sudo_config.askpass
         {
             cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
         }
@@ -641,14 +666,10 @@ impl Command {
         }
 
         if program_name == "sudo" {
-            cmd = cmd.args(get_sudo_opts());
+            cmd = cmd.args(get_sudo_opts(&self.sudo_config));
         }
 
-        // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
-        // "1" to force, unset defaults to force
-        let preserve_env = env::var("NH_PRESERVE_ENV")
-            .as_deref()
-            .map_or(true, |x| !matches!(x, "0"));
+        let preserve_env = self.sudo_config.preserve_env;
 
         // Insert 'env' command to explicitly pass environment variables to the
         // elevated command
@@ -660,8 +681,9 @@ impl Command {
                     EnvAction::Set(value) => {
                         Some(format!("{key}={value}"))
                     }
-                    EnvAction::Preserve if preserve_env => env::var(key)
-                        .ok()
+                    EnvAction::Preserve if preserve_env => self
+                        .subprocess_env
+                        .lookup(key)
                         .map(|value| format!("{key}={value}")),
                     _ => None,
                 })
@@ -690,7 +712,7 @@ impl Command {
                 eyre::eyre!("Failed to determine elevation program name")
             })?;
         if program_name == "sudo"
-            && let Ok(_askpass) = env::var("NH_SUDO_ASKPASS")
+            && self.sudo_config.askpass.is_some()
         {
             parts.push("-A".to_string());
         }
@@ -703,12 +725,10 @@ impl Command {
         }
 
         if program_name == "sudo" {
-            parts.extend(get_sudo_opts());
+            parts.extend(get_sudo_opts(&self.sudo_config));
         }
 
-        let preserve_env = env::var("NH_PRESERVE_ENV")
-            .as_deref()
-            .map_or(true, |x| !matches!(x, "0"));
+        let preserve_env = self.sudo_config.preserve_env;
 
         parts.push("env".to_string());
         for env_arg in
@@ -718,10 +738,10 @@ impl Command {
                     EnvAction::Set(value) => {
                         Some(format!("{key}={value}"))
                     }
-                    EnvAction::Preserve if preserve_env => env::var(key)
-                        .map_or(None, |value| {
-                            Some(format!("{key}={value}"))
-                        }),
+                    EnvAction::Preserve if preserve_env => self
+                        .subprocess_env
+                        .lookup(key)
+                        .map(|value| format!("{key}={value}")),
                     _ => None,
                 })
         {
@@ -739,15 +759,17 @@ impl Command {
     /// sudo command cannot be built.
     pub fn self_elevate_cmd(
         strategy: ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
     ) -> Result<std::process::Command> {
         // Get the current executable path
         let current_exe = env::current_exe()
             .context("Failed to get current executable path")?;
 
         // Self-elevation with proper environment handling
-        let cmd_builder = Self::new(&current_exe)
+        let cmd_builder = Self::new(&current_exe, subprocess_env, sudo_config)
             .elevate(Some(strategy))
-            .with_required_env();
+            .with_env();
 
         let mut sudo_parts = cmd_builder.build_sudo_parts()?;
 
@@ -767,7 +789,9 @@ impl Command {
         std_cmd.args(parts_iter);
 
         // check if using SUDO_ASKPASS
-        if uses_askpass && let Ok(askpass) = env::var("NH_SUDO_ASKPASS") {
+        if uses_askpass
+            && let Some(askpass) = &sudo_config.askpass
+        {
             std_cmd.env("SUDO_ASKPASS", askpass);
         }
         Ok(std_cmd)
@@ -840,7 +864,7 @@ impl Command {
             // Add program-specific arguments
             if program_name == "sudo" {
                 elev_cmd = elev_cmd.arg("--prompt=").arg("--stdin");
-                elev_cmd = elev_cmd.args(get_sudo_opts());
+                elev_cmd = elev_cmd.args(get_sudo_opts(&self.sudo_config));
             }
 
             // Add env command to handle environment variables
@@ -854,9 +878,9 @@ impl Command {
                             elev_cmd.arg(format!("{key}={quoted_value}"));
                     }
                     EnvAction::Preserve => {
-                        if let Ok(value) = env::var(key) {
-                            let quoted_value = shlex::try_quote(&value)
-                                .unwrap_or_else(|_| value.clone().into());
+                        if let Some(value) = self.subprocess_env.lookup(key) {
+                            let quoted_value = shlex::try_quote(value)
+                                .unwrap_or_else(|_| value.to_string().into());
                             elev_cmd = elev_cmd
                                 .arg(format!("{key}={quoted_value}"));
                         }
@@ -1094,45 +1118,41 @@ mod tests {
         clippy::unreachable,
         reason = "Fine in tests"
     )]
-    use std::{env, ffi::OsString};
-
-    use serial_test::serial;
+    use std::ffi::OsString;
 
     use super::*;
 
-    // Safely manage environment variables in tests
-    struct EnvGuard {
-        key: String,
-        original: Option<String>,
+    // ---- helpers ----
+
+    fn env_default() -> SubprocessEnv {
+        SubprocessEnv::default()
     }
 
-    impl EnvGuard {
-        fn new(key: &str, value: &str) -> Self {
-            let original = env::var(key).ok();
-            unsafe {
-                env::set_var(key, value);
-            }
-            Self {
-                key: key.to_string(),
-                original,
-            }
+    fn sudo_default() -> SudoConfig {
+        SudoConfig::default()
+    }
+
+    fn env_with(
+        home: Option<&str>,
+        user: Option<&str>,
+        nix_preserve: Vec<(&str, &str)>,
+        nh_vars: Vec<(&str, &str)>,
+    ) -> SubprocessEnv {
+        SubprocessEnv::from_pairs(user, home, nix_preserve, nh_vars)
+    }
+
+    fn sudo_with(opts: Vec<&str>, askpass: Option<&str>, preserve_env: bool) -> SudoConfig {
+        SudoConfig {
+            opts: opts.into_iter().map(String::from).collect(),
+            askpass: askpass.map(String::from),
+            preserve_env,
         }
     }
 
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            unsafe {
-                match &self.original {
-                    Some(val) => env::set_var(&self.key, val),
-                    None => env::remove_var(&self.key),
-                }
-            }
-        }
-    }
+    // ---- EnvAction ----
 
     #[test]
     fn test_env_action_variants() {
-        // Test that all EnvAction variants are correctly created
         let set_action = EnvAction::Set("test_value".to_string());
         let preserve_action = EnvAction::Preserve;
         let remove_action = EnvAction::Remove;
@@ -1147,8 +1167,35 @@ mod tests {
     }
 
     #[test]
+    fn test_env_action_debug() {
+        let set_action = EnvAction::Set("value".to_string());
+        let preserve_action = EnvAction::Preserve;
+        let remove_action = EnvAction::Remove;
+
+        let _debug_set = format!("{set_action:?}");
+        let _debug_preserve = format!("{preserve_action:?}");
+        let _debug_remove = format!("{remove_action:?}");
+    }
+
+    #[test]
+    fn test_env_action_clone() {
+        let original = EnvAction::Set("value".to_string());
+        let cloned = original.clone();
+
+        match (original, cloned) {
+            (EnvAction::Set(orig_val), EnvAction::Set(cloned_val)) => {
+                assert_eq!(orig_val, cloned_val);
+            }
+            #[allow(clippy::unreachable, reason = "Should never happen")]
+            _ => unreachable!("Clone should preserve variant and value"),
+        }
+    }
+
+    // ---- Command::new ----
+
+    #[test]
     fn test_command_new() {
-        let cmd = Command::new("test-command");
+        let cmd = Command::new("test-command", &env_default(), &sudo_default());
 
         assert_eq!(cmd.command, OsString::from("test-command"));
         assert!(!cmd.dry);
@@ -1162,7 +1209,7 @@ mod tests {
 
     #[test]
     fn test_command_builder_pattern() {
-        let cmd = Command::new("test")
+        let cmd = Command::new("test", &env_default(), &sudo_default())
             .dry(true)
             .show_output(true)
             .elevate(Some(ElevationStrategy::Force("sudo")))
@@ -1186,8 +1233,8 @@ mod tests {
 
     #[test]
     fn test_preserve_envs() {
-        let cmd =
-            Command::new("test").preserve_envs(["VAR1", "VAR2", "VAR3"]);
+        let cmd = Command::new("test", &env_default(), &sudo_default())
+            .preserve_envs(["VAR1", "VAR2", "VAR3"]);
 
         assert_eq!(cmd.env_vars.len(), 3);
         assert!(matches!(
@@ -1204,123 +1251,101 @@ mod tests {
         ));
     }
 
+    // ---- with_env ----
+
     #[test]
-    #[serial]
-    fn test_with_required_env_home_user() {
-        let _home_guard = EnvGuard::new("HOME", "/test/home");
-        let _user_guard = EnvGuard::new("USER", "testuser");
+    fn test_with_env_home_user() {
+        let env = env_with(
+            Some("/test/home"),
+            Some("testuser"),
+            vec![],
+            vec![],
+        );
+        let cmd = Command::new("test", &env, &sudo_default()).with_env();
 
-        let cmd = Command::new("test").with_required_env();
-
-        // Should preserve HOME and USER as Set actions
         assert!(
             matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
         );
         assert!(
             matches!(cmd.env_vars.get("USER"), Some(EnvAction::Set(val)) if val == "testuser")
         );
-
-        // Should preserve all Nix-related variables if present
-        for key in [
-            "PATH",
-            "NIX_CONFIG",
-            "NIX_PATH",
-            "NIX_REMOTE",
-            "NIX_SSHOPTS",
-            "NIX_SSL_CERT_FILE",
-            "NIX_USER_CONF_FILES",
-            "LOCALE_ARCHIVE",
-        ] {
-            if cmd.env_vars.contains_key(key) {
-                assert!(matches!(
-                    cmd.env_vars.get(key),
-                    Some(EnvAction::Preserve)
-                ));
-            }
-        }
     }
 
     #[test]
-    #[serial]
-    fn test_with_required_env_missing_home_user() {
-        // Test behavior when HOME/USER are not set
-        unsafe {
-            env::remove_var("HOME");
-            env::remove_var("USER");
-        }
+    fn test_with_env_missing_home_user() {
+        let env = env_default();
+        let cmd = Command::new("test", &env, &sudo_default()).with_env();
 
-        let cmd = Command::new("test").with_required_env();
-
-        // Should not have HOME or USER in env_vars if they're not set
         assert!(!cmd.env_vars.contains_key("HOME"));
         assert!(!cmd.env_vars.contains_key("USER"));
-
-        // Should preserve Nix-related variables if present
-        for key in [
-            "PATH",
-            "NIX_CONFIG",
-            "NIX_PATH",
-            "NIX_REMOTE",
-            "NIX_SSHOPTS",
-            "NIX_SSL_CERT_FILE",
-            "NIX_USER_CONF_FILES",
-            "LOCALE_ARCHIVE",
-        ] {
-            if let Some(action) = cmd.env_vars.get(key) {
-                assert!(matches!(action, EnvAction::Preserve));
-            }
-        }
     }
 
     #[test]
-    #[serial]
-    fn test_with_required_env_nh_vars() {
-        let _guard1 = EnvGuard::new("NH_TEST_VAR", "test_value");
-        let _guard2 = EnvGuard::new("NH_ANOTHER_VAR", "another_value");
-        let _guard3 =
-            EnvGuard::new("NOT_NH_VAR", "should_not_be_included");
+    fn test_with_env_nh_vars() {
+        let env = env_with(
+            None,
+            None,
+            vec![],
+            vec![
+                ("NH_TEST_VAR", "test_value"),
+                ("NH_ANOTHER_VAR", "another_value"),
+            ],
+        );
+        let cmd = Command::new("test", &env, &sudo_default()).with_env();
 
-        let cmd = Command::new("test").with_required_env();
-
-        // Should include NH_* variables as Set actions
         assert!(
             matches!(cmd.env_vars.get("NH_TEST_VAR"), Some(EnvAction::Set(val)) if val == "test_value")
         );
         assert!(
             matches!(cmd.env_vars.get("NH_ANOTHER_VAR"), Some(EnvAction::Set(val)) if val == "another_value")
         );
-
-        // Should not include non-NH variables
-        assert!(!cmd.env_vars.contains_key("NOT_NH_VAR"));
     }
 
     #[test]
-    #[serial]
-    fn test_combined_env_methods() {
-        let _home_guard = EnvGuard::new("HOME", "/test/home");
-        let _nh_guard = EnvGuard::new("NH_TEST", "nh_value");
-
-        let cmd = Command::new("test")
-            .with_required_env()
-            .preserve_envs(["EXTRA_VAR"]);
-
-        // Should have HOME from with_nix_env
-        assert!(
-            matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+    fn test_with_env_nix_preserve() {
+        let env = env_with(
+            None,
+            None,
+            vec![
+                ("PATH", "/usr/bin"),
+                ("NIX_CONFIG", "experimental-features = flakes"),
+            ],
+            vec![],
         );
+        let cmd = Command::new("test", &env, &sudo_default()).with_env();
 
-        // Should have NH variables from with_nh_env
-        assert!(
-            matches!(cmd.env_vars.get("NH_TEST"), Some(EnvAction::Set(val)) if val == "nh_value")
-        );
-
-        // Should have Nix variables preserved
         assert!(matches!(
             cmd.env_vars.get("PATH"),
             Some(EnvAction::Preserve)
         ));
+        assert!(matches!(
+            cmd.env_vars.get("NIX_CONFIG"),
+            Some(EnvAction::Preserve)
+        ));
+    }
 
-        // Should have extra preserved variable
+    #[test]
+    fn test_with_env_combined() {
+        let env = env_with(
+            Some("/test/home"),
+            None,
+            vec![("PATH", "/usr/bin")],
+            vec![("NH_TEST", "nh_value")],
+        );
+        let cmd = Command::new("test", &env, &sudo_default())
+            .with_env()
+            .preserve_envs(["EXTRA_VAR"]);
+
+        assert!(
+            matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+        );
+        assert!(
+            matches!(cmd.env_vars.get("NH_TEST"), Some(EnvAction::Set(val)) if val == "nh_value")
+        );
+        assert!(matches!(
+            cmd.env_vars.get("PATH"),
+            Some(EnvAction::Preserve)
+        ));
         assert!(matches!(
             cmd.env_vars.get("EXTRA_VAR"),
             Some(EnvAction::Preserve)
@@ -1329,9 +1354,8 @@ mod tests {
 
     #[test]
     fn test_env_vars_override_behavior() {
-        let mut cmd = Command::new("test");
+        let mut cmd = Command::new("test", &env_default(), &sudo_default());
 
-        // First add a variable as Preserve
         cmd.env_vars
             .insert("TEST_VAR".to_string(), EnvAction::Preserve);
         assert!(matches!(
@@ -1339,7 +1363,6 @@ mod tests {
             Some(EnvAction::Preserve)
         ));
 
-        // Then override it as Set
         cmd.env_vars.insert(
             "TEST_VAR".to_string(),
             EnvAction::Set("new_value".to_string()),
@@ -1349,16 +1372,16 @@ mod tests {
         );
     }
 
+    // ---- build_sudo_cmd ----
+
     #[test]
     fn test_build_sudo_cmd_basic() {
-        let cmd = Command::new("test")
+        let cmd = Command::new("test", &env_default(), &sudo_default())
             .elevate(Some(ElevationStrategy::Force("sudo")));
         let sudo_exec = cmd
             .build_sudo_cmd()
             .expect("build_sudo_cmd should succeed in test");
 
-        // Platform-agnostic: 'sudo' may be a full path or just the program name.
-        // Accept any command line where a token ends with 'sudo'.
         let cmdline = sudo_exec.to_cmdline_lossy();
         assert!(
             cmdline.split_whitespace().any(|tok| tok.ends_with("sudo"))
@@ -1366,13 +1389,28 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn test_build_sudo_cmd_with_preserve_vars() {
-        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "1");
-        let _var1_guard = EnvGuard::new("VAR1", "1");
-        let _var2_guard = EnvGuard::new("VAR2", "2");
+    fn test_build_sudo_cmd_force_no_stdin() {
+        let cmd = Command::new("test", &env_default(), &sudo_default())
+            .elevate(Some(ElevationStrategy::Force("sudo")));
 
-        let cmd = Command::new("test")
+        let sudo_exec =
+            cmd.build_sudo_cmd().expect("build_sudo_cmd should succeed");
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains("sudo"));
+    }
+
+    #[test]
+    fn test_build_sudo_cmd_with_preserve_vars() {
+        let env = env_with(
+            None,
+            None,
+            vec![("VAR1", "1"), ("VAR2", "2")],
+            vec![],
+        );
+        let sudo = sudo_with(vec![], None, true);
+
+        let cmd = Command::new("test", &env, &sudo)
             .preserve_envs(["VAR1", "VAR2"])
             .elevate(Some(ElevationStrategy::Force("sudo")));
 
@@ -1387,13 +1425,16 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_build_sudo_cmd_with_preserve_vars_disabled() {
-        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "0");
-        let _var1_guard = EnvGuard::new("VAR1", "1");
-        let _var2_guard = EnvGuard::new("VAR2", "2");
+        let env = env_with(
+            None,
+            None,
+            vec![("VAR1", "1"), ("VAR2", "2")],
+            vec![],
+        );
+        let sudo = sudo_with(vec![], None, false);
 
-        let cmd = Command::new("test")
+        let cmd = Command::new("test", &env, &sudo)
             .preserve_envs(["VAR1", "VAR2"])
             .elevate(Some(ElevationStrategy::Force("sudo")));
 
@@ -1408,9 +1449,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_build_sudo_cmd_with_set_vars() {
-        let mut cmd = Command::new("test")
+        let mut cmd = Command::new("test", &env_default(), &sudo_default())
             .elevate(Some(ElevationStrategy::Force("sudo")));
         cmd.env_vars.insert(
             "TEST_VAR".to_string(),
@@ -1422,17 +1462,126 @@ mod tests {
             .expect("build_sudo_cmd should succeed in test");
         let cmdline = sudo_exec.to_cmdline_lossy();
 
-        // Should contain env command with variable
         assert!(cmdline.contains("env"));
         assert!(cmdline.contains("TEST_VAR=test_value"));
     }
+
+    #[test]
+    fn test_build_sudo_cmd_with_remove_vars() {
+        let env = env_with(
+            None,
+            None,
+            vec![("VAR_TO_PRESERVE", "preserve")],
+            vec![],
+        );
+
+        let mut cmd = Command::new("test", &env, &sudo_default())
+            .elevate(Some(ElevationStrategy::Force("sudo")));
+        cmd.env_vars
+            .insert("VAR_TO_PRESERVE".to_string(), EnvAction::Preserve);
+        cmd.env_vars
+            .insert("VAR_TO_REMOVE".to_string(), EnvAction::Remove);
+
+        let sudo_exec = cmd
+            .build_sudo_cmd()
+            .expect("build_sudo_cmd should succeed in test");
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains("env"));
+        assert!(cmdline.contains("VAR_TO_PRESERVE=preserve"));
+        assert!(!cmdline.contains("VAR_TO_REMOVE"));
+    }
+
+    #[test]
+    fn test_build_sudo_cmd_with_askpass() {
+        let sudo = sudo_with(vec![], Some("/path/to/askpass"), true);
+
+        let cmd = Command::new("test", &env_default(), &sudo)
+            .elevate(Some(ElevationStrategy::Force("sudo")));
+        let sudo_exec = cmd
+            .build_sudo_cmd()
+            .expect("build_sudo_cmd should succeed in test");
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains("-A"));
+    }
+
+    #[test]
+    fn test_build_sudo_cmd_env_added_once() {
+        let env = env_with(
+            None,
+            None,
+            vec![("PRESERVE_VAR", "preserve")],
+            vec![],
+        );
+
+        let mut cmd = Command::new("test", &env, &sudo_default())
+            .elevate(Some(ElevationStrategy::Force("sudo")));
+        cmd.env_vars.insert(
+            "TEST_VAR1".to_string(),
+            EnvAction::Set("value1".to_string()),
+        );
+        cmd.env_vars.insert(
+            "TEST_VAR2".to_string(),
+            EnvAction::Set("value2".to_string()),
+        );
+        cmd.env_vars
+            .insert("PRESERVE_VAR".to_string(), EnvAction::Preserve);
+
+        let sudo_exec = cmd
+            .build_sudo_cmd()
+            .expect("build_sudo_cmd should succeed in test");
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        let env_count = cmdline.matches(" env ").count()
+            + usize::from(cmdline.starts_with("env "))
+            + usize::from(cmdline.ends_with(" env"));
+
+        assert_eq!(
+            env_count, 1,
+            "env command should appear exactly once in: {cmdline}"
+        );
+
+        assert!(cmdline.contains("TEST_VAR1=value1"));
+        assert!(cmdline.contains("TEST_VAR2=value2"));
+        assert!(cmdline.contains("PRESERVE_VAR=preserve"));
+    }
+
+    #[test]
+    fn test_build_sudo_cmd_with_nix_config_spaces() {
+        let env = env_with(
+            None,
+            None,
+            vec![(
+                "NIX_CONFIG",
+                "access-tokens = github.com=ghp_11111aaaaa22222bbbbb",
+            )],
+            vec![],
+        );
+
+        let cmd = Command::new("test", &env, &sudo_default())
+            .elevate(Some(ElevationStrategy::Force("sudo")))
+            .with_env();
+
+        let sudo_exec = cmd
+            .build_sudo_cmd()
+            .expect("build_sudo_cmd should succeed in test");
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains(
+      "'NIX_CONFIG=access-tokens = github.com=ghp_11111aaaaa22222bbbbb'"
+    ));
+        assert!(cmdline.contains("'NIX_CONFIG="));
+        assert!(cmdline.contains("'NIX_CONFIG="));
+    }
+
+    // ---- ElevationStrategy ----
 
     #[test]
     fn test_elevation_strategy_passwordless_resolves() {
         let strategy = ElevationStrategy::Passwordless;
         let result = strategy.resolve();
 
-        // Passwordless should resolve to an elevation program just like Auto
         assert!(result.is_ok());
         let program = result.unwrap();
         assert!(!program.as_os_str().is_empty());
@@ -1451,127 +1600,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_build_sudo_cmd_force_no_stdin() {
-        let cmd = Command::new("test")
-            .elevate(Some(ElevationStrategy::Force("sudo")));
-
-        let sudo_exec =
-            cmd.build_sudo_cmd().expect("build_sudo_cmd should succeed");
-        let cmdline = sudo_exec.to_cmdline_lossy();
-
-        // Force("sudo") uses regular sudo without --stdin or --prompt flags
-        assert!(cmdline.contains("sudo"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_build_sudo_cmd_with_remove_vars() {
-        let _preserve_guard = EnvGuard::new("VAR_TO_PRESERVE", "preserve");
-        let _remove_guard = EnvGuard::new("VAR_TO_REMOVE", "remove");
-
-        let mut cmd = Command::new("test")
-            .elevate(Some(ElevationStrategy::Force("sudo")));
-        cmd.env_vars
-            .insert("VAR_TO_PRESERVE".to_string(), EnvAction::Preserve);
-        cmd.env_vars
-            .insert("VAR_TO_REMOVE".to_string(), EnvAction::Remove);
-
-        let sudo_exec = cmd
-            .build_sudo_cmd()
-            .expect("build_sudo_cmd should succeed in test");
-        let cmdline = sudo_exec.to_cmdline_lossy();
-
-        assert!(cmdline.contains("env"));
-        assert!(cmdline.contains("VAR_TO_PRESERVE=preserve"));
-        assert!(!cmdline.contains("VAR_TO_REMOVE"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_build_sudo_cmd_with_askpass() {
-        let _guard = EnvGuard::new("NH_SUDO_ASKPASS", "/path/to/askpass");
-
-        let cmd = Command::new("test")
-            .elevate(Some(ElevationStrategy::Force("sudo")));
-        let sudo_exec = cmd
-            .build_sudo_cmd()
-            .expect("build_sudo_cmd should succeed in test");
-        let cmdline = sudo_exec.to_cmdline_lossy();
-
-        // Should contain -A flag for askpass
-        assert!(cmdline.contains("-A"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_build_sudo_cmd_env_added_once() {
-        let _preserve_guard = EnvGuard::new("PRESERVE_VAR", "preserve");
-
-        let mut cmd = Command::new("test")
-            .elevate(Some(ElevationStrategy::Force("sudo")));
-        cmd.env_vars.insert(
-            "TEST_VAR1".to_string(),
-            EnvAction::Set("value1".to_string()),
-        );
-        cmd.env_vars.insert(
-            "TEST_VAR2".to_string(),
-            EnvAction::Set("value2".to_string()),
-        );
-        cmd.env_vars
-            .insert("PRESERVE_VAR".to_string(), EnvAction::Preserve);
-
-        let sudo_exec = cmd
-            .build_sudo_cmd()
-            .expect("build_sudo_cmd should succeed in test");
-        let cmdline = sudo_exec.to_cmdline_lossy();
-
-        // Count occurrences of "env" in the command line
-        let env_count = cmdline.matches(" env ").count()
-            + usize::from(cmdline.starts_with("env "))
-            + usize::from(cmdline.ends_with(" env"));
-
-        // Should contain env command exactly once when there are explicit
-        // environment variables
-        assert_eq!(
-            env_count, 1,
-            "env command should appear exactly once in: {cmdline}"
-        );
-
-        // Should contain our explicit environment variables
-        assert!(cmdline.contains("TEST_VAR1=value1"));
-        assert!(cmdline.contains("TEST_VAR2=value2"));
-        // and the preserved too
-        assert!(cmdline.contains("PRESERVE_VAR=preserve"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_build_sudo_cmd_with_nix_config_spaces() {
-        let _nix_config_guard = EnvGuard::new(
-            "NIX_CONFIG",
-            "access-tokens = github.com=ghp_11111aaaaa22222bbbbb",
-        );
-
-        let cmd = Command::new("test")
-            .elevate(Some(ElevationStrategy::Force("sudo")))
-            .with_required_env();
-
-        let sudo_exec = cmd
-            .build_sudo_cmd()
-            .expect("build_sudo_cmd should succeed in test");
-        let cmdline = sudo_exec.to_cmdline_lossy();
-
-        // Should contain the NIX_CONFIG variable with proper quoting
-        // shlex::quote will use single quotes for values with spaces
-        assert!(cmdline.contains(
-      "'NIX_CONFIG=access-tokens = github.com=ghp_11111aaaaa22222bbbbb'"
-    ));
-
-        // The important thing is that NIX_CONFIG appears properly quoted,
-        // which prevents shell parsing issues
-        assert!(cmdline.contains("'NIX_CONFIG="));
-    }
+    // ---- Build struct ----
 
     #[test]
     fn test_build_new() {
@@ -1614,6 +1643,8 @@ mod tests {
         assert!(build.nom);
     }
 
+    // ---- ssh_wrap ----
+
     #[test]
     fn test_ssh_wrap_with_ssh() {
         let cmd = subprocess::Exec::cmd("echo").arg("hello");
@@ -1631,7 +1662,6 @@ mod tests {
         let expected = cmd.to_cmdline_lossy();
         let wrapped = ssh_wrap(cmd, None, None);
 
-        // Should return the original command unchanged
         assert_eq!(wrapped.to_cmdline_lossy(), expected);
     }
 
@@ -1646,6 +1676,54 @@ mod tests {
         assert!(cmdline.contains("-T"));
         assert!(cmdline.contains("user@host"));
     }
+
+    // ---- apply_env_to_exec ----
+
+    #[test]
+    fn test_apply_env_to_exec() {
+        let env = env_with(
+            None,
+            None,
+            vec![("EXISTING_VAR", "existing_value")],
+            vec![],
+        );
+
+        let mut cmd = Command::new("test", &env, &sudo_default());
+        cmd.env_vars.insert(
+            "SET_VAR".to_string(),
+            EnvAction::Set("set_value".to_string()),
+        );
+        cmd.env_vars
+            .insert("EXISTING_VAR".to_string(), EnvAction::Preserve);
+        cmd.env_vars
+            .insert("MISSING_VAR".to_string(), EnvAction::Preserve);
+        cmd.env_vars
+            .insert("REMOVE_VAR".to_string(), EnvAction::Remove);
+
+        let exec = subprocess::Exec::cmd("echo");
+        let result = cmd.apply_env_to_exec(exec);
+
+        let cmdline = result.to_cmdline_lossy();
+        assert!(
+            cmdline.contains("echo"),
+            "Command line should contain 'echo': {cmdline}"
+        );
+    }
+
+    // ---- ExitError ----
+
+    #[test]
+    fn test_exit_error_display() {
+        let exit_status = subprocess::Exec::cmd("false")
+            .join()
+            .expect("failed to run 'false'");
+        let error = ExitError(exit_status);
+
+        let error_string = format!("{error}");
+        assert!(error_string.contains("Command exited with status"));
+    }
+
+    // ---- shlex parsing ----
 
     #[test]
     fn test_parse_cmdline_simple() {
@@ -1733,75 +1811,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn test_apply_env_to_exec() {
-        let _guard = EnvGuard::new("EXISTING_VAR", "existing_value");
-
-        let mut cmd = Command::new("test");
-        cmd.env_vars.insert(
-            "SET_VAR".to_string(),
-            EnvAction::Set("set_value".to_string()),
-        );
-        cmd.env_vars
-            .insert("EXISTING_VAR".to_string(), EnvAction::Preserve);
-        cmd.env_vars
-            .insert("MISSING_VAR".to_string(), EnvAction::Preserve);
-        cmd.env_vars
-            .insert("REMOVE_VAR".to_string(), EnvAction::Remove);
-
-        let exec = subprocess::Exec::cmd("echo");
-        let result = cmd.apply_env_to_exec(exec);
-
-        // We *can't* easily test the exact environment variables set on Exec,
-        // but we *can* verify the method doesn't panic and returns an Exec
-        let cmdline = result.to_cmdline_lossy();
-        assert!(
-            cmdline.contains("echo"),
-            "Command line should contain 'echo': {cmdline}"
-        );
-    }
-
-    #[test]
-    fn test_exit_error_display() {
-        // Run a command that exits with status 1 to get a real ExitStatus
-        let exit_status = subprocess::Exec::cmd("false")
-            .join()
-            .expect("failed to run 'false'");
-        let error = ExitError(exit_status);
-
-        let error_string = format!("{error}");
-        assert!(error_string.contains("Command exited with status"));
-    }
-
-    #[test]
-    fn test_env_action_debug() {
-        let set_action = EnvAction::Set("value".to_string());
-        let preserve_action = EnvAction::Preserve;
-        let remove_action = EnvAction::Remove;
-
-        // Test that Debug is implemented (this will compile-fail if not)
-        let _debug_set = format!("{set_action:?}");
-        let _debug_preserve = format!("{preserve_action:?}");
-        let _debug_remove = format!("{remove_action:?}");
-    }
-
-    #[test]
-    fn test_env_action_clone() {
-        let original = EnvAction::Set("value".to_string());
-        let cloned = original.clone();
-
-        match (original, cloned) {
-            (EnvAction::Set(orig_val), EnvAction::Set(cloned_val)) => {
-                assert_eq!(orig_val, cloned_val);
-            }
-            #[allow(clippy::unreachable, reason = "Should never happen")]
-            _ => unreachable!("Clone should preserve variant and value"),
-        }
-    }
-
-    #[test]
     fn test_parse_cmdline_escaped_quotes() {
-        // shlex handles backslash escapes within double quotes
         let result = shlex::split(r#"cmd "arg with \"escaped\" quotes""#)
             .unwrap_or_default();
         assert_eq!(result, vec!["cmd", r#"arg with "escaped" quotes"#]);
@@ -1809,7 +1819,6 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_nested_quotes() {
-        // Single quotes inside double quotes are preserved literally
         let result =
             shlex::split(r#"cmd "it's a test""#).unwrap_or_default();
         assert_eq!(result, vec!["cmd", "it's a test"]);
@@ -1817,7 +1826,6 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_backslash_outside_quotes() {
-        // Backslash escapes space outside quotes
         let result =
             shlex::split(r"cmd arg\ with\ space").unwrap_or_default();
         assert_eq!(result, vec!["cmd", "arg with space"]);
@@ -1825,7 +1833,6 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_nix_store_paths() {
-        // Typical nix store paths should work
         let result = shlex::split(
             "/nix/store/abc123-foo/bin/cmd --flag /nix/store/def456-bar",
         )
@@ -1842,7 +1849,6 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_env_vars_in_quotes() {
-        // Environment variable syntax should be preserved
         let result = shlex::split(r#"env "PATH=$HOME/bin:$PATH" cmd"#)
             .unwrap_or_default();
         assert_eq!(result, vec!["env", "PATH=$HOME/bin:$PATH", "cmd"]);
@@ -1850,14 +1856,12 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_unclosed_quote_returns_none() {
-        // shlex returns None for unclosed quotes, we return empty vec
         let result = shlex::split("cmd 'unclosed").unwrap_or_default();
         assert_eq!(result, Vec::<String>::default());
     }
 
     #[test]
     fn test_parse_cmdline_complex_sudo_command() {
-        // Complex sudo command with multiple quoted args
         let cmdline = r#"/usr/bin/sudo -E env 'HOME=/root' "PATH=/usr/bin" /usr/bin/nh os switch"#;
         let result = shlex::split(cmdline).unwrap_or_default();
         assert_eq!(

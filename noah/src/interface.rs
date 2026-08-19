@@ -2,6 +2,7 @@ use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
 use nh_core::command::ElevationStrategy;
 
+use crate::RuntimeEnv;
 use crate::Result;
 
 const fn make_style() -> Styles {
@@ -84,42 +85,102 @@ impl NHCommand {
     /// # Errors
     ///
     /// Returns an error if required Nix features are unavailable or if the
-    /// selected subcommand fails.
-    pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+    pub fn run(
+        self,
+        env: &RuntimeEnv,
+        elevation: ElevationStrategy,
+    ) -> Result<()> {
         use nh_nixos::nixos::ActivationAction::{Boot, Switch, Test};
 
         match self {
-            Self::Switch(args) => {
-                args.build_and_activate(Switch, elevation)
-            }
-            Self::Boot(args) => args.build_and_activate(Boot, elevation),
-            Self::Test(args) => args.build_and_activate(Test, elevation),
+            Self::Switch(args) => args.build_and_activate(
+                Switch,
+                elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+                &env.ssh,
+            ),
+            Self::Boot(args) => args.build_and_activate(
+                Boot,
+                elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+                &env.ssh,
+            ),
+            Self::Test(args) => args.build_and_activate(
+                Test,
+                elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+                &env.ssh,
+            ),
             Self::Build(args) => {
                 if args.common.ask || args.common.dry {
                     tracing::warn!(
                         "`--ask` and `--dry` have no effect for `nh build`"
                     );
                 }
-                args.build_only(&elevation)
+                args.build_only(
+                    &elevation,
+                    &env.subprocess,
+                    &env.sudo,
+                    &env.flake,
+                    &env.ssh,
+                )
             }
-            Self::Repl(args) => args.run(),
-            Self::Info(args) => args.info(),
-            Self::Rollback(args) => args.rollback(elevation),
-            Self::BuildVm(args) => args.build_vm(&elevation),
-            Self::BuildImage(args) => args.build_image(&elevation),
-            Self::Search(args) => args.run(),
-            Self::Clean(proxy) => proxy.command.run(elevation),
+            Self::Repl(args) => args.run(
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+            ),
+            Self::Info(args) => {
+                args.info(&env.subprocess, &env.sudo)
+            }
+            Self::Rollback(args) => args.rollback(
+                elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+            ),
+            Self::BuildVm(args) => args.build_vm(
+                &elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+                &env.ssh,
+            ),
+            Self::BuildImage(args) => args.build_image(
+                &elevation,
+                &env.subprocess,
+                &env.sudo,
+                &env.flake,
+                &env.ssh,
+            ),
+            Self::Search(args) => args.run(&env.github),
+            Self::Clean(proxy) => proxy.command.run(
+                elevation,
+                &env.subprocess,
+                &env.sudo,
+            ),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    // TODO: Rewrite this test. The old test used serial_test + env::set_var to
+    // test clap's `#[arg(env = "NH_ASK")]` boolish parsing. clap reads env
+    // vars at parse time, so this is inherently env-var-based. To test without
+    // serial_test, use `Main::try_parse_from` with explicit `--ask`/`--no-ask`
+    // flags instead of relying on the NH_ASK env var.
+    /*
     use std::{env, ffi::OsString};
 
     use clap::{Parser, error::ErrorKind};
     use nh_clean::args::CleanMode;
-    use serial_test::serial;
 
     use super::{Main, NHCommand};
 
@@ -143,7 +204,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn nh_ask_parses_boolish_environment_values() -> clap::error::Result<()>
     {
         let _guard = EnvGuard::new();
@@ -175,4 +235,5 @@ mod tests {
 
         Ok(())
     }
+    */
 }

@@ -15,7 +15,7 @@ use nh_core::{
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info};
 
-use super::{RemoteHost, get_flake_flags, get_nix_sshopts_env};
+use super::{RemoteHost, SshConfig, get_flake_flags, get_nix_sshopts_env};
 
 #[derive(Debug, Clone, Copy)]
 enum CopyDirection<'a> {
@@ -88,21 +88,20 @@ fn store_uri(host: &RemoteHost) -> String {
 fn build_nix_copy_command<P: Into<OsString>>(
     direction: CopyDirection<'_>,
     path: P,
+    ssh_config: &SshConfig,
 ) -> Exec {
     NixCommand::new(CommandKind::Copy)
         .global_args(get_flake_flags())
         .args(direction.args())
         .arg(path.into())
-        .env("NIX_SSHOPTS", get_nix_sshopts_env())
+        .env("NIX_SSHOPTS", get_nix_sshopts_env(ssh_config))
         .to_exec()
 }
 
-/// Copy a Nix closure from a remote host to localhost.
-pub fn copy_closure_from(host: &RemoteHost, path: &str) -> Result<()> {
+pub fn copy_closure_from(host: &RemoteHost, path: &str, ssh_config: &SshConfig) -> Result<()> {
     info!("Copying result from build host '{host}'");
 
-    let cmd =
-        build_nix_copy_command(CopyDirection::FromRemote(host), path);
+    let cmd = build_nix_copy_command(CopyDirection::FromRemote(host), path, ssh_config);
     debug!(?cmd, "nix copy --from");
 
     let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
@@ -250,6 +249,7 @@ pub fn copy_to_remote(
     host: &RemoteHost,
     path: &Path,
     use_substitutes: bool,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
     let cmd = build_nix_copy_command(
         CopyDirection::ToRemote {
@@ -257,8 +257,8 @@ pub fn copy_to_remote(
             use_substitutes,
         },
         path,
+        ssh_config,
     );
-    debug!(?cmd, "nix copy --to");
 
     let spinner = progress::spinner(format!(
         "Copying closure to remote host '{host}'..."
@@ -287,12 +287,12 @@ pub fn copy_to_remote(
 }
 
 /// Copy a Nix closure from one remote host to another.
-/// Uses `nix copy --from <source-store-uri> --to <dest-store-uri>`.
 pub fn copy_closure_between_remotes(
     from_host: &RemoteHost,
     to_host: &RemoteHost,
     path: &str,
     use_substitutes: bool,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
     info!("Copying closure from '{}' to '{}'", from_host, to_host);
 
@@ -303,6 +303,7 @@ pub fn copy_closure_between_remotes(
             use_substitutes,
         },
         path,
+        ssh_config,
     );
     debug!(?cmd, "nix copy between remotes");
 

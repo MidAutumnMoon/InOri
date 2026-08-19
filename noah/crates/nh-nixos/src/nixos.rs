@@ -7,7 +7,10 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
     args::DiffType,
-    command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
+    command::{
+        self, Command, CommandKind, ElevationStrategy, NixCommand,
+        SudoConfig, SubprocessEnv,
+    },
     update::update,
     util::{
         ensure_ssh_key_login, get_build_image_variants,
@@ -15,8 +18,8 @@ use nh_core::{
     },
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
-use nh_installable::Installable;
-use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use nh_installable::{FlakeConfig, Installable};
+use nh_remote::{self, RemoteBuildConfig, RemoteHost, SshConfig};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -89,7 +92,14 @@ pub enum ActivationAction {
 
 impl RebuildVmArgs {
     #[expect(clippy::missing_errors_doc)]
-    pub fn build_vm(&self, elevation: &ElevationStrategy) -> Result<()> {
+    pub fn build_vm(
+        &self,
+        elevation: &ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+        ssh_config: &SshConfig,
+    ) -> Result<()> {
         let attr = if self.with_bootloader {
             "vmWithBootLoader"
         } else {
@@ -106,8 +116,9 @@ impl RebuildVmArgs {
 
         // Show warning if no hostname was explicitly provided for VM builds
         if self.common.hostname.is_none() {
-            let (_, target_hostname) =
-                self.common.setup_build_context(elevation)?;
+            let (_, target_hostname) = self
+                .common
+                .setup_build_context(elevation, subprocess_env, sudo_config)?;
             tracing::warn!(
                 "Guessing system is {target_hostname} for a VM image. If this isn't \
          intended, use --hostname to change."
@@ -119,11 +130,15 @@ impl RebuildVmArgs {
                 with_bootloader: self.with_bootloader,
             },
             elevation,
+            subprocess_env,
+            sudo_config,
+            flake_config,
+            ssh_config,
         )?;
 
         // Run the VM if requested; otherwise print how to run it.
         if self.run {
-            run_vm(&out_path)?;
+            run_vm(&out_path, subprocess_env, sudo_config)?;
         } else {
             print_vm_instructions(&out_path);
         }
@@ -138,9 +153,14 @@ impl OsRebuildActivateArgs {
         &self,
         action: ActivationAction,
         elevation: ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (local_elevate, target_hostname) =
-            self.rebuild.setup_build_context(&elevation)?;
+        let (local_elevate, target_hostname) = self
+            .rebuild
+            .setup_build_context(&elevation, subprocess_env, sudo_config)?;
 
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
@@ -148,6 +168,7 @@ impl OsRebuildActivateArgs {
         let toplevel = self.rebuild.resolve_installable_and_toplevel(
             &target_hostname,
             &BuildTarget::Toplevel,
+            flake_config,
         )?;
 
         if self.rebuild.update_args.update_all
@@ -172,13 +193,13 @@ impl OsRebuildActivateArgs {
             // authenticated socket rather than opening a fresh connection where
             // SSH option ordering may differ.
             if let Some(build_host) = &self.rebuild.build_host {
-                nh_remote::open_ssh_control_master(build_host).context(
+                nh_remote::open_ssh_control_master(build_host, ssh_config).context(
                     "Failed to establish SSH connection to build host",
                 )?;
             }
 
             if let Some(target_host) = &self.rebuild.target_host {
-                nh_remote::open_ssh_control_master(target_host).context(
+                nh_remote::open_ssh_control_master(target_host, ssh_config).context(
                     "Failed to establish SSH connection to target host",
                 )?;
             }
@@ -190,7 +211,7 @@ impl OsRebuildActivateArgs {
 
         // Now that the ControlMaster is up, probe the remote uid for elevation.
         let elevate = if self.rebuild.target_host.is_some() {
-            self.rebuild.determine_remote_elevation(&elevation)?
+            self.rebuild.determine_remote_elevation(&elevation, ssh_config)?
         } else {
             local_elevate
         };
@@ -199,6 +220,7 @@ impl OsRebuildActivateArgs {
             toplevel,
             &out_path,
             "Building NixOS configuration",
+            ssh_config,
         )?;
 
         let target_profile =
@@ -210,6 +232,7 @@ impl OsRebuildActivateArgs {
             &target_profile,
             actual_store_path.as_deref(),
             &out_path,
+            ssh_config,
         )?;
 
         if self.rebuild.common.dry {
@@ -227,11 +250,15 @@ impl OsRebuildActivateArgs {
             actual_store_path.as_deref(),
             elevate,
             elevation,
+            subprocess_env,
+            sudo_config,
+            ssh_config,
         )?;
 
         Ok(())
     }
 
+    #[expect(clippy::too_many_arguments)]
     fn activate_rebuilt_config(
         &self,
         action: ActivationAction,
@@ -240,6 +267,9 @@ impl OsRebuildActivateArgs {
         actual_store_path: Option<&Path>,
         elevate: bool,
         elevation: ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
         if self.rebuild.common.ask {
             let confirmation = inquire::Confirm::new("Apply the config?")
@@ -260,6 +290,7 @@ impl OsRebuildActivateArgs {
                 target_host,
                 target_profile,
                 self.rebuild.common.passthrough.use_substitutes,
+                ssh_config,
             )
             .context("Failed to copy configuration to target host")?;
         }
@@ -269,6 +300,7 @@ impl OsRebuildActivateArgs {
                 out_path,
                 target_profile,
                 actual_store_path,
+                ssh_config,
             )?;
 
         match action {
@@ -279,6 +311,9 @@ impl OsRebuildActivateArgs {
                     ActivationAction::Test,
                     elevate,
                     &elevation,
+                    subprocess_env,
+                    sudo_config,
+                    ssh_config,
                 )?;
             }
             ActivationAction::Boot => {
@@ -288,6 +323,9 @@ impl OsRebuildActivateArgs {
                     &switch_to_configuration,
                     elevate,
                     elevation,
+                    subprocess_env,
+                    sudo_config,
+                    ssh_config,
                 )?;
             }
             ActivationAction::Switch => {
@@ -297,6 +335,9 @@ impl OsRebuildActivateArgs {
                     ActivationAction::Switch,
                     elevate,
                     &elevation,
+                    subprocess_env,
+                    sudo_config,
+                    ssh_config,
                 )?;
                 self.activate_boot_phase(
                     out_path,
@@ -304,6 +345,9 @@ impl OsRebuildActivateArgs {
                     &switch_to_configuration,
                     elevate,
                     elevation,
+                    subprocess_env,
+                    sudo_config,
+                    ssh_config,
                 )?;
             }
         }
@@ -330,6 +374,7 @@ impl OsRebuildActivateArgs {
         out_path: &Path,
         target_profile: &Path,
         actual_store_path: Option<&Path>,
+        ssh_config: &SshConfig,
     ) -> Result<(PathBuf, PathBuf)> {
         let is_remote_build = self.rebuild.target_host.is_some();
 
@@ -365,6 +410,7 @@ impl OsRebuildActivateArgs {
                 &resolved_profile,
                 target_host,
                 self.rebuild.build_host.as_ref(),
+                ssh_config,
             )?;
         } else {
             validate_system_closure(&resolved_profile)?;
@@ -389,6 +435,7 @@ impl OsRebuildActivateArgs {
 
     /// Runs the test phase. For remote switches this runs the full `switch`
     /// action instead of `test`.
+    #[expect(clippy::too_many_arguments)]
     fn activate_test_phase(
         &self,
         resolved_profile: &Path,
@@ -396,6 +443,9 @@ impl OsRebuildActivateArgs {
         action: ActivationAction,
         elevate: bool,
         elevation: &ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
         if let Some(target_host) = &self.rebuild.target_host {
             let activation_type = match action {
@@ -422,13 +472,15 @@ impl OsRebuildActivateArgs {
                     show_logs: self.show_activation_logs,
                     elevation: elevate.then_some(elevation.clone()),
                 },
+                ssh_config,
+                sudo_config,
             )
             .wrap_err(format!(
                 "Activation ({}) failed",
                 activation_type.as_str()
             ))?;
         } else {
-            Command::new(switch_to_configuration)
+            Command::new(switch_to_configuration, subprocess_env, sudo_config)
                 .arg("test")
                 .message("Activating configuration")
                 .elevate(elevate.then_some(elevation.clone()))
@@ -436,7 +488,7 @@ impl OsRebuildActivateArgs {
                     "NIXOS_INSTALL_BOOTLOADER",
                     "NIXOS_NO_CHECK",
                 ])
-                .with_required_env()
+                .with_env()
                 .show_output(self.show_activation_logs)
                 .run()
                 .wrap_err("Activation (test) failed")?;
@@ -446,6 +498,7 @@ impl OsRebuildActivateArgs {
     }
 
     /// Sets the system profile and installs the bootloader entry.
+    #[expect(clippy::too_many_arguments)]
     fn activate_boot_phase(
         &self,
         out_path: &Path,
@@ -453,6 +506,9 @@ impl OsRebuildActivateArgs {
         switch_to_configuration: &Path,
         elevate: bool,
         elevation: ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
         if let Some(target_host) = &self.rebuild.target_host {
             nh_remote::activate_remote(
@@ -465,6 +521,8 @@ impl OsRebuildActivateArgs {
                     show_logs: false,
                     elevation: elevate.then_some(elevation),
                 },
+                ssh_config,
+                sudo_config,
             )
             .wrap_err("Bootloader activation failed")?;
         } else {
@@ -475,28 +533,32 @@ impl OsRebuildActivateArgs {
                 "Failed to resolve base output path to store path",
             )?;
 
-            Command::new("nix")
+            Command::new("nix", subprocess_env, sudo_config)
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(&base_store_path)
                 .elevate(elevate.then_some(elevation.clone()))
-                .with_required_env()
+                .with_env()
                 .run()
                 .wrap_err("Failed to set system profile")?;
 
-            let mut cmd = Command::new(switch_to_configuration)
-                .arg("boot")
-                .elevate(elevate.then_some(elevation))
-                .message("Adding configuration to bootloader")
-                .preserve_envs([
-                    "NIXOS_INSTALL_BOOTLOADER",
-                    "NIXOS_NO_CHECK",
-                ]);
+            let mut cmd = Command::new(
+                switch_to_configuration,
+                subprocess_env,
+                sudo_config,
+            )
+            .arg("boot")
+            .elevate(elevate.then_some(elevation))
+            .message("Adding configuration to bootloader")
+            .preserve_envs([
+                "NIXOS_INSTALL_BOOTLOADER",
+                "NIXOS_NO_CHECK",
+            ]);
 
             if self.rebuild.install_bootloader {
                 cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
             }
 
-            cmd.with_required_env()
+            cmd.with_env()
                 .run()
                 .wrap_err("Bootloader activation failed")?;
         }
@@ -528,6 +590,8 @@ impl RebuildArgs {
     fn setup_build_context(
         &self,
         elevation: &ElevationStrategy,
+        _subprocess_env: &SubprocessEnv,
+        _sudo_config: &SudoConfig,
     ) -> Result<(bool, String)> {
         // Only check SSH key login if remote hosts are involved
         if self.build_host.is_some() || self.target_host.is_some() {
@@ -565,6 +629,7 @@ impl RebuildArgs {
     fn determine_remote_elevation(
         &self,
         elevation: &ElevationStrategy,
+        ssh_config: &SshConfig,
     ) -> Result<bool> {
         let Some(target_host) = &self.target_host else {
             return Ok(false);
@@ -572,7 +637,7 @@ impl RebuildArgs {
         if matches!(elevation, ElevationStrategy::None) {
             return Ok(false);
         }
-        let uid = nh_remote::probe_remote_uid(target_host)?;
+        let uid = nh_remote::probe_remote_uid(target_host, ssh_config)?;
         Ok(uid != 0)
     }
 
@@ -597,9 +662,13 @@ impl RebuildArgs {
         &self,
         target_hostname: &str,
         target: &BuildTarget,
+        flake_config: &FlakeConfig,
     ) -> Result<Installable> {
-        let installable =
-            self.common.installable.clone().resolve_or_default()?;
+        let installable = self
+            .common
+            .installable
+            .clone()
+            .resolve_or_default(flake_config)?;
 
         toplevel_for(target_hostname, installable, &target.attrs())
     }
@@ -609,6 +678,7 @@ impl RebuildArgs {
         toplevel: Installable,
         out_path: &Path,
         message: &str,
+        ssh_config: &SshConfig,
     ) -> Result<Option<PathBuf>> {
         // If a build host is specified, use proper remote build semantics:
         //
@@ -641,6 +711,7 @@ impl RebuildArgs {
                 &toplevel,
                 &config,
                 Some(out_path),
+                ssh_config,
             )?;
 
             Ok(Some(actual_store_path))
@@ -712,8 +783,22 @@ impl RebuildArgs {
 
     /// Builds the toplevel configuration without activating (`nh build`).
     #[expect(clippy::missing_errors_doc)]
-    pub fn build_only(&self, elevation: &ElevationStrategy) -> Result<()> {
-        self.build_target(&BuildTarget::Toplevel, elevation)
+    pub fn build_only(
+        &self,
+        elevation: &ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+        ssh_config: &SshConfig,
+    ) -> Result<()> {
+        self.build_target(
+            &BuildTarget::Toplevel,
+            elevation,
+            subprocess_env,
+            sudo_config,
+            flake_config,
+            ssh_config,
+        )
     }
 
     /// Shared flow for the build-only subcommands (`build`, `build-vm`,
@@ -723,14 +808,22 @@ impl RebuildArgs {
         &self,
         target: &BuildTarget,
         elevation: &ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (_, target_hostname) = self.setup_build_context(elevation)?;
+        let (_, target_hostname) = self
+            .setup_build_context(elevation, subprocess_env, sudo_config)?;
 
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
 
-        let toplevel = self
-            .resolve_installable_and_toplevel(&target_hostname, target)?;
+        let toplevel = self.resolve_installable_and_toplevel(
+            &target_hostname,
+            target,
+            flake_config,
+        )?;
 
         if self.update_args.update_all
             || self.update_args.update_input.is_some()
@@ -742,8 +835,12 @@ impl RebuildArgs {
             )?;
         }
 
-        let actual_store_path =
-            self.execute_build(toplevel, &out_path, &target.message())?;
+        let actual_store_path = self.execute_build(
+            toplevel,
+            &out_path,
+            &target.message(),
+            ssh_config,
+        )?;
 
         let target_profile =
             self.resolve_specialisation_and_profile(&out_path)?;
@@ -754,6 +851,7 @@ impl RebuildArgs {
             &target_profile,
             actual_store_path.as_deref(),
             &out_path,
+            ssh_config,
         )?;
 
         Ok(())
@@ -762,7 +860,13 @@ impl RebuildArgs {
 
 impl OsRollbackArgs {
     #[expect(clippy::too_many_lines, clippy::missing_errors_doc)]
-    pub fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
+    pub fn rollback(
+        &self,
+        elevation: ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        _flake_config: &FlakeConfig,
+    ) -> Result<()> {
         let elevate =
             has_elevation_status(self.bypass_root_check, &elevation)?;
 
@@ -850,13 +954,13 @@ impl OsRollbackArgs {
         info!("Setting system profile...");
 
         // Instead of direct symlink operations, use a command with proper elevation
-        Command::new("ln")
+        Command::new("ln", subprocess_env, sudo_config)
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
             .arg(SYSTEM_PROFILE)
             .elevate(elevate.then_some(elevation.clone()))
             .message("Setting system profile")
-            .with_required_env()
+            .with_env()
             .run()
             .wrap_err("Failed to set system profile during rollback")?;
 
@@ -891,12 +995,16 @@ impl OsRollbackArgs {
             return Err(missing_switch_to_configuration_error());
         }
 
-        match Command::new(&switch_to_configuration)
-            .arg("switch")
-            .elevate(elevate.then_some(elevation.clone()))
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .with_required_env()
-            .run()
+        match Command::new(
+            &switch_to_configuration,
+            subprocess_env,
+            sudo_config,
+        )
+        .arg("switch")
+        .elevate(elevate.then_some(elevation.clone()))
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+        .with_env()
+        .run()
         {
             Ok(()) => {
                 info!(
@@ -912,13 +1020,13 @@ impl OsRollbackArgs {
                         current_generation.number
                     ));
 
-                    Command::new("ln")
+                    Command::new("ln", subprocess_env, sudo_config)
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
                         .arg(SYSTEM_PROFILE)
                         .elevate(elevate.then_some(elevation))
                         .message("Rolling back system profile")
-                        .with_required_env()
+                        .with_env()
                         .run()
                         .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
                 }
@@ -937,9 +1045,14 @@ impl OsBuildImageArgs {
     pub fn build_image(
         &self,
         elevation: &ElevationStrategy,
+        subprocess_env: &SubprocessEnv,
+        sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+        ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (_, target_hostname) =
-            self.common.setup_build_context(elevation)?;
+        let (_, target_hostname) = self
+            .common
+            .setup_build_context(elevation, subprocess_env, sudo_config)?;
 
         // Show warning if no hostname was explicitly provided for image builds
         if self.common.hostname.is_none() {
@@ -955,7 +1068,7 @@ impl OsBuildImageArgs {
             .common
             .installable
             .clone()
-            .resolve_or_default()?;
+            .resolve_or_default(flake_config)?;
 
         // Get the available image variants for validation
         let valid_variants = match &installable {
@@ -989,6 +1102,10 @@ impl OsBuildImageArgs {
                 variant: self.image_variant.clone(),
             },
             elevation,
+            subprocess_env,
+            sudo_config,
+            flake_config,
+            ssh_config,
         )?;
 
         Ok(())
@@ -1107,7 +1224,11 @@ fn print_vm_instructions(out_path: &Path) {
 ///
 /// * `Ok(())` if the VM was started successfully.
 /// * `Err` if the script cannot be found or execution fails.
-fn run_vm(out_path: &Path) -> Result<()> {
+fn run_vm(
+    out_path: &Path,
+    subprocess_env: &SubprocessEnv,
+    sudo_config: &SudoConfig,
+) -> Result<()> {
     let vm_script = find_vm_script(out_path)?;
 
     info!(
@@ -1115,10 +1236,10 @@ fn run_vm(out_path: &Path) -> Result<()> {
         vm_script.display()
     );
 
-    Command::new(&vm_script)
+    Command::new(&vm_script, subprocess_env, sudo_config)
         .message("Running VM")
         .show_output(true)
-        .with_required_env()
+        .with_env()
         .run()
         .wrap_err_with(|| {
             format!("Failed to run VM script at {}", vm_script.display())
@@ -1174,6 +1295,7 @@ fn validate_system_closure_remote(
     system_path: &Path,
     target_host: &RemoteHost,
     build_host: Option<&RemoteHost>,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
     // Build context string for error messages
     let context = build_host.map(|build| {
@@ -1190,6 +1312,7 @@ fn validate_system_closure_remote(
         system_path,
         ESSENTIAL_FILES,
         context.as_deref(),
+        ssh_config,
     )
 }
 
@@ -1387,9 +1510,14 @@ pub fn toplevel_for<S: AsRef<str>>(
 
 impl OsReplArgs {
     #[expect(clippy::missing_errors_doc)]
-    pub fn run(self) -> Result<()> {
+    pub fn run(
+        self,
+        subprocess_env: &SubprocessEnv,
+        _sudo_config: &SudoConfig,
+        flake_config: &FlakeConfig,
+    ) -> Result<()> {
         let mut target_installable =
-            self.installable.resolve_or_default()?;
+            self.installable.resolve_or_default(flake_config)?;
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
@@ -1408,7 +1536,7 @@ impl OsReplArgs {
 
         let status = NixCommand::new(CommandKind::Repl)
             .args(target_installable.to_args())
-            .with_required_env()
+            .with_env(subprocess_env)
             .run_with_logs()?;
         if !status.success() {
             bail!("nix repl failed (exit status {status:?})");
@@ -1420,7 +1548,11 @@ impl OsReplArgs {
 
 impl OsGenerationsArgs {
     #[expect(clippy::missing_errors_doc)]
-    pub fn info(&self) -> Result<()> {
+    pub fn info(
+        &self,
+        _subprocess_env: &SubprocessEnv,
+        _sudo_config: &SudoConfig,
+    ) -> Result<()> {
         let profile = match self.profile {
             Some(ref p) => PathBuf::from(p),
             None => bail!("Profile path is required"),

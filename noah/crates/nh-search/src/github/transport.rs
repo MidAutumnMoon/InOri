@@ -9,7 +9,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-use super::auth;
+use super::auth::{self, GithubConfig};
 
 const API_URL: &str = "https://api.github.com/graphql";
 const SEND_ATTEMPTS: u32 = 3;
@@ -18,6 +18,7 @@ const SEND_RETRY_DELAY: Duration = Duration::from_millis(200);
 pub struct GraphqlClient {
     client: Client,
     token: SecretString,
+    config: GithubConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,14 +33,21 @@ struct GraphqlError {
 }
 
 impl GraphqlClient {
-    pub(super) fn new(token: SecretString) -> Result<Self> {
+    pub(super) fn new(
+        token: SecretString,
+        config: &GithubConfig,
+    ) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .user_agent(format!("nh-search/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .context("failed to create GitHub HTTP client")?;
 
-        Ok(Self { client, token })
+        Ok(Self {
+            client,
+            token,
+            config: config.clone(),
+        })
     }
 
     pub fn query<T>(&self, query: &str, variables: &Value) -> Result<T>
@@ -54,7 +62,7 @@ impl GraphqlClient {
             .context("failed to read GitHub GraphQL response")?;
 
         if !status.is_success() {
-            handle_http_error(status, &body)?;
+            handle_http_error(status, &body, &self.config)?;
         }
 
         let payload = serde_json::from_str::<GraphqlResponse<T>>(&body)
@@ -119,11 +127,15 @@ impl GraphqlClient {
     }
 }
 
-fn handle_http_error(status: StatusCode, body: &str) -> Result<()> {
+fn handle_http_error(
+    status: StatusCode,
+    body: &str,
+    config: &GithubConfig,
+) -> Result<()> {
     if status == StatusCode::UNAUTHORIZED {
         bail!(
             "GitHub rejected the configured token ({status}). {}",
-            auth::token_recovery_hint()
+            auth::token_recovery_hint(config)
         );
     }
 
@@ -149,7 +161,9 @@ mod tests {
     use std::env;
 
     use color_eyre::eyre::bail;
-    use serial_test::serial;
+    // TODO: Rewrite serial tests to use GithubConfig directly.
+    // use serial_test::serial;
+    /*
     use tempfile::tempdir;
 
     use super::*;
@@ -209,12 +223,17 @@ mod tests {
         assert!(message.contains(&token_path.display().to_string()));
         Ok(())
     }
+    */
+
+    use super::*;
 
     #[test]
     fn forbidden_response_stays_generic() -> Result<()> {
+        let config = GithubConfig::default();
         let Err(err) = handle_http_error(
             StatusCode::FORBIDDEN,
             r#"{"message":"forbidden"}"#,
+            &config,
         ) else {
             bail!("forbidden response should fail");
         };

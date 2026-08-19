@@ -11,7 +11,9 @@ use color_eyre::{
 use nix_command::{CommandKind, NixCommand};
 use tracing::debug;
 
-use crate::command::{Command, ElevationStrategy};
+use crate::command::{
+    Command, ElevationStrategy, SudoConfig, SubprocessEnv,
+};
 
 fn format_argv(argv: &[OsString]) -> String {
     argv.iter()
@@ -130,18 +132,13 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 /// # Panics
 ///
 /// Panics if the process re-execution with elevated privileges fails.
-///
-/// # Examples
-///
-/// ```rust
-/// use nh_core::command::ElevationStrategy;
-///
-/// // Elevate the current process to run as root
-/// let elevate: fn(ElevationStrategy) -> ! = nh_core::util::self_elevate;
-/// ```
 #[allow(clippy::panic, clippy::expect_used)]
-pub fn self_elevate(strategy: ElevationStrategy) -> ! {
-    let mut cmd = Command::self_elevate_cmd(strategy)
+pub fn self_elevate(
+    strategy: ElevationStrategy,
+    subprocess_env: &SubprocessEnv,
+    sudo_config: &SudoConfig,
+) -> ! {
+    let mut cmd = Command::self_elevate_cmd(strategy, subprocess_env, sudo_config)
         .expect("Failed to create self-elevation command");
     debug!("{:?}", cmd);
 

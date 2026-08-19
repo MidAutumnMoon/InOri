@@ -96,7 +96,12 @@ impl args::CleanMode {
     ///
     /// Panics if the current user's UID cannot be resolved to a user. For
     /// example, if  `User::from_uid(uid)` returns `None`.
-    pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
+    pub fn run(
+        &self,
+        elevate: ElevationStrategy,
+        subprocess_env: &nh_core::command::SubprocessEnv,
+        sudo_config: &nh_core::command::SudoConfig,
+    ) -> Result<()> {
         let mut profiles = Vec::new();
         let mut gcroots_tagged = Vec::new();
         let now = SystemTime::now();
@@ -112,7 +117,7 @@ impl args::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    nh_core::util::self_elevate(elevate);
+                    nh_core::util::self_elevate(elevate, subprocess_env, sudo_config);
                 }
 
                 let paths_to_check = [
@@ -501,22 +506,22 @@ impl args::CleanMode {
                 gc_args.push("--max");
                 gc_args.push(max.as_str());
             }
-            Command::new("nix")
+            Command::new("nix", subprocess_env, sudo_config)
                 .args(gc_args)
                 .dry(args.dry)
                 .message("Performing garbage collection on the nix store")
                 .show_output(true)
-                .with_required_env()
+                .with_env()
                 .run()?;
         }
 
         if args.optimise {
-            Command::new("nix-store")
+            Command::new("nix-store", subprocess_env, sudo_config)
                 .arg("--optimise")
                 .dry(args.dry)
                 .message("Optimising the nix store")
                 .show_output(true)
-                .with_required_env()
+                .with_env()
                 .run()?;
         }
 

@@ -11,6 +11,37 @@ use yansi::{Color, Paint};
 
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
+/// Flake reference configuration captured from environment variables.
+///
+/// Replaces ad-hoc `env::var("NH_FLAKE")` etc. reads. Construct once
+/// in `main()` via `from_env()`, pass by reference.
+#[derive(Debug, Clone, Default)]
+pub struct FlakeConfig {
+    /// `NH_OS_FLAKE` — OS-specific flake reference.
+    pub os_flake: Option<String>,
+    /// `NH_FLAKE` — generic flake reference.
+    pub flake: Option<String>,
+    /// `NH_FILE` — path to a Nix file.
+    pub file: Option<String>,
+    /// `NH_ATTRP` — attribute path for file-based installables.
+    pub attrp: String,
+}
+
+impl FlakeConfig {
+    /// Capture flake-related env vars from the current process.
+    ///
+    /// Called once in `main()`. Tests should construct `FlakeConfig` directly.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            os_flake: std::env::var("NH_OS_FLAKE").ok().filter(|s| !s.is_empty()),
+            flake: std::env::var("NH_FLAKE").ok().filter(|s| !s.is_empty()),
+            file: std::env::var("NH_FILE").ok().filter(|s| !s.is_empty()),
+            attrp: std::env::var("NH_ATTRP").unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum InstallableArgs {
     Specified(Installable),
@@ -318,13 +349,13 @@ impl InstallableArgs {
     /// Returns whether the parsed CLI input or non-empty flake environment
     /// variables select flake mode for the command context.
     #[must_use]
-    pub fn uses_flakes(&self) -> bool {
+    pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
         // Empty flake env vars are invalid inputs. Do not count them as feature
         // requirements here; resolution reports the targeted validation error.
         match self {
             Self::Specified(Installable::Flake { .. }) => true,
             Self::Specified(_) => false,
-            Self::Unspecified => env_installable_source()
+            Self::Unspecified => env_installable_source(config)
                 .is_some_and(|source| source.uses_flakes()),
         }
     }
@@ -343,9 +374,9 @@ impl InstallableArgs {
     ///
     /// Returns an error when a configured flake environment variable is
     /// malformed.
-    fn resolve(self) -> color_eyre::Result<Option<Installable>> {
+    fn resolve(self, config: &FlakeConfig) -> color_eyre::Result<Option<Installable>> {
         match self {
-            Self::Unspecified => env_installable_source()
+            Self::Unspecified => env_installable_source(config)
                 .map(EnvInstallableSource::into_installable)
                 .transpose(),
             Self::Specified(installable) => Ok(Some(installable)),
@@ -364,8 +395,8 @@ impl InstallableArgs {
     /// Returns an error when environment resolution fails, when a local flake
     /// reference does not point at a flake directory, or when no default
     /// installable can be found.
-    pub fn resolve_or_default(self) -> color_eyre::Result<Installable> {
-        let Some(installable) = self.resolve()? else {
+    pub fn resolve_or_default(self, config: &FlakeConfig) -> color_eyre::Result<Installable> {
+        let Some(installable) = self.resolve(config)? else {
             return default_installable_for();
         };
 
@@ -374,23 +405,23 @@ impl InstallableArgs {
     }
 }
 
-fn env_installable_source() -> Option<EnvInstallableSource> {
-    if let Ok(value) = env::var("NH_OS_FLAKE") {
+fn env_installable_source(config: &FlakeConfig) -> Option<EnvInstallableSource> {
+    if let Some(value) = &config.os_flake {
         return Some(EnvInstallableSource::SpecificFlake {
             env_var: "NH_OS_FLAKE",
-            value,
+            value: value.clone(),
         });
     }
 
-    if let Ok(path) = env::var("NH_FILE") {
+    if let Some(path) = &config.file {
         return Some(EnvInstallableSource::File {
-            path,
-            attribute: env::var("NH_ATTRP").unwrap_or_default(),
+            path: path.clone(),
+            attribute: config.attrp.clone(),
         });
     }
 
-    if let Ok(value) = env::var("NH_FLAKE") {
-        return Some(EnvInstallableSource::GenericFlake(value));
+    if let Some(value) = &config.flake {
+        return Some(EnvInstallableSource::GenericFlake(value.clone()));
     }
 
     None

@@ -6,7 +6,7 @@ use std::{
 
 use color_eyre::eyre::{Result, eyre};
 use nh_core::{args::DiffType, progress};
-use nh_remote::{RemoteHost, ResolvedRemoteStorePath};
+use nh_remote::{RemoteHost, ResolvedRemoteStorePath, SshConfig};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
@@ -38,10 +38,10 @@ impl DiffEndpoint {
         }
     }
 
-    fn query_snapshot(&self) -> Result<dix::StoreSnapshot> {
+    fn query_snapshot(&self, ssh_config: &SshConfig) -> Result<dix::StoreSnapshot> {
         match self {
             Self::Local(path) => dix::query_store_snapshot(path, true),
-            Self::Remote(root) => root.query_snapshot(),
+            Self::Remote(root) => root.query_snapshot(ssh_config),
         }
     }
 }
@@ -92,6 +92,7 @@ pub fn handle_nixos_diff(
     target_profile: &Path,
     actual_store_path: Option<&Path>,
     out_path: &Path,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
     let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
 
@@ -134,6 +135,7 @@ pub fn handle_nixos_diff(
         target_profile,
         actual_store_path,
         out_path,
+        ssh_config,
     )
 }
 
@@ -143,6 +145,7 @@ fn print_nixos_generation_diff(
     target_profile: &Path,
     actual_store_path: Option<&Path>,
     out_path: &Path,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
     let Some(target_host) = target_host else {
         return print_dix_diff(current_profile, target_profile);
@@ -167,6 +170,7 @@ fn print_nixos_generation_diff(
         current_profile,
         target_profile,
         remote_profile,
+        ssh_config,
     );
     spinner.finish_and_clear();
 
@@ -178,13 +182,17 @@ fn query_remote_nixos_diff(
     current_profile: &Path,
     target_profile: &Path,
     remote_profile: Option<PathBuf>,
+    ssh_config: &SshConfig,
 ) -> Result<QueriedDiff> {
-    let old_root =
-        ResolvedRemoteStorePath::resolve(target_host, current_profile)?;
+    let old_root = ResolvedRemoteStorePath::resolve(
+        target_host,
+        current_profile,
+        ssh_config,
+    )?;
 
     let new = remote_profile
         .map(|path| {
-            ResolvedRemoteStorePath::resolve(target_host, &path)
+            ResolvedRemoteStorePath::resolve(target_host, &path, ssh_config)
                 .map(DiffEndpoint::Remote)
         })
         .transpose()?
@@ -192,16 +200,17 @@ fn query_remote_nixos_diff(
             DiffEndpoint::Local(target_profile.to_path_buf())
         });
 
-    query_endpoint_diff(&DiffEndpoint::Remote(old_root), &new)
+    query_endpoint_diff(&DiffEndpoint::Remote(old_root), &new, ssh_config)
 }
 
 fn query_endpoint_diff(
     old: &DiffEndpoint,
     new: &DiffEndpoint,
+    ssh_config: &SshConfig,
 ) -> Result<QueriedDiff> {
     thread::scope(|scope| -> Result<_> {
-        let old_snapshot = scope.spawn(|| old.query_snapshot());
-        let new_snapshot = scope.spawn(|| new.query_snapshot());
+        let old_snapshot = scope.spawn(|| old.query_snapshot(ssh_config));
+        let new_snapshot = scope.spawn(|| new.query_snapshot(ssh_config));
 
         let old_snapshot = old_snapshot.join().map_err(|_| {
             eyre!("old diff endpoint snapshot thread panicked")

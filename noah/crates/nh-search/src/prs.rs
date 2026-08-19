@@ -8,8 +8,8 @@ use crate::{
     branches::BranchPlan,
     github::{
         self, BranchReachability, BranchReachabilityRequest,
-        BranchReachabilityStatus, GitHubClient, PullRequest,
-        PullRequestState, parse_direct_pr_number,
+        BranchReachabilityStatus, GitHubClient, GithubConfig,
+        PullRequest, PullRequestState, parse_direct_pr_number,
     },
     render,
     terminal::SearchProgress,
@@ -17,12 +17,12 @@ use crate::{
 
 const DEFAULT_DAYS: u32 = 15;
 
-pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
+pub fn run(json: bool, args: &args::PrsArgs, github_config: &GithubConfig) -> Result<()> {
     let query = args.query.join(" ");
     let direct_pr_number = parse_direct_pr_number(&query);
     let days = args.days.value.unwrap_or(DEFAULT_DAYS);
-    let token = github::auth::token()?;
-    let client = GitHubClient::new(token)?;
+    let token = github::auth::token(github_config)?;
+    let client = GitHubClient::new(token, github_config)?;
     let then = Instant::now();
 
     let progress = SearchProgress::start(

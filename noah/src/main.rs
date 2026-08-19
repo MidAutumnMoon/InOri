@@ -1,10 +1,14 @@
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use color_eyre::Result;
 use ino_shell::{Shell, cmd};
 use nh::EyreRootcauseBridge;
-use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
+use nh_core::command::{
+    ElevationStrategy, ElevationStrategyArg, SudoConfig, SubprocessEnv,
+};
+use nh_installable::FlakeConfig;
+use nh_remote::SshConfig;
+use nh_search::GithubConfig;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -13,13 +17,17 @@ mod interface;
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
 
-struct GlobalFacts {
-    envvars: Envvars,
-    nix_variant: NixVariant,
-    flake_path: PathBuf,
+/// All runtime configuration captured from the environment at startup.
+///
+/// Assembled once in `main()`, passed by reference to subcommands.
+/// Each subsystem receives only the slice it needs.
+struct RuntimeEnv {
+    subprocess: SubprocessEnv,
+    sudo: SudoConfig,
+    flake: FlakeConfig,
+    ssh: SshConfig,
+    github: GithubConfig,
 }
-
-pub struct Envvars {}
 
 /// Variant of the system Nix. Determinate Nix is not supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,10 +48,16 @@ fn main() -> rootcause::Result<()> {
         .display_env_section(false)
         .install().into_rootcause()?;
 
-    let _facts = GlobalFacts {
-        envvars: Envvars {},
-        nix_variant: nix_variant()?,
-        flake_path: PathBuf::from(".."),
+    // Capture all environment-derived configuration once at startup.
+    // Subcommands receive only the slices they need.
+    // Validate the Nix environment before doing anything else.
+    nix_variant()?;
+    let env = RuntimeEnv {
+        subprocess: SubprocessEnv::from_env(),
+        sudo: SudoConfig::from_env(),
+        flake: FlakeConfig::from_env(),
+        ssh: SshConfig::from_env(),
+        github: GithubConfig::from_env(),
     };
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
@@ -89,7 +103,7 @@ fn main() -> rootcause::Result<()> {
         },
     );
 
-    args.command.run(elevation).into_rootcause()
+    args.command.run(&env, elevation).into_rootcause()
 }
 
 fn nix_variant() -> rootcause::Result<NixVariant> {
@@ -132,6 +146,3 @@ fn ensure_features_needed_are_set() -> rootcause::Result<()> {
     }
 }
 
-fn flake_path() -> rootcause::Result<PathBuf> {
-    todo!()
-}

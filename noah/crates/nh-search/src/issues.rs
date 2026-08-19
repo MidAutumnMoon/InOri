@@ -5,18 +5,18 @@ use serde::Serialize;
 
 use crate::{
     args,
-    github::{self, GitHubClient, Issue},
+    github::{self, GitHubClient, GithubConfig, Issue},
     render,
     terminal::SearchProgress,
 };
 
 const DEFAULT_DAYS: u32 = 15;
 
-pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
+pub fn run(json: bool, args: &args::IssuesArgs, github_config: &GithubConfig) -> Result<()> {
     let query = args.query.join(" ");
     let days = args.days.value.unwrap_or(DEFAULT_DAYS);
-    let token = github::auth::token()?;
-    let client = GitHubClient::new(token)?;
+    let token = github::auth::token(github_config)?;
+    let client = GitHubClient::new(token, github_config)?;
     let then = Instant::now();
 
     let progress = SearchProgress::start(

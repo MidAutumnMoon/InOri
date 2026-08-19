@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use nh_core::args::{DiffType, NixBuildPassthroughArgs};
-use nh_installable::InstallableArgs;
+use nh_installable::{FlakeConfig, InstallableArgs};
 use nh_remote::RemoteHost;
 
 use crate::generations::Field;
@@ -93,8 +93,8 @@ pub struct OsRebuildActivateArgs {
 
 impl RebuildArgs {
     #[must_use]
-    pub fn uses_flakes(&self) -> bool {
-        self.common.installable.uses_flakes()
+    pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
+        self.common.installable.uses_flakes(config)
     }
 }
 
@@ -182,8 +182,8 @@ pub struct OsReplArgs {
 
 impl OsReplArgs {
     #[must_use]
-    pub fn uses_flakes(&self) -> bool {
-        self.installable.uses_flakes()
+    pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
+        self.installable.uses_flakes(config)
     }
 }
 

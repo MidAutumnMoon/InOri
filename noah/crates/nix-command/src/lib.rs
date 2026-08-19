@@ -22,6 +22,99 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Pre-captured environment variables for subprocess execution.
+///
+/// Replaces ad-hoc `env::var` calls in `with_required_env`. Construct once
+/// at startup via `from_env()`, pass by reference. For tests, use `from_pairs()`.
+#[derive(Debug, Clone, Default)]
+pub struct SubprocessEnv {
+    /// `USER` env var, if set.
+    pub user: Option<String>,
+    /// `HOME` env var, if set.
+    pub home: Option<String>,
+    /// Preserved Nix-related vars (key, value) — only those present at capture.
+    /// Covers: `LOCALE_ARCHIVE`, `PATH`, `NIX_SSHOPTS`, `NIX_CONFIG`,
+    /// `NIX_PATH`, `NIX_REMOTE`, `NIX_SSL_CERT_FILE`, `NIX_USER_CONF_FILES`
+    pub nix_preserve: Vec<(String, String)>,
+    /// All `NH_*` env vars (key, value).
+    pub nh_vars: Vec<(String, String)>,
+}
+
+impl SubprocessEnv {
+    /// Capture subprocess-relevant env vars from the current process.
+    ///
+    /// Called once in `main()`. Tests should use `from_pairs()` instead.
+    #[must_use]
+    pub fn from_env() -> Self {
+        const PRESERVE_ENV: &[&str] = &[
+            "LOCALE_ARCHIVE",
+            "PATH",
+            "NIX_SSHOPTS",
+            "NIX_CONFIG",
+            "NIX_PATH",
+            "NIX_REMOTE",
+            "NIX_SSL_CERT_FILE",
+            "NIX_USER_CONF_FILES",
+        ];
+
+        let mut env = Self::default();
+        env.user = std::env::var("USER").ok();
+        env.home = std::env::var("HOME").ok();
+
+        for key in PRESERVE_ENV {
+            if let Ok(value) = std::env::var(key) {
+                env.nix_preserve.push(((*key).to_string(), value));
+            }
+        }
+
+        for (key, value) in std::env::vars() {
+            if key.starts_with("NH_") {
+                env.nh_vars.push((key, value));
+            }
+        }
+
+        env
+    }
+
+    /// Construct from explicit pairs (for testing).
+    #[must_use]
+    pub fn from_pairs(
+        user: Option<&str>,
+        home: Option<&str>,
+        nix_preserve: Vec<(&str, &str)>,
+        nh_vars: Vec<(&str, &str)>,
+    ) -> Self {
+        Self {
+            user: user.map(String::from),
+            home: home.map(String::from),
+            nix_preserve: nix_preserve
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            nh_vars: nh_vars
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    /// Look up a variable by key across all captured env vars.
+    ///
+    /// Searches `nix_preserve` first, then `nh_vars`. Used by
+    /// `Command::apply_env_to_exec` to resolve `Preserve` actions.
+    #[must_use]
+    pub fn lookup(&self, key: &str) -> Option<&str> {
+        self.nix_preserve
+            .iter()
+            .find_map(|(k, v)| (k == key).then_some(v.as_str()))
+            .or_else(|| {
+                self.nh_vars
+                    .iter()
+                    .find_map(|(k, v)| (k == key).then_some(v.as_str()))
+            })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
     Build,
@@ -346,38 +439,23 @@ impl NixCommand {
         self
     }
 
+    /// Apply subprocess environment variables from a [`SubprocessEnv`].
+    ///
+    /// Replaces the old `with_required_env()` which read `env::var` directly.
     #[must_use]
-    pub fn with_required_env(mut self) -> Self {
-        const PRESERVE_ENV: &[&str] = &[
-            "LOCALE_ARCHIVE",
-            "PATH",
-            "NIX_SSHOPTS",
-            "NIX_CONFIG",
-            "NIX_PATH",
-            "NIX_REMOTE",
-            "NIX_SSL_CERT_FILE",
-            "NIX_USER_CONF_FILES",
-        ];
-
-        if let Ok(user) = std::env::var("USER") {
+    pub fn with_env(mut self, env: &SubprocessEnv) -> Self {
+        if let Some(user) = &env.user {
             self = self.env("USER", user);
         }
-        if let Ok(home) = std::env::var("HOME") {
+        if let Some(home) = &env.home {
             self = self.env("HOME", home);
         }
-
-        for key in PRESERVE_ENV {
-            if let Ok(value) = std::env::var(key) {
-                self = self.env(key, value);
-            }
+        for (key, value) in &env.nix_preserve {
+            self = self.env(key, value);
         }
-
-        for (key, value) in std::env::vars() {
-            if key.starts_with("NH_") {
-                self = self.env(key, value);
-            }
+        for (key, value) in &env.nh_vars {
+            self = self.env(key, value);
         }
-
         self
     }
 

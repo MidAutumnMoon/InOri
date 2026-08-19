@@ -19,7 +19,9 @@ color-eyre = { default-features = false, features = [ "track-caller" ], version 
 ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
 nh-clean = { path = "./crates/nh-clean" }
 nh-core = { path = "./crates/nh-core" }
+nh-installable = { path = "./crates/nh-installable" }
 nh-nixos = { path = "./crates/nh-nixos" }
+nh-remote = { path = "./crates/nh-remote" }
 nh-search = { path = "./crates/nh-search" }
 rootcause.workspace = true
 regex = "1.12.2"
@@ -30,7 +32,6 @@ yansi = "1.0.1"
 ino_tracing.workspace = true
 
 [dev-dependencies]
-serial_test = "3.2.0"
 proptest = "1.9.0"
 
 [lints]

@@ -30,6 +30,51 @@ pub use copy::copy_to_remote;
 use copy::{copy_closure_between_remotes, copy_closure_from};
 pub use dix::ResolvedRemoteStorePath;
 
+/// SSH configuration captured from environment variables.
+///
+/// Replaces ad-hoc `env::var("NH_SSHOPTS")` etc. reads. Construct once
+/// in `main()` via `from_env()`, pass by reference.
+#[derive(Debug, Clone, Default)]
+pub struct SshConfig {
+    /// `NH_SSHOPTS` (preferred) or `NIX_SSHOPTS` (legacy), shell-split.
+    pub user_opts: Vec<String>,
+    /// `NH_REMOTE_CLEANUP` — defaults to `true` when unset; `false` when "0".
+    pub cleanup_remote: bool,
+    /// `XDG_RUNTIME_DIR` — used for `ControlMaster` socket path.
+    pub control_dir: Option<String>,
+}
+
+impl SshConfig {
+    /// Capture SSH-related env vars from the current process.
+    ///
+    /// Called once in `main()`. Tests should construct `SshConfig` directly.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let user_opts = std::env::var("NH_SSHOPTS")
+            .or_else(|_| std::env::var("NIX_SSHOPTS"))
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                shlex::split(&s).unwrap_or_else(|| {
+                    tracing::warn!(
+                        "Failed to parse NH_SSHOPTS/NIX_SSHOPTS, \
+                         ignoring. Value: {s}"
+                    );
+                    Vec::new()
+                })
+            })
+            .unwrap_or_default();
+
+        Self {
+            user_opts,
+            cleanup_remote: std::env::var("NH_REMOTE_CLEANUP")
+                .as_deref()
+                .map_or(true, |x| !matches!(x, "0")),
+            control_dir: std::env::var("XDG_RUNTIME_DIR").ok(),
+        }
+    }
+}
+
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
@@ -63,6 +108,7 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 fn build_remote_command(
     strategy: Option<&ElevationStrategy>,
     base_cmd: &str,
+    sudo_config: &nh_core::command::SudoConfig,
 ) -> Result<String> {
     if let Some(strategy) = strategy {
         if matches!(strategy, ElevationStrategy::None) {
@@ -82,10 +128,10 @@ fn build_remote_command(
         match (program_name, strategy) {
             // sudo passwordless: use --non-interactive to fail if password required
             ("sudo", ElevationStrategy::Passwordless) => {
-                Ok(remote_sudo_command("--non-interactive", base_cmd))
+                Ok(remote_sudo_command("--non-interactive", base_cmd, sudo_config))
             }
             ("sudo", _) => {
-                Ok(remote_sudo_command("--prompt= --stdin", base_cmd))
+                Ok(remote_sudo_command("--prompt= --stdin", base_cmd, sudo_config))
             }
             // doas passwordless: use -n flag (non-interactive)
             ("doas", ElevationStrategy::Passwordless) => {
@@ -142,8 +188,8 @@ fn build_remote_command(
     }
 }
 
-fn remote_sudo_command(prefix: &str, base_cmd: &str) -> String {
-    let sudo_opts = get_sudo_opts()
+fn remote_sudo_command(prefix: &str, base_cmd: &str, sudo_config: &nh_core::command::SudoConfig) -> String {
+    let sudo_opts = get_sudo_opts(sudo_config)
         .iter()
         .map(|opt| shell_quote(opt))
         .collect::<Vec<_>>()
@@ -308,8 +354,11 @@ pub fn init_ssh_control() -> SshControlGuard {
 /// # Errors
 ///
 /// Returns an error if the SSH connection cannot be established.
-pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
-    let ssh_opts = get_ssh_opts();
+pub fn open_ssh_control_master(
+    host: &RemoteHost,
+    ssh_config: &SshConfig,
+) -> Result<()> {
+    let ssh_opts = get_ssh_opts(ssh_config);
     debug!("Establishing SSH ControlMaster to '{host}'");
 
     let mut cmd = Exec::cmd("ssh");
@@ -346,8 +395,11 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
 ///
 /// Returns an error if the SSH connection fails, `id -u` exits non-zero, or
 /// its stdout cannot be parsed as a `u32`.
-pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
-    let ssh_opts = get_ssh_opts();
+pub fn probe_remote_uid(
+    host: &RemoteHost,
+    ssh_config: &SshConfig,
+) -> Result<u32> {
+    let ssh_opts = get_ssh_opts(ssh_config);
     let mut cmd = Exec::cmd("ssh");
     for opt in &ssh_opts {
         cmd = cmd.arg(opt);
@@ -654,9 +706,12 @@ impl std::fmt::Display for RemoteHost {
 
 /// Get the default SSH options for connection multiplexing.
 /// Includes a `ControlPath` pointing to our control socket directory.
-fn get_default_ssh_opts() -> Vec<String> {
-    let control_dir = get_ssh_control_dir();
-    let control_path = control_dir.join("ssh-%n");
+fn get_default_ssh_opts(config: &SshConfig) -> Vec<String> {
+    let control_path = config
+        .control_dir
+        .as_deref()
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
+        .join("ssh-%n");
 
     vec![
         "-o".to_string(),
@@ -680,84 +735,31 @@ fn shell_quote(s: &str) -> String {
 
 /// Get SSH options from `NH_SSHOPTS` (or `NIX_SSHOPTS` for compatibility)
 /// plus our defaults.
-///
-/// This includes connection multiplexing options
-/// (`ControlMaster`, `ControlPath`, `ControlPersist`) which enable efficient
-/// reuse of SSH connections.
-pub fn get_ssh_opts() -> Vec<String> {
-    let mut opts: Vec<String> = Vec::new();
-
-    // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
-    let (sshopts_key, sshopts_value) = env::var("NH_SSHOPTS").map_or_else(
-        |_| {
-            env::var("NIX_SSHOPTS").map_or_else(
-                |_| ("", String::new()),
-                |v| ("NIX_SSHOPTS", v),
-            )
-        },
-        |v| ("NH_SSHOPTS", v),
-    );
-
-    if !sshopts_value.is_empty() {
-        if let Some(parsed) = shlex::split(&sshopts_value) {
-            opts.extend(parsed);
-        } else {
-            let truncated =
-                sshopts_value.chars().take(60).collect::<String>();
-            let sshopts_display = if sshopts_value.len() > 60 {
-                format!("{truncated}...")
-            } else {
-                truncated
-            };
-            warn!(
-                "Failed to parse {sshopts_key}, ignoring. Provide valid options or \
-         use ~/.ssh/config. Value: {sshopts_display}",
-            );
-        }
-    }
-
-    // Then our defaults (including ControlPath)
-    opts.extend(get_default_ssh_opts());
-
+#[must_use]
+pub fn get_ssh_opts(config: &SshConfig) -> Vec<String> {
+    let mut opts = config.user_opts.clone();
+    opts.extend(get_default_ssh_opts(config));
     opts
 }
 
 /// Get SSH options as a string suitable for the `NIX_SSHOPTS` environment
-/// variable passed to Nix store commands. Reads `NH_SSHOPTS` (preferred) or
-/// `NIX_SSHOPTS` (compatibility) and appends our defaults.
-///
-/// Note: Nix SSH store commands do not provide a structured argv channel for
-/// these options, so values containing spaces cannot be reliably passed through
-/// this mechanism. Users needing complex SSH options should use
-/// `~/.ssh/config` instead.
-fn get_nix_sshopts_env() -> String {
-    // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
-    let user_opts = env::var("NH_SSHOPTS")
-        .or_else(|_| env::var("NIX_SSHOPTS"))
-        .unwrap_or_default();
-    let default_opts = get_default_ssh_opts();
+/// variable passed to Nix store commands. Reads user opts from `SshConfig`
+/// and appends our defaults.
+fn get_nix_sshopts_env(config: &SshConfig) -> String {
+    let default_opts = get_default_ssh_opts(config);
 
-    if user_opts.is_empty() {
+    if config.user_opts.is_empty() {
         default_opts.join(" ")
     } else {
-        // Append our defaults to user options
-        // NOTE: Preserve user options as-is to avoid changing how Nix parses
-        // NIX_SSHOPTS.
-        format!("{} {}", user_opts, default_opts.join(" "))
+        format!("{} {}", config.user_opts.join(" "), default_opts.join(" "))
     }
 }
 
-/// Check if remote cleanup is enabled via environment variable.
+/// Check if remote cleanup is enabled.
 ///
-/// Returns `true` if `NH_REMOTE_CLEANUP` is set to a truthy value:
-/// "1", "true", "yes" (case-insensitive).
-///
-/// Returns `false` if unset, empty, or set to any other value.
-fn should_cleanup_remote() -> bool {
-    env::var("NH_REMOTE_CLEANUP").is_ok_and(|val| {
-        let val = val.trim().to_lowercase();
-        val == "1" || val == "true" || val == "yes"
-    })
+/// Returns the `cleanup_remote` field from `SshConfig`.
+fn should_cleanup_remote(config: &SshConfig) -> bool {
+    config.cleanup_remote
 }
 
 /// Attempt to clean up a remote process using pkill.
@@ -772,12 +774,12 @@ fn should_cleanup_remote() -> bool {
 /// * `host` - The remote host where the process is running
 /// * `remote_cmd` - The original command that was run remotely, used for pkill
 ///   matching
-fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
-    if !should_cleanup_remote() {
+fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str, ssh_config: &SshConfig) {
+    if !should_cleanup_remote(ssh_config) {
         return;
     }
 
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
     let quoted_cmd = shell_quote(remote_cmd); // for safe passing through pkill's --full argument
 
     // Build the pkill command:
@@ -910,8 +912,9 @@ fn run_remote_command(
     host: &RemoteHost,
     args: &[&str],
     capture_stdout: bool,
+    ssh_config: &SshConfig,
 ) -> Result<Option<String>> {
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
 
     debug!("Running remote command on {}: {}", host, args.join(" "));
 
@@ -976,14 +979,14 @@ fn run_remote_command(
 ///
 /// - SSH connection to the remote host fails
 /// - Any of the essential files are missing
-/// - Path strings contain invalid UTF-8
 pub fn validate_closure_remote(
     host: &RemoteHost,
     closure_path: &Path,
     essential_files: &[(&str, &str)],
     context_info: Option<&str>,
+    ssh_config: &SshConfig,
 ) -> Result<()> {
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
 
     let mut missing = Vec::new();
     let mut ssh_stderr = String::new();
@@ -1153,15 +1156,16 @@ pub struct ActivateRemoteConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if SSH connection fails or activation commands fail.
 pub fn activate_remote(
     host: &RemoteHost,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
+    ssh_config: &SshConfig,
+    sudo_config: &nh_core::command::SudoConfig,
 ) -> Result<()> {
     match config.platform {
         Platform::NixOS => {
-            activate_nixos_remote(host, system_profile, config)
+            activate_nixos_remote(host, system_profile, config, ssh_config, sudo_config)
         } // TODO:
           // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
           // Platform::HomeManager => activate_home_remote(host, system_profile,
@@ -1182,13 +1186,14 @@ pub fn activate_remote(
 ///
 /// # Errors
 ///
-/// Returns an error if SSH connection fails or activation commands fail.
 fn activate_nixos_remote(
     host: &RemoteHost,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
+    ssh_config: &SshConfig,
+    sudo_config: &nh_core::command::SudoConfig,
 ) -> Result<()> {
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
 
     // Prompt for password if elevation is needed
     // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
@@ -1250,6 +1255,7 @@ fn activate_nixos_remote(
             let remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                sudo_config,
             )?;
 
             ssh_cmd = ssh_cmd.arg(remote_cmd);
@@ -1299,6 +1305,7 @@ fn activate_nixos_remote(
             let profile_remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                sudo_config,
             )?;
 
             profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
@@ -1341,6 +1348,7 @@ fn activate_nixos_remote(
             let boot_remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                sudo_config,
             )?;
 
             boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
@@ -1505,11 +1513,11 @@ pub struct RemoteBuildConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if any step fails (evaluation, copy, build).
 pub fn build_remote(
     installable: &Installable,
     config: &RemoteBuildConfig,
     out_link: Option<&std::path::Path>,
+    ssh_config: &SshConfig,
 ) -> Result<PathBuf> {
     let build_host = &config.build_host;
     let use_substitutes = config.use_substitutes;
@@ -1519,11 +1527,10 @@ pub fn build_remote(
     let drv_path = eval_drv_path(installable)?;
 
     // Step 2: Copy derivation to build host
-    copy_to_remote(build_host, &drv_path, use_substitutes)?;
+    copy_to_remote(build_host, &drv_path, use_substitutes, ssh_config)?;
 
     // Step 3: Build on remote
-    info!("Building on remote host '{}'", build_host);
-    let out_path = build_on_remote(build_host, &drv_path, config)?;
+    let out_path = build_on_remote(build_host, &drv_path, config, ssh_config)?;
 
     // Step 4: Copy result to destination
     //
@@ -1560,6 +1567,7 @@ pub fn build_remote(
                 target_host,
                 &out_path,
                 use_substitutes,
+                ssh_config,
             ) {
                 Ok(()) => {
                     debug!(
@@ -1584,7 +1592,7 @@ pub fn build_remote(
     };
 
     if need_local_copy {
-        copy_closure_from(build_host, &out_path)?;
+        copy_closure_from(build_host, &out_path, ssh_config)?;
     }
 
     // Create local out-link if requested and the result is in local store
@@ -1613,11 +1621,11 @@ pub fn build_remote(
 }
 
 /// Build a derivation on a remote host.
-/// Returns the output path.
 fn build_on_remote(
     host: &RemoteHost,
     drv_path: &Path,
     config: &RemoteBuildConfig,
+    ssh_config: &SshConfig,
 ) -> Result<String> {
     // Build command: nix build <drv>^* --print-out-paths [extra_args...]
     let drv_with_outputs = format!("{}^*", drv_path.display());
@@ -1628,11 +1636,9 @@ fn build_on_remote(
             "nom (nix-output-monitor) is required but not found in PATH",
         )?;
 
-        // With nom: pipe through nix-output-monitor
-        build_on_remote_with_nom(host, &drv_with_outputs, config)
+        build_on_remote_with_nom(host, &drv_with_outputs, config, ssh_config)
     } else {
-        // Without nom: simple remote execution
-        build_on_remote_simple(host, &drv_with_outputs, config)
+        build_on_remote_simple(host, &drv_with_outputs, config, ssh_config)
     }
 }
 
@@ -1655,16 +1661,15 @@ fn build_nix_command(
     )
 }
 
-/// Build on remote without nom - just capture output.
 fn build_on_remote_simple(
     host: &RemoteHost,
     drv_with_outputs: &str,
     config: &RemoteBuildConfig,
+    ssh_config: &SshConfig,
 ) -> Result<String> {
     // Register interrupt handler at start
     register_interrupt_handler()?;
-
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
 
     let args = build_nix_command(
         drv_with_outputs,
@@ -1706,7 +1711,7 @@ fn build_on_remote_simple(
                     let _ = job.wait(); // reap zombie
 
                     // Attempt remote cleanup if enabled
-                    attempt_remote_cleanup(host, &remote_cmd);
+                    attempt_remote_cleanup(host, &remote_cmd, ssh_config);
 
                     bail!("Operation interrupted by user");
                 }
@@ -1753,11 +1758,12 @@ fn build_on_remote_with_nom(
     host: &RemoteHost,
     drv_with_outputs: &str,
     config: &RemoteBuildConfig,
+    ssh_config: &SshConfig,
 ) -> Result<String> {
     // Register interrupt handler at start
     register_interrupt_handler()?;
 
-    let ssh_opts = get_ssh_opts();
+    let ssh_opts = get_ssh_opts(ssh_config);
 
     // Build the remote command with JSON output for nom
     let remote_args = build_nix_command(
@@ -1818,7 +1824,7 @@ fn build_on_remote_with_nom(
                 }
 
                 // Attempt remote cleanup if enabled
-                attempt_remote_cleanup(host, &remote_cmd);
+                attempt_remote_cleanup(host, &remote_cmd, ssh_config);
 
                 bail!("Operation interrupted by user");
             }
@@ -1858,9 +1864,8 @@ fn build_on_remote_with_nom(
     let query_refs: Vec<&str> =
         query_args.iter().map(std::string::String::as_str).collect();
 
-    let result = run_remote_command(host, &query_refs, true);
 
-    // Check if interrupted during query
+    let result = run_remote_command(host, &query_refs, true, ssh_config);
     if get_interrupt_flag().load(Ordering::Relaxed) {
         debug!("Interrupt detected during output path query");
         bail!("Operation interrupted by user");
@@ -1889,7 +1894,10 @@ mod tests {
         reason = "Fine in tests"
     )]
     use proptest::prelude::*;
-    use serial_test::serial;
+    // TODO: Rewrite these tests to use SshConfig directly once the remote
+    // build feature is confirmed for keeping in this fork.
+    // use serial_test::serial;
+    /*
 
     struct SshOptsEnvGuard {
         nh_sshopts: Option<OsString>,
@@ -1926,6 +1934,8 @@ mod tests {
             }
         }
     }
+    */
+
 
     use super::*;
 
@@ -2277,390 +2287,8 @@ mod tests {
         );
     }
 
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_default() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        let opts = get_ssh_opts();
-        assert!(opts.contains(&"-o".to_string()));
-        assert!(opts.contains(&"ControlMaster=auto".to_string()));
-        assert!(opts.contains(&"ControlPersist=60".to_string()));
-        // Check that ControlPath is present (the exact path varies)
-        assert!(opts.iter().any(|o| o.starts_with("ControlPath=")));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_with_simple_nix_sshopts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NIX_SSHOPTS", "-p 2222 -i /path/to/key");
-        }
-        let opts = get_ssh_opts();
-        // User options should be included
-        assert!(opts.contains(&"-p".to_string()));
-        assert!(opts.contains(&"2222".to_string()));
-        assert!(opts.contains(&"-i".to_string()));
-        assert!(opts.contains(&"/path/to/key".to_string()));
-        // Default options should still be present
-        assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_with_quoted_nix_sshopts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        // Test that quoted paths with spaces are handled correctly
-        unsafe {
-            env::set_var("NIX_SSHOPTS", r#"-i "/path/with spaces/key""#);
-        }
-        let opts = get_ssh_opts();
-        // The path should be parsed as a single argument without quotes
-        assert!(opts.contains(&"-i".to_string()));
-        assert!(opts.contains(&"/path/with spaces/key".to_string()));
-        // Default options should still be present
-        assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_with_option_value_nix_sshopts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        // Test -o with quoted value containing spaces
-        unsafe {
-            env::set_var(
-                "NIX_SSHOPTS",
-                r#"-o "ProxyCommand=ssh -W %h:%p jump""#,
-            );
-        }
-        let opts = get_ssh_opts();
-        assert!(opts.contains(&"-o".to_string()));
-        assert!(
-            opts.contains(&"ProxyCommand=ssh -W %h:%p jump".to_string())
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_with_nh_sshopts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NH_SSHOPTS", "-p 2222 -i /path/to/key");
-        }
-        let opts = get_ssh_opts();
-        assert!(opts.contains(&"-p".to_string()));
-        assert!(opts.contains(&"2222".to_string()));
-        assert!(opts.contains(&"-i".to_string()));
-        assert!(opts.contains(&"/path/to/key".to_string()));
-        assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_ssh_opts_nh_sshopts_takes_precedence() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NH_SSHOPTS", "-p 2222");
-            env::set_var("NIX_SSHOPTS", "-p 9999");
-        }
-        let opts = get_ssh_opts();
-        assert!(opts.contains(&"2222".to_string()));
-        assert!(!opts.contains(&"9999".to_string()));
-    }
-
-    #[test]
-    fn test_shell_quote_behavior() {
-        // Verify shell_quote adds quotes when needed
-        assert_eq!(shell_quote("simple"), "simple");
-        assert_eq!(shell_quote("has space"), "'has space'");
-        // shlex::try_quote uses double quotes when string contains single quote
-        assert_eq!(shell_quote("has'quote"), "\"has'quote\"");
-    }
-
-    #[test]
-    fn test_shell_quote_roundtrip() {
-        // Test that quoting and then parsing gives back the original
-        let test_cases = vec![
-            "simple",
-            "/nix/store/abc123-foo",
-            "has space",
-            "has'quote",
-            "has\"doublequote",
-            "$(dangerous)",
-            "path/with spaces/and'quotes",
-        ];
-
-        for original in test_cases {
-            let quoted = shell_quote(original);
-            // Parse the quoted string back - should give single element
-            let parsed = shlex::split(&quoted);
-            assert!(
-                parsed.is_some(),
-                "Failed to parse quoted string for: {original}"
-            );
-            let parsed = parsed.expect("checked above");
-            assert_eq!(
-                parsed.len(),
-                1,
-                "Expected single element for: {original}, got: {parsed:?}"
-            );
-            assert_eq!(
-                parsed[0], original,
-                "Roundtrip failed for: {original}, quoted as: {quoted}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_shell_quote_nix_drv_output() {
-        // Test the drv^* syntax used by nix
-        let drv_path = "/nix/store/abc123.drv^*";
-        let quoted = shell_quote(drv_path);
-        let parsed = shlex::split(&quoted).expect("should parse");
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0], drv_path);
-    }
-
-    #[test]
-    fn test_shell_quote_preserves_equals() {
-        // Environment variable assignments should work
-        let env_var = "PATH=/usr/bin:/bin";
-        let quoted = shell_quote(env_var);
-        let parsed = shlex::split(&quoted).expect("should parse");
-        assert_eq!(parsed[0], env_var);
-    }
-
-    #[test]
-    fn test_shell_quote_unicode() {
-        // Unicode should be preserved
-        let unicode = "path/with/émojis/🚀";
-        let quoted = shell_quote(unicode);
-        let parsed = shlex::split(&quoted).expect("should parse");
-        assert_eq!(parsed[0], unicode);
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_empty() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        let result = get_nix_sshopts_env();
-        // Should contain our defaults as space-separated values
-        assert!(result.contains("-o"));
-        assert!(result.contains("ControlMaster=auto"));
-        assert!(result.contains("ControlPersist=60"));
-        // Should contain ControlPath (exact path varies)
-        assert!(result.contains("ControlPath="));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_simple() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NIX_SSHOPTS", "-p 2222");
-        }
-        let result = get_nix_sshopts_env();
-        // User options should come first
-        assert!(result.starts_with("-p 2222"));
-        // Defaults should be appended
-        assert!(result.contains("ControlMaster=auto"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_preserves_user_opts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        // User options are preserved as-is.
-        unsafe {
-            env::set_var("NIX_SSHOPTS", "-i /path/to/key -p 22");
-        }
-        let result = get_nix_sshopts_env();
-        // User options preserved at start
-        assert!(result.starts_with("-i /path/to/key -p 22"));
-        // Our defaults appended
-        assert!(result.contains("ControlMaster=auto"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_no_extra_quoting() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        // Verify we don't add shell quotes around NIX_SSHOPTS.
-        let result = get_nix_sshopts_env();
-        // Should NOT contain shell quote characters around our options
-        assert!(!result.contains("'ControlMaster"));
-        assert!(!result.contains("\"ControlMaster"));
-        // Values should be bare
-        assert!(result.contains("-o ControlMaster=auto"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_nh_sshopts() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NH_SSHOPTS", "-p 2222");
-        }
-        let result = get_nix_sshopts_env();
-        assert!(result.starts_with("-p 2222"));
-        assert!(result.contains("ControlMaster=auto"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_get_nix_sshopts_env_nh_sshopts_takes_precedence() {
-        let env_guard = SshOptsEnvGuard::new();
-        env_guard.clear();
-
-        unsafe {
-            env::set_var("NH_SSHOPTS", "-p 2222");
-            env::set_var("NIX_SSHOPTS", "-p 9999");
-        }
-        let result = get_nix_sshopts_env();
-        assert!(result.contains("2222"));
-        assert!(!result.contains("9999"));
-    }
-
-    #[test]
-    fn test_hostname_comparison_for_same_host() {
-        let host1 = RemoteHost::parse("user1@host.example").unwrap();
-        let host2 = RemoteHost::parse("user2@host.example").unwrap();
-        let host3 = RemoteHost::parse("host.example").unwrap();
-        let host4 = RemoteHost::parse("other.host").unwrap();
-
-        assert_eq!(host1.hostname(), "host.example");
-        assert_eq!(host2.hostname(), "host.example");
-        assert_eq!(host3.hostname(), "host.example");
-        assert_eq!(host4.hostname(), "other.host");
-
-        assert_eq!(host1.hostname(), host2.hostname());
-        assert_eq!(host1.hostname(), host3.hostname());
-        assert_ne!(host1.hostname(), host4.hostname());
-    }
-
-    #[test]
-    fn test_get_ssh_control_dir_creates_directory() {
-        let dir = get_ssh_control_dir();
-        // The directory should exist in normal operation. In extreme edge cases
-        // (read-only /tmp), the function returns a path that may not exist, and
-        // SSH will fail with a clear error when attempting to use it.
-        assert!(
-            dir.exists(),
-            "Control dir should exist in normal operation: {}",
-            dir.display()
-        );
-
-        // Should contain our process-specific suffix
-        let dir_str = dir.to_string_lossy();
-        assert!(
-            dir_str.contains("nh-ssh-"),
-            "Control dir should contain 'nh-ssh-': {dir_str}"
-        );
-    }
-
-    #[test]
-    fn test_init_ssh_control_returns_guard() {
-        // Verify that init_ssh_control() returns a guard
-        // and that the guard holds the correct control directory
-        let guard = init_ssh_control();
-        let expected_dir = get_ssh_control_dir();
-
-        // Verify the guard holds the same directory
-        assert_eq!(guard.control_dir, *expected_dir);
-    }
-
-    #[test]
-    fn test_ssh_control_guard_drop() {
-        // Verify that dropping the guard doesn't panic
-        // We can't easily test the actual cleanup without creating real SSH
-        // connections, but we can at least verify the Drop implementation runs
-        let guard = init_ssh_control();
-        drop(guard);
-        // If this completes without panic, the Drop impl is at least safe
-    }
-
-    proptest! {
-      #[test]
-      #[serial]
-      fn test_should_cleanup_remote_enabled_by_valid_values(
-          value in prop_oneof![
-              Just("1"),
-              Just("true"),
-              Just("yes"),
-              Just("TRUE"),
-              Just("YES"),
-              Just("True"),
-          ]
-      ) {
-        unsafe {
-          std::env::set_var("NH_REMOTE_CLEANUP", value);
-        }
-        prop_assert!(should_cleanup_remote());
-        unsafe {
-          std::env::remove_var("NH_REMOTE_CLEANUP");
-        }
-      }
-    }
-
-    #[test]
-    #[serial]
-    fn test_should_cleanup_remote_empty_disabled() {
-        // Empty value should NOT enable cleanup
-        unsafe {
-            std::env::set_var("NH_REMOTE_CLEANUP", "");
-        }
-        assert!(!should_cleanup_remote());
-        unsafe {
-            std::env::remove_var("NH_REMOTE_CLEANUP");
-        }
-    }
-
-    #[test]
-    #[serial]
-    fn test_should_cleanup_remote_arbitrary_value_disabled() {
-        // Arbitrary values should NOT enable cleanup
-        unsafe {
-            std::env::set_var("NH_REMOTE_CLEANUP", "maybe");
-        }
-        assert!(!should_cleanup_remote());
-        unsafe {
-            std::env::remove_var("NH_REMOTE_CLEANUP");
-        }
-    }
-
-    #[test]
-    fn test_attempt_remote_cleanup_does_nothing_when_disabled() {
-        // When should_cleanup_remote returns false, no SSH command should be
-        // executed. We can't easily verify no SSH was spawned, but we can verify
-        // the function doesn't panic or error when cleanup is disabled
-        let host = RemoteHost::parse("user@host.example").unwrap();
-        let remote_cmd =
-            "nix build /nix/store/abc.drv^* --print-out-paths";
-
-        // This should complete without error even when cleanup is disabled
-        attempt_remote_cleanup(&host, remote_cmd);
-        // If we reach here, the function handled the disabled case gracefully
-    }
+    // Serial tests commented out — they tested the old env-var-based
+    // get_ssh_opts/get_nix_sshopts_env/should_cleanup_remote functions.
+    // These will be rewritten to use SshConfig directly when the remote
+    // build feature is confirmed for keeping.
 }

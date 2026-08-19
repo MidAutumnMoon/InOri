@@ -11,6 +11,7 @@ use secrecy::SecretString;
 
 use self::transport::GraphqlClient;
 pub use self::{
+    auth::GithubConfig,
     issues::{Issue, IssueState},
     prs::{PullRequest, PullRequestState, parse_direct_pr_number},
     reachability::{
@@ -29,9 +30,9 @@ impl GitHubClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be built.
-    pub fn new(token: SecretString) -> Result<Self> {
+    pub fn new(token: SecretString, config: &GithubConfig) -> Result<Self> {
         Ok(Self {
-            graphql: GraphqlClient::new(token)?,
+            graphql: GraphqlClient::new(token, config)?,
         })
     }
 
