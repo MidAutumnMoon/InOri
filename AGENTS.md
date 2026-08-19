@@ -19,6 +19,10 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 - Prefer Context7 for library docs — it pulls real examples and up-to-date signatures.
 - Don't hallucinate option names, function signatures, or CLI flags. Look it up.
 
+## No `tail`/`head`
+
+Do not pipe command output through `head` or `tail`, tools will properly handle large output natively.
+
 ## Workspace Layout
 
 ### Binary Crates
@@ -75,3 +79,4 @@ After making changes (scope to the relevant app/crate):
 1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>`
 2. **Test**: `cargo test --all-features --package <crate>`
 3. Ensure the above all pass before considering the change complete.
+
