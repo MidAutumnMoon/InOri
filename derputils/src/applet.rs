@@ -7,12 +7,12 @@ use std::path::Path;
 use crate::BIN_NAME;
 use crate::applets;
 
-/// Failure that `main` must interpret.
+/// How an applet run can fail; `main` renders both.
 #[derive(Debug)]
 pub enum RunFailure {
-    /// CLI parse/help/version exit — bpaf renders the message.
+    /// CLI parse exit, including `--help`/`--version`; bpaf renders it.
     Cli(bpaf::ParseFailure),
-    /// Applet runtime failure.
+    /// Runtime failure; rendered as a report.
     Applet(rootcause::Report),
 }
 
@@ -21,7 +21,7 @@ pub enum RunFailure {
 pub struct Applet {
     /// Selector: matched against `argv[0]` basename and `{BIN_NAME} NAME`.
     pub name: &'static str,
-    /// One-line description for the applet listing.
+    /// One-liner shown in the applet listing.
     pub descr: &'static str,
     /// Parse `args` (the applet's own `argv[1..]`), run, and print any output.
     pub run: fn(args: &[OsString]) -> Result<(), RunFailure>,
@@ -45,7 +45,7 @@ fn find_applet(name: &str) -> Option<&'static Applet> {
     APPLETS.iter().find(|a| a.name == name)
 }
 
-/// Top-level usage text listing all applets.
+/// Usage text listing all applets.
 #[must_use]
 pub fn usage() -> String {
     use std::fmt::Write;
@@ -60,23 +60,21 @@ pub fn usage() -> String {
 /// What `main` should do after inspecting `argv`.
 #[derive(Debug)]
 pub enum Selection<'a> {
-    /// Run `applet` with the given argument slice.
+    /// Run `applet` with `args`.
     Run {
         applet: &'a Applet,
         args: &'a [OsString],
     },
-    /// Print the top-level usage listing (stdout, exit 0).
+    /// Print usage to stdout, exit 0.
     Help,
-    /// Print the version (stdout, exit 0).
+    /// Print the version to stdout, exit 0.
     Version,
-    /// Dispatcher name invoked with no applet at all (usage to stderr, exit 1).
+    /// Dispatcher invoked with no applet: usage to stderr, exit 1.
     NoApplet,
-    /// Neither a known applet name nor the dispatcher name.
+    /// Unrecognized applet name: error and usage to stderr, exit 1.
     UnknownApplet { name: String },
 }
 
-/// Resolve an applet name into a selection: run it with `args`, or report it
-/// unknown.
 fn resolve_applet(name: String, args: &[OsString]) -> Selection<'_> {
     find_applet(&name).map_or_else(
         || Selection::UnknownApplet { name },
@@ -84,7 +82,8 @@ fn resolve_applet(name: String, args: &[OsString]) -> Selection<'_> {
     )
 }
 
-/// Multicall dispatch: decide what to run from `argv[0]` and the raw args.
+/// Multicall dispatch: pick the applet from `argv[0]`, or from the first
+/// argument when invoked under the dispatcher name.
 #[must_use]
 pub fn select<'a>(
     invoked_as: &'a OsStr,

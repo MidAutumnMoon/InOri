@@ -8,10 +8,8 @@ use bpaf::Parser;
 
 use crate::applet::RunFailure;
 
-/// Applet selector name.
 pub const NAME: &str = "uuid7";
 
-/// CLI parser for `uuid7`; takes no arguments.
 #[must_use]
 pub fn cli() -> OptionParser<()> {
     bpaf::pure(())
@@ -20,12 +18,6 @@ pub fn cli() -> OptionParser<()> {
         .version(env!("CARGO_PKG_VERSION"))
 }
 
-/// Multicall entry: parse `args` (applet `argv[1..]`) and run.
-///
-/// # Errors
-///
-/// Returns a [`RunFailure::Cli`] for parse/help/version exits and a
-/// [`RunFailure::Applet`] for runtime failures.
 pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
     cli()
         .run_inner(Args::from(args).set_name(NAME))

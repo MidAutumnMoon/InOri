@@ -14,19 +14,17 @@ use tracing::debug;
 
 use crate::applet::RunFailure;
 
-/// Applet selector name.
 pub const NAME: &str = "quraa";
 
-/// QR code input source; exactly one is required.
+/// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]
 pub enum Source {
-    /// Take the text content of the clipboard.
+    /// Text from the clipboard.
     Clipboard,
-    /// Read standard input until EOF.
+    /// Standard input, read to EOF.
     Stdin,
 }
 
-/// CLI parser for `quraa`.
 #[must_use]
 pub fn cli() -> OptionParser<Source> {
     let clipboard = short('c')
@@ -37,7 +35,7 @@ pub fn cli() -> OptionParser<Source> {
         .long("stdin")
         .help("Read standard input as the QR code")
         .req_flag(Source::Stdin);
-    // Exactly one source; both/neither rejected by bpaf itself.
+    // Exactly one source — bpaf itself rejects both or neither.
     construct!([clipboard, stdin])
         .to_options()
         .descr(
@@ -46,12 +44,6 @@ pub fn cli() -> OptionParser<Source> {
         .version(env!("CARGO_PKG_VERSION"))
 }
 
-/// Multicall entry: parse `args` (applet `argv[1..]`) and run.
-///
-/// # Errors
-///
-/// Returns a [`RunFailure::Cli`] for parse/help/version exits and a
-/// [`RunFailure::Applet`] for runtime failures.
 pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
     let source = cli()
         .run_inner(Args::from(args).set_name(NAME))
