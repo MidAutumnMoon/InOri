@@ -1,8 +1,61 @@
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::needless_pass_by_value,
+    reason = "test code"
+)]
+
+mod common;
+
 use std::collections::BTreeMap;
 
 use ino_shell::cmd;
 
-use crate::setup;
+use common::setup;
+
+const VAR: &str = "SPICA";
+
+#[test]
+fn test_subshells_env() {
+    let sh = setup();
+
+    let e1 = sh.var_os(VAR);
+    {
+        let mut sh = sh.clone();
+        sh.set_var(VAR, "1");
+        let e2 = sh.var_os(VAR);
+        assert_eq!(e2.as_deref(), Some("1".as_ref()));
+        {
+            let mut sh = sh.clone();
+            sh.set_var(VAR, "2");
+            let e3 = sh.var_os(VAR);
+            assert_eq!(e3.as_deref(), Some("2".as_ref()));
+        }
+        let e4 = sh.var_os(VAR);
+        assert_eq!(e4, e2);
+    }
+    let e5 = sh.var_os(VAR);
+    assert_eq!(e5, e1);
+}
+
+#[test]
+fn test_push_env_and_set_env_var() {
+    let sh = setup();
+
+    let e1 = sh.var_os(VAR);
+    {
+        let mut sh = sh.clone();
+        sh.set_var(VAR, "1");
+        let e2 = sh.var_os(VAR);
+        assert_eq!(e2.as_deref(), Some("1".as_ref()));
+        sh.set_var(VAR, "2");
+        let e3 = sh.var_os(VAR);
+        assert_eq!(e3.as_deref(), Some("2".as_ref()));
+    }
+    let e5 = sh.var_os(VAR);
+    assert_eq!(e5, e1);
+}
 
 #[test]
 fn test_env() {
@@ -76,7 +129,10 @@ fn test_env_clear() {
     let v1 = "xshell_test_123";
     let v2 = "xshell_test_456";
 
-    let xecho = format!("./target/xecho{}", std::env::consts::EXE_SUFFIX);
+    // `env_clear()` wipes PATH, so `xecho` can't be resolved via `$PATH`.
+    // Use the absolute path Cargo gives us via `CARGO_BIN_EXE_xecho`.
+    let xecho = std::env::var("CARGO_BIN_EXE_xecho")
+        .expect("CARGO_BIN_EXE_xecho must be set by the test harness");
 
     assert_env(
         cmd!(sh, "{xecho} -$ {v1} {v2}")

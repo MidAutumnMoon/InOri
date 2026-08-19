@@ -1,7 +1,16 @@
-use crate::setup;
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test code"
+)]
+
+mod common;
+
 use std::time::Duration;
 
 use ino_shell::cmd;
+
+use common::setup;
 
 /// Deadline for the *failure* cases: the command under test sleeps 5s, so the
 /// timeout must fire well inside that window or the suite waits the full sleep.
@@ -13,9 +22,8 @@ const SUCCESS_TIMEOUT: Duration = Duration::from_secs(3);
 #[test]
 fn test_run_timeout_success() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 1"); // Command that xsleeps for 1 second
+    let command = cmd!(sh, "xsleep 1");
 
-    // Run the command with a timeout
     let result = command.timeout(SUCCESS_TIMEOUT).run();
     assert!(
         result.is_ok(),
@@ -26,9 +34,8 @@ fn test_run_timeout_success() {
 #[test]
 fn test_run_timeout_failure() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 5"); // Command that xsleeps for 5 seconds
+    let command = cmd!(sh, "xsleep 5");
 
-    // Run the command with a timeout
     let result = command.timeout(FAILURE_TIMEOUT).run();
     assert!(result.is_err(), "Command should fail due to timeout");
 }
@@ -36,9 +43,8 @@ fn test_run_timeout_failure() {
 #[test]
 fn test_read_timeout_success() {
     let sh = setup();
-    let command = cmd!(sh, "xecho Hello, world!"); // Command that prints a message
+    let command = cmd!(sh, "xecho Hello, world!");
 
-    // Run the command with a timeout and read stdout
     let result = command.timeout(SUCCESS_TIMEOUT).read();
     assert!(
         result.is_ok(),
@@ -50,9 +56,8 @@ fn test_read_timeout_success() {
 #[test]
 fn test_read_timeout_failure() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 5"); // Command that xsleeps for 5 seconds
+    let command = cmd!(sh, "xsleep 5");
 
-    // Run the command with a timeout and read stdout
     let result = command.timeout(FAILURE_TIMEOUT).read();
     assert!(result.is_err(), "Command should fail due to timeout");
 }
@@ -60,9 +65,8 @@ fn test_read_timeout_failure() {
 #[test]
 fn test_read_stderr_timeout_success() {
     let sh = setup();
-    let command = cmd!(sh, "xecho -e Error message"); // Command that prints an error message to stderr
+    let command = cmd!(sh, "xecho -e Error message");
 
-    // Run the command with a timeout and read stderr
     let result = command.timeout(SUCCESS_TIMEOUT).read_stderr();
     assert!(
         result.is_ok(),
@@ -74,9 +78,8 @@ fn test_read_stderr_timeout_success() {
 #[test]
 fn test_read_stderr_timeout_failure() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 5"); // Command that xsleeps for 5 seconds
+    let command = cmd!(sh, "xsleep 5");
 
-    // Run the command with a timeout and read stderr
     let result = command.timeout(FAILURE_TIMEOUT).read_stderr();
     assert!(result.is_err(), "Command should fail due to timeout");
 }
@@ -84,9 +87,8 @@ fn test_read_stderr_timeout_failure() {
 #[test]
 fn test_output_timeout_success() {
     let sh = setup();
-    let command = cmd!(sh, "xecho Hello, world!"); // Command that prints a message
+    let command = cmd!(sh, "xecho Hello, world!");
 
-    // Run the command with a timeout and get the full output
     let result = command.timeout(SUCCESS_TIMEOUT).output();
     assert!(
         result.is_ok(),
@@ -102,9 +104,8 @@ fn test_output_timeout_success() {
 #[test]
 fn test_output_timeout_failure() {
     let sh = setup();
-    let command = cmd!(sh, "xsleep 5"); // Command that xsleeps for 5 seconds
+    let command = cmd!(sh, "xsleep 5");
 
-    // Run the command with a timeout and get the full output
     let result = command.timeout(FAILURE_TIMEOUT).output();
     assert!(result.is_err(), "Command should fail due to timeout");
 }
