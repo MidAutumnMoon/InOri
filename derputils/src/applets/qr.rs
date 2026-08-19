@@ -1,4 +1,4 @@
-//! `quraa` — generate a QR code from stdin or the clipboard.
+//! `qr` — generate a QR code from stdin or the clipboard.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -14,7 +14,7 @@ use tracing::debug;
 
 use crate::applet::RunFailure;
 
-pub const NAME: &str = "quraa";
+pub const NAME: &str = "qr";
 
 /// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]

@@ -30,9 +30,9 @@ pub struct Applet {
 /// All applets, in listing order; names are unique.
 pub const APPLETS: &[Applet] = &[
     Applet {
-        name: applets::quraa::NAME,
+        name: applets::qr::NAME,
         descr: "Generate a QR code from stdin or the clipboard",
-        run: applets::quraa::applet_main,
+        run: applets::qr::applet_main,
     },
     Applet {
         name: applets::uuid7::NAME,
@@ -122,10 +122,10 @@ mod test {
     #[test]
     fn applet_via_argv0() {
         let arg0 = args(&["-c"]);
-        let sel = select(OsStr::new("/usr/bin/quraa"), &arg0);
+        let sel = select(OsStr::new("/usr/bin/qr"), &arg0);
         match sel {
             Selection::Run { applet, args } => {
-                assert_eq!(applet.name, "quraa");
+                assert_eq!(applet.name, "qr");
                 assert_eq!(args, &[OsString::from("-c")]);
             }
             other => panic!("expected Run, got {other:?}"),
