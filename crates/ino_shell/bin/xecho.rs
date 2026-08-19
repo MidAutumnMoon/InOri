@@ -20,7 +20,7 @@ fn try_main() -> io::Result<()> {
             "-e" => tee_stderr = true,
             "-i" => echo_stdin = true,
             "-$" => echo_env = true,
-            "-f" => fail = true,
+"-f" => fail = true,
             "-s" => suicide = true,
             _ => break,
         }
@@ -39,7 +39,7 @@ fn try_main() -> io::Result<()> {
             if tee_stderr {
                 write!(stderr, $($tt)*)?;
             }
-        }
+        };
     }
 
     if echo_stdin {
@@ -65,6 +65,12 @@ fn try_main() -> io::Result<()> {
     if suicide {
         #[cfg(unix)]
         unsafe {
+            // SAFETY: `getpid` returns the calling process's own pid and
+            // has no Preconditions beyond being callable (always safe).
+            // `kill` with `SIGKILL` (9) targets our own pid, which we
+            // just retrieved; the worst case is terminating this process,
+            // which is the intended effect. No file descriptors or memory
+            // are involved, so there is no aliasing concern.
             let pid = signals::getpid();
             if pid > 0 {
                 signals::kill(pid, 9);
@@ -78,7 +84,7 @@ fn try_main() -> io::Result<()> {
 #[cfg(unix)]
 mod signals {
     use std::os::raw::c_int;
-    extern "C" {
+    unsafe extern "C" {
         pub fn kill(pid: c_int, sig: c_int) -> c_int;
         pub fn getpid() -> c_int;
     }

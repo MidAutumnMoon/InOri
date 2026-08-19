@@ -1,5 +1,6 @@
 #![expect(
     clippy::unwrap_used,
+    clippy::expect_used,
     clippy::panic,
     clippy::needless_pass_by_value,
     reason = "test code"
@@ -12,28 +13,19 @@ use std::{ffi::OsStr, path::Path};
 
 use ino_shell::{Shell, cmd};
 
+#[expect(clippy::unwrap_used)]
 fn setup() -> Shell {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-
     let mut sh = Shell::new().unwrap();
-    let xecho_src = sh.current_dir().join("./tests/data/xecho.rs");
-    let xsleep_src = sh.current_dir().join("./tests/data/xsleep.rs");
-    let target_dir = sh.current_dir().join("./target/");
-
-    ONCE.call_once(|| {
-        cmd!(sh, "rustc {xecho_src} --out-dir {target_dir}")
-            .run()
-            .unwrap_or_else(|err| {
-                panic!("failed to install binaries from mock_bin: {err}")
-            });
-        cmd!(sh, "rustc {xsleep_src} --out-dir {target_dir}")
-            .run()
-            .unwrap_or_else(|err| {
-                panic!("failed to install binaries from mock_bin: {err}")
-            });
-    });
-
-    sh.set_var("PATH", target_dir);
+    // Cargo builds `bin/xecho` and `bin/xsleep` as workspace bin targets and
+    // exposes their paths via `CARGO_BIN_EXE_<name>` at test runtime. We point
+    // `PATH` at the directory holding them so `cmd!(sh, "xecho …")` resolves
+    // the fixture rather than any system `echo`.
+    let xecho = std::env::var("CARGO_BIN_EXE_xecho")
+        .expect("CARGO_BIN_EXE_xecho must be set by the test harness");
+    let bin_dir = Path::new(&xecho)
+        .parent()
+        .expect("CARGO_BIN_EXE_xecho must have a parent directory");
+    sh.set_var("PATH", bin_dir);
     sh
 }
 
