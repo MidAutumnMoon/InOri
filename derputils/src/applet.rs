@@ -39,6 +39,11 @@ pub const APPLETS: &[Applet] = &[
         descr: "Print a freshly generated UUIDv7",
         run: applets::uuid7::applet_main,
     },
+    Applet {
+        name: applets::completion::NAME,
+        descr: "Generate shell completion scripts for applets",
+        run: applets::completion::applet_main,
+    },
 ];
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
@@ -51,8 +56,18 @@ pub fn usage() -> String {
     use std::fmt::Write;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
+    let width = APPLETS
+        .iter()
+        .map(|a| a.name.len())
+        .max()
+        .unwrap_or(0);
     for applet in APPLETS {
-        let _ = writeln!(out, "  {:<8}{}", applet.name, applet.descr);
+        let _ = writeln!(
+            out,
+            "  {:<width$}  {}",
+            applet.name,
+            applet.descr
+        );
     }
     out
 }
