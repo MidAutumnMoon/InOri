@@ -1,8 +1,11 @@
 //! `completion` — generate shell completion scripts for applets.
 //!
-//! bpaf's completion generators are private and only reachable by invoking the
-//! binary with hidden `--bpaf-complete-style-<shell>` flags. This applet re-execs
-//! the current executable once per target applet and prints the captured script.
+//! bpaf exposes no public API for completion-script generation; the scripts are
+//! produced by hidden flags handled inside the parser. This applet re-execs the
+//! current executable with those flags and prints the captured output.
+//!
+//! Script generation and runtime completion use separate flags, so generated
+//! scripts query candidates at runtime rather than regenerating themselves.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -17,8 +20,8 @@ use bpaf::positional;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
-use crate::applet::RunFailure;
 use crate::APPLETS;
+use crate::applet::RunFailure;
 
 pub const NAME: &str = "completion";
 
@@ -32,8 +35,8 @@ pub enum Shell {
 }
 
 impl Shell {
-    /// The `--bpaf-complete-style-<name>` suffix bpaf expects.
-    const fn flag(self) -> &'static str {
+    /// Canonical shell name, shared by `Display` and `FromStr`.
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
             Self::Zsh => "zsh",
@@ -45,7 +48,7 @@ impl Shell {
 
 impl fmt::Display for Shell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.flag())
+        f.write_str(self.as_str())
     }
 }
 
@@ -95,41 +98,45 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
     let exe = std::env::current_exe()
         .context("Unable to resolve current executable")?;
 
-    // Resolve the target applet names up front so we bail before printing
-    // anything on an unknown name.
+    // Resolve up front so an unknown applet fails before any script is printed.
     let targets: Vec<&'static str> = match args.applet.as_deref() {
         Some(name) => {
-            let applet = APPLETS
-                .iter()
-                .find(|a| a.name == name)
-                .ok_or_else(|| rootcause::report!("unknown applet '{name}'"))?;
+            let applet =
+                APPLETS.iter().find(|a| a.name == name).ok_or_else(
+                    || rootcause::report!("unknown applet '{name}'"),
+                )?;
             vec![applet.name]
         }
         None => APPLETS.iter().map(|a| a.name).collect(),
     };
 
+    // Depends only on the shell, not the applet — build once.
+    let flag = format!("--bpaf-complete-style-{}", args.shell.as_str());
+    let multi = targets.len() > 1;
+
     for (i, &name) in targets.iter().enumerate() {
-        if targets.len() > 1 {
-            if i > 0 {
-                println!();
-            }
+        if multi && i > 0 {
+            println!();
+        }
+        if multi {
             println!("# completion for: {name}");
         }
         debug!(applet = name, shell = %args.shell, "generating completion");
-        let flag = format!("--bpaf-complete-style-{}", args.shell.flag());
-        let output = Command::new(&exe)
-            .arg(name)
-            .arg(&flag)
-            .output()
-            .context("Unable to execute self for completion generation")?;
+        let output =
+            Command::new(&exe).arg(name).arg(&flag).output().context(
+                "Unable to execute self for completion generation",
+            )?;
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
             rootcause::bail!(
-                "completion generation failed for '{name}' with status {}",
-                output.status
+                "completion generation failed for '{name}' with status {}\n{}",
+                output.status,
+                stderr.trim()
             );
         }
         let script = String::from_utf8(output.stdout)
             .context("Completion output was not valid UTF-8")?;
+        // bpaf scripts are already newline-terminated; `println!` would double them.
         print!("{script}");
     }
     Ok(())
