@@ -1,5 +1,4 @@
 use clap::{Args, Subcommand, ValueEnum};
-use color_eyre::{Result, eyre::bail};
 
 const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_CHANNEL: &str = "nixos-unstable";
@@ -105,7 +104,7 @@ pub struct LimitArg {
 
 #[derive(Args, Debug, Clone)]
 pub struct ChannelArg {
-    /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
+    /// Name of the channel to query (e.g. nixos-unstable, nixos-26.05)
     #[arg(
     id = "channel",
     long = "channel",
@@ -163,83 +162,6 @@ pub enum SearchDefault {
     Options,
 }
 
-pub enum ResolvedSearchMode<'a> {
-    Packages {
-        channel: &'a str,
-        limit: u64,
-        platforms: bool,
-        backend: BackendArgs,
-        query: &'a [String],
-    },
-    Options {
-        channel: &'a str,
-        limit: u64,
-        backend: BackendArgs,
-        query: &'a [String],
-    },
-}
-
-impl SearchArgs {
-    /// Resolve explicit subcommands and shorthand query arguments into one mode.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when shorthand search is used without a query, or when
-    /// shorthand option search receives package-only flags.
-    pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
-        match &self.mode {
-            Some(SearchMode::Packages(args)) => {
-                Ok(ResolvedSearchMode::Packages {
-                    channel: &args.channel.value,
-                    limit: args.limit.value,
-                    platforms: args.platforms.value,
-                    backend: args.backend,
-                    query: &args.query,
-                })
-            }
-            Some(SearchMode::Options(args)) => {
-                Ok(ResolvedSearchMode::Options {
-                    channel: &args.channel.value,
-                    limit: args.limit.value,
-                    backend: args.backend,
-                    query: &args.query,
-                })
-            }
-            None => self.resolved_shorthand_mode(),
-        }
-    }
-
-    fn resolved_shorthand_mode(&self) -> Result<ResolvedSearchMode<'_>> {
-        if self.query.is_empty() {
-            bail!(
-                "no query provided; try `nh search packages <query>`, `nh search \
-         options <query>`, or `nh search --help`"
-            );
-        }
-
-        match self.default_search {
-            SearchDefault::Packages => Ok(ResolvedSearchMode::Packages {
-                channel: &self.channel.value,
-                limit: self.limit.value,
-                platforms: self.platforms.value,
-                backend: self.backend,
-                query: &self.query,
-            }),
-            SearchDefault::Options => {
-                if self.platforms.value {
-                    bail!("--platforms only applies to package search");
-                }
-
-                Ok(ResolvedSearchMode::Options {
-                    channel: &self.channel.value,
-                    limit: self.limit.value,
-                    backend: self.backend,
-                    query: &self.query,
-                })
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

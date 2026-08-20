@@ -15,13 +15,6 @@ const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const BUNDLED_BACKEND_VERSION: &str =
     include_str!("BACKEND_VERSION");
 
-#[derive(Clone, Copy)]
-pub struct SearchContexts {
-    pub build: &'static str,
-    pub execute: &'static str,
-    pub parse: &'static str,
-}
-
 /// Backend index version selection for a search request.
 #[derive(Clone, Copy)]
 pub struct BackendConfig {
@@ -41,7 +34,6 @@ enum BackendResponse {
 pub fn search_documents<T>(
     query: &Search,
     channel: &str,
-    contexts: SearchContexts,
     config: BackendConfig,
 ) -> Result<(Vec<T>, Duration)>
 where
@@ -64,7 +56,7 @@ where
     // times, before giving up.
     let mut version = start;
     let body = loop {
-        match query_backend(query, channel, version, contexts)? {
+        match query_backend(query, channel, version)? {
             BackendResponse::Found(body) => break body,
             BackendResponse::Outdated => {
                 if version >= last {
@@ -99,7 +91,7 @@ where
     trace!(?parsed_response);
 
     let documents =
-        parsed_response.documents::<T>().context(contexts.parse)?;
+        parsed_response.documents::<T>().context("parsing the search documents")?;
     Ok((documents, elapsed))
 }
 
@@ -111,9 +103,8 @@ fn query_backend(
     query: &Search,
     channel: &str,
     version: u32,
-    contexts: SearchContexts,
 ) -> Result<BackendResponse> {
-    let body = serde_json::to_string(query).context(contexts.build)?;
+    let body = serde_json::to_string(query).context("building the search query")?;
     let url = format!(
         "https://search.nixos.org/backend/latest-{version}-{channel}/_search"
     );
@@ -144,15 +135,14 @@ fn query_backend(
             if err.kind() == std::io::ErrorKind::NotFound {
                 eyre!("`curl` was not found in PATH, but is required for searching")
             } else {
-                eyre!(err).wrap_err(contexts.execute)
+                eyre!(err).wrap_err("querying the elasticsearch API")
             }
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let execute = contexts.execute;
         bail!(
-            "{execute}: curl exited with {}: {stderr}",
+            "querying the elasticsearch API: curl exited with {}: {stderr}",
             output.status
         );
     }

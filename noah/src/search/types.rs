@@ -39,17 +39,9 @@ pub struct OptionSearchResult {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PackageJsonOutput {
-    pub query: String,
-    pub channel: String,
+pub struct JsonOutput<'a, T> {
+    pub query: &'a str,
+    pub channel: &'a str,
     pub elapsed_ms: u128,
-    pub results: Vec<PackageSearchResult>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OptionJsonOutput {
-    pub query: String,
-    pub channel: String,
-    pub elapsed_ms: u128,
-    pub results: Vec<OptionSearchResult>,
+    pub results: &'a [T],
 }

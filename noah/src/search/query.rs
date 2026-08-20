@@ -1,6 +1,5 @@
 use elasticsearch_dsl::{Operator, Query, Search, TextQueryType};
 
-
 const TYPE_OPTION: &str = "option";
 const TYPE_SERVICE: &str = "service";
 const OPTION_TYPES: &[&str] = &[TYPE_OPTION, TYPE_SERVICE];
