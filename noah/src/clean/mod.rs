@@ -681,10 +681,9 @@ fn is_auto_gcroot_entry(path: &Path) -> bool {
 
 /// Whether `path`'s basename looks like an ephemeral `nix build` result
 /// symlink (`result`, `result-dev`, etc.), as opposed to a live indirect
-/// gcroot such as home-manager's `current-home` or `current-system`. Only
-/// paths matching this are subject to age-based (`--keep-since`) cleanup;
-/// anything else that resolves straight into `/nix/store` is left alone
-/// unless it becomes orphaned.
+/// gcroot such as `current-system`. Only paths matching this are subject
+/// to age-based (`--keep-since`) cleanup; anything else that resolves
+/// straight into `/nix/store` is left alone unless it becomes orphaned.
 fn is_build_result_link(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -779,9 +778,9 @@ mod tests {
     }
 
     #[test]
-    fn gcroot_filter_rejects_current_home_shaped_auto_root() {
+    fn gcroot_filter_rejects_live_system_shaped_auto_root() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let link = dir.path().join("current-home");
+        let link = dir.path().join("current-system");
         std::os::unix::fs::symlink("/nix/store/abc123zzz-foo-1.0", &link)
             .expect("symlink");
 
@@ -789,7 +788,8 @@ mod tests {
         let regexes = [&*DIRENV_REGEX];
         assert!(
             !gcroot_matches_filter(src, &link, &regexes),
-            "current-home-shaped roots must not be subject to age-based cleanup"
+            "current-system-shaped roots must not be subject to age-based \
+             cleanup"
         );
     }
 
@@ -807,11 +807,10 @@ mod tests {
     }
 
     #[test]
-    fn build_result_link_rejects_current_home_and_system() {
+    fn build_result_link_rejects_current_system() {
         assert!(!is_build_result_link(Path::new(
-            "/var/lib/foo/current-home"
+            "/run/current-system"
         )));
-        assert!(!is_build_result_link(Path::new("/run/current-system")));
         assert!(!is_build_result_link(Path::new(
             "/nix/store/abc123zzz-foo-1.0"
         )));
@@ -924,20 +923,20 @@ mod tests {
     }
 
     #[test]
-    fn orphaned_current_home_shaped_root_is_still_removable() {
-        // Even though a current-home-shaped root is exempt from age-based cleanup
-        // (also see: gcroot_filter_rejects_current_home_shaped_auto_root), once
-        // its target is actually gone it must still be detected as
+    fn orphaned_live_system_shaped_root_is_still_removable() {
+        // Even though a current-system-shaped root is exempt from age-based
+        // cleanup (also see: gcroot_filter_rejects_live_system_shaped_auto_root),
+        // once its target is actually gone it must still be detected as
         // broken. This is sorta universal, and filter independent.
         let dir = tempfile::tempdir().expect("tempdir");
-        let target = dir.path().join("gone-home");
-        let link = dir.path().join("current-home");
+        let target = dir.path().join("gone-system");
+        let link = dir.path().join("current-system");
         std::os::unix::fs::symlink(&target, &link).expect("symlink");
 
         assert!(!is_build_result_link(&link));
         assert!(
             link.metadata().is_err(),
-            "broken current-home-shaped symlink must be detected as orphaned \
+            "broken current-system-shaped symlink must be detected as orphaned \
        regardless of its name"
         );
     }

@@ -4,7 +4,6 @@ use serde::de::DeserializeOwned;
 use tracing::debug;
 
 use crate::search::{
-    args,
     backend::{self, BackendConfig, SearchContexts},
     channel, query, render,
     types::{
@@ -35,11 +34,10 @@ pub fn run_options(
     channel: &str,
     limit: u64,
     json: bool,
-    scope: args::OptionScope,
     backend: BackendConfig,
     query: &[String],
 ) -> Result<()> {
-    run_online(&Options { scope }, channel, limit, json, backend, query)
+    run_online(&Options, channel, limit, json, backend, query)
 }
 
 fn run_online<M>(
@@ -154,20 +152,17 @@ impl OnlineMode for Packages {
     }
 }
 
-struct Options {
-    scope: args::OptionScope,
-}
+struct Options;
 
 impl OnlineMode for Options {
     type Document = OptionSearchResult;
 
     fn log_query(&self, query_s: &str) {
-        let scope = self.scope;
-        debug!(?query_s, ?scope);
+        debug!(?query_s);
     }
 
     fn search_query(&self, query: &str, limit: u64) -> Search {
-        query::options(self.scope, query, limit)
+        query::options(query, limit)
     }
 
     fn contexts(&self) -> SearchContexts {
@@ -194,7 +189,6 @@ impl OnlineMode for Options {
         let json_output = OptionJsonOutput {
             query,
             channel,
-            scope: query::option_scope_label(self.scope).to_string(),
             elapsed_ms,
             results: documents,
         };

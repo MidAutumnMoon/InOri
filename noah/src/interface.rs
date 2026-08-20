@@ -72,7 +72,7 @@ pub enum NHCommand {
     BuildVm(nh::nixos::args::RebuildVmArgs),
     /// Build a `NixOS` disk-image variant
     BuildImage(nh::nixos::args::OsBuildImageArgs),
-    /// Searches packages or NixOS/home-manager options via search.nixos.org
+    /// Searches packages or NixOS options via search.nixos.org
     Search(nh::search::args::SearchArgs),
     /// Enhanced nix cleanup
     Clean(nh::clean::args::CleanProxy),

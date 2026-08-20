@@ -50,7 +50,6 @@ pub struct PackageJsonOutput {
 pub struct OptionJsonOutput {
     pub query: String,
     pub channel: String,
-    pub scope: String,
     pub elapsed_ms: u128,
     pub results: Vec<OptionSearchResult>,
 }

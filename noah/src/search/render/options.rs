@@ -40,32 +40,24 @@ pub fn print(channel: &str, documents: &[OptionSearchResult]) {
         if let Some(source) = &elem.option_source {
             let filepath = source.split(':').next().unwrap_or(source);
 
-            if elem.r#type.as_str() == "home-manager-option" {
-                let url = format!(
-                    "https://github.com/nix-community/home-manager/blob/master/\
-             {filepath}"
+            // NixOS options and modular services live in nixpkgs, so they
+            // can also be resolved against the ambient nixpkgs path when one
+            // is available.
+            if let Some(nixpkgs_path) = &nixpkgs_path {
+                common::print_field_hyperlink(
+                    "Defined at",
+                    filepath,
+                    &format!(
+                        "file://{}/{filepath}",
+                        nixpkgs_path.display()
+                    ),
                 );
-                common::print_field_link("Source", &url);
-            } else {
-                // NixOS options and modular services live in nixpkgs, so they can
-                // also be resolved against the ambient nixpkgs path when one is
-                // available.
-                if let Some(nixpkgs_path) = &nixpkgs_path {
-                    common::print_field_hyperlink(
-                        "Defined at",
-                        filepath,
-                        &format!(
-                            "file://{}/{filepath}",
-                            nixpkgs_path.display()
-                        ),
-                    );
-                }
-
-                let url = format!(
-                    "https://github.com/NixOS/nixpkgs/blob/{channel}/{filepath}"
-                );
-                common::print_field_link("Source", &url);
             }
+
+            let url = format!(
+                "https://github.com/NixOS/nixpkgs/blob/{channel}/{filepath}"
+            );
+            common::print_field_link("Source", &url);
         }
     }
 }

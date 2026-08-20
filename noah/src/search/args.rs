@@ -6,7 +6,7 @@ const DEFAULT_CHANNEL: &str = "nixos-unstable";
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
-/// Searches packages or NixOS/home-manager options via search.nixos.org
+/// Searches packages or NixOS options via search.nixos.org
 pub struct SearchArgs {
     #[command(flatten)]
     pub limit: LimitArg,
@@ -52,7 +52,7 @@ pub struct SearchArgs {
 pub enum SearchMode {
     /// Search packages via search.nixos.org
     Packages(PackagesArgs),
-    /// Search NixOS/home-manager options via search.nixos.org
+    /// Search NixOS options via search.nixos.org
     Options(OptionsArgs),
 }
 
@@ -82,16 +82,6 @@ pub struct OptionsArgs {
 
     #[command(flatten)]
     pub channel: ChannelArg,
-
-    /// Options scope: nixpkgs, home-manager, or all (default)
-    #[arg(
-    long,
-    num_args = 0..=1,
-    default_missing_value = "all",
-    require_equals = true,
-    value_name = "SCOPE"
-  )]
-    pub scope: Option<OptionScope>,
 
     #[command(flatten)]
     pub backend: BackendArgs,
@@ -163,23 +153,13 @@ pub struct PlatformsArg {
     pub value: bool,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum OptionScope {
-    /// Search NixOS options and modular services
-    Nixpkgs,
-    /// Search home-manager options
-    #[value(name = "home-manager")]
-    HomeManager,
-    /// Search all options (NixOS, services, and home-manager)
-    All,
-}
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SearchDefault {
     /// Search packages (default)
     #[default]
     Packages,
-    /// Search NixOS/home-manager options (scope defaults to `all`)
+    /// Search NixOS options
     Options,
 }
 
@@ -194,7 +174,6 @@ pub enum ResolvedSearchMode<'a> {
     Options {
         channel: &'a str,
         limit: u64,
-        scope: OptionScope,
         backend: BackendArgs,
         query: &'a [String],
     },
@@ -222,7 +201,6 @@ impl SearchArgs {
                 Ok(ResolvedSearchMode::Options {
                     channel: &args.channel.value,
                     limit: args.limit.value,
-                    scope: args.scope.unwrap_or(OptionScope::All),
                     backend: args.backend,
                     query: &args.query,
                 })
@@ -255,7 +233,6 @@ impl SearchArgs {
                 Ok(ResolvedSearchMode::Options {
                     channel: &self.channel.value,
                     limit: self.limit.value,
-                    scope: OptionScope::All,
                     backend: self.backend,
                     query: &self.query,
                 })

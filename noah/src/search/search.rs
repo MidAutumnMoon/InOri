@@ -33,14 +33,12 @@ impl args::SearchArgs {
             args::ResolvedSearchMode::Options {
                 channel,
                 limit,
-                scope,
                 backend,
                 query,
             } => online::run_options(
                 channel,
                 limit,
                 self.json,
-                scope,
                 BackendConfig {
                     version: backend.version,
                     fallbacks: backend.fallbacks,

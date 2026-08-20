@@ -1,18 +1,9 @@
 use elasticsearch_dsl::{Operator, Query, Search, TextQueryType};
 
-use crate::search::args;
 
 const TYPE_OPTION: &str = "option";
 const TYPE_SERVICE: &str = "service";
-const TYPE_HOME_MANAGER_OPTION: &str = "home-manager-option";
-
-const NIXPKGS_SCOPE_TYPES: &[&str] = &[TYPE_OPTION, TYPE_SERVICE];
-const HOME_MANAGER_SCOPE_TYPES: &[&str] = &[TYPE_HOME_MANAGER_OPTION];
-const ALL_SCOPE_TYPES: &[&str] = &[
-    TYPE_OPTION,
-    TYPE_SERVICE,
-    TYPE_HOME_MANAGER_OPTION,
-];
+const OPTION_TYPES: &[&str] = &[TYPE_OPTION, TYPE_SERVICE];
 
 pub fn packages(query: &str, limit: u64) -> Search {
     Search::new().from(0).size(limit).query(
@@ -53,14 +44,10 @@ pub fn packages(query: &str, limit: u64) -> Search {
     )
 }
 
-pub fn options(
-    scope: args::OptionScope,
-    query: &str,
-    limit: u64,
-) -> Search {
+pub fn options(query: &str, limit: u64) -> Search {
     Search::new().from(0).size(limit).query(
         Query::bool()
-            .filter(Query::terms("type", option_scope_types(scope)))
+            .filter(Query::terms("type", OPTION_TYPES))
             .must(
                 Query::dis_max()
                     .tie_breaker(0.7)
@@ -96,23 +83,4 @@ pub fn options(
                     ),
             ),
     )
-}
-
-pub const fn option_scope_label(scope: args::OptionScope) -> &'static str {
-    match scope {
-        args::OptionScope::Nixpkgs => "nixpkgs",
-        args::OptionScope::HomeManager => "home-manager",
-        args::OptionScope::All => "all",
-    }
-}
-
-/// Returns the ES document type strings for a given option scope.
-const fn option_scope_types(
-    scope: args::OptionScope,
-) -> &'static [&'static str] {
-    match scope {
-        args::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,
-        args::OptionScope::HomeManager => HOME_MANAGER_SCOPE_TYPES,
-        args::OptionScope::All => ALL_SCOPE_TYPES,
-    }
 }
