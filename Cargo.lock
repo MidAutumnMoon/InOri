@@ -1651,70 +1651,37 @@ dependencies = [
  "anstyle",
  "clap",
  "color-eyre",
+ "dix",
+ "elasticsearch-dsl",
+ "humantime",
+ "indicatif",
  "ino_shell",
  "ino_tracing",
- "nh-clean",
- "nh-core",
- "nh-installable",
- "nh-nixos",
- "nh-remote",
- "nh-search",
- "proptest",
- "regex",
- "rootcause",
- "semver",
- "tracing",
- "tracing-subscriber",
- "yansi",
-]
-
-[[package]]
-name = "nh-clean"
-version = "4.4.2"
-dependencies = [
- "clap",
- "color-eyre",
- "humantime",
  "inquire",
- "nh-core",
- "nix",
- "regex",
- "tempfile",
- "tracing",
- "walkdir",
- "yansi",
-]
-
-[[package]]
-name = "nh-core"
-version = "4.4.2"
-dependencies = [
- "clap",
- "color-eyre",
- "indicatif",
- "inquire",
+ "jiff",
  "nh-installable",
  "nix",
  "nix-command",
+ "proptest",
+ "regex",
+ "reqwest",
+ "rootcause",
  "secrecy",
+ "semver",
+ "serde",
  "serde_json",
  "shlex",
+ "signal-hook 0.4.4",
+ "spam-db",
  "subprocess",
+ "supports-hyperlinks",
  "tempfile",
+ "textwrap",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
+ "walkdir",
  "which",
-]
-
-[[package]]
-name = "nh-diff"
-version = "4.4.2"
-dependencies = [
- "color-eyre",
- "dix",
- "nh-core",
- "nh-remote",
- "tracing",
  "yansi",
 ]
 
@@ -1725,66 +1692,6 @@ dependencies = [
  "clap",
  "color-eyre",
  "tempfile",
- "tracing",
- "yansi",
-]
-
-[[package]]
-name = "nh-nixos"
-version = "4.4.2"
-dependencies = [
- "clap",
- "color-eyre",
- "inquire",
- "jiff",
- "nh-core",
- "nh-diff",
- "nh-installable",
- "nh-remote",
- "nix",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "nh-remote"
-version = "4.4.2"
-dependencies = [
- "color-eyre",
- "dix",
- "inquire",
- "nh-core",
- "nh-installable",
- "nix-command",
- "proptest",
- "secrecy",
- "shlex",
- "signal-hook 0.4.4",
- "subprocess",
- "tracing",
- "which",
-]
-
-[[package]]
-name = "nh-search"
-version = "4.4.2"
-dependencies = [
- "clap",
- "color-eyre",
- "elasticsearch-dsl",
- "inquire",
- "jiff",
- "nh-core",
- "regex",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "spam-db",
- "supports-hyperlinks",
- "tempfile",
- "textwrap",
  "tracing",
  "yansi",
 ]

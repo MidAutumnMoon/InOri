@@ -1,5 +1,16 @@
 use color_eyre::eyre;
 
+pub mod args;
+pub mod clean;
+pub mod command;
+pub mod diff;
+pub mod nixos;
+pub mod progress;
+pub mod remote;
+pub mod search;
+pub mod update;
+pub mod util;
+
 /// Bridge between [`eyre::Result`] and [`rootcause::Result`]. The ultimate
 /// goal is to replace eyre with rootcause, this serves as a temporary bridge
 /// to make transitioning gradual.

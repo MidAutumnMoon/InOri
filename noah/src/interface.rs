@@ -1,6 +1,6 @@
 use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
-use nh_core::command::ElevationStrategy;
+use nh::command::ElevationStrategy;
 
 use crate::RuntimeEnv;
 use crate::Result;
@@ -45,7 +45,7 @@ pub struct Main {
     /// 'passwordless' (use elevation without password prompt for remote hosts
     /// with NOPASSWD configured), or 'auto' (automatically detect available
     /// elevation programs in order: doas, sudo, run0, pkexec)
-    pub elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
+    pub elevation_strategy: Option<nh::command::ElevationStrategyArg>,
 
     #[command(subcommand)]
     pub command: NHCommand,
@@ -55,28 +55,28 @@ pub struct Main {
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
     /// Build and activate the new configuration, and make it the boot default
-    Switch(nh_nixos::args::OsRebuildActivateArgs),
+    Switch(nh::nixos::args::OsRebuildActivateArgs),
     /// Build the new configuration and make it the boot default
-    Boot(nh_nixos::args::OsRebuildActivateArgs),
+    Boot(nh::nixos::args::OsRebuildActivateArgs),
     /// Build and activate the new configuration
-    Test(nh_nixos::args::OsRebuildActivateArgs),
+    Test(nh::nixos::args::OsRebuildActivateArgs),
     /// Build the new configuration
-    Build(nh_nixos::args::RebuildArgs),
+    Build(nh::nixos::args::RebuildArgs),
     /// Load system in a repl
-    Repl(nh_nixos::args::OsReplArgs),
+    Repl(nh::nixos::args::OsReplArgs),
     /// List available generations from profile path
-    Info(nh_nixos::args::OsGenerationsArgs),
+    Info(nh::nixos::args::OsGenerationsArgs),
     /// Rollback to a previous generation
-    Rollback(nh_nixos::args::OsRollbackArgs),
+    Rollback(nh::nixos::args::OsRollbackArgs),
     /// Build a `NixOS` VM image
-    BuildVm(nh_nixos::args::RebuildVmArgs),
+    BuildVm(nh::nixos::args::RebuildVmArgs),
     /// Build a `NixOS` disk-image variant
-    BuildImage(nh_nixos::args::OsBuildImageArgs),
+    BuildImage(nh::nixos::args::OsBuildImageArgs),
     /// Searches packages or NixOS/home-manager options via search.nixos.org,
     /// or a local SPAM database
-    Search(nh_search::args::SearchArgs),
+    Search(nh::search::args::SearchArgs),
     /// Enhanced nix cleanup
-    Clean(nh_clean::args::CleanProxy),
+    Clean(nh::clean::args::CleanProxy),
 }
 
 impl NHCommand {
@@ -90,7 +90,7 @@ impl NHCommand {
         env: &RuntimeEnv,
         elevation: ElevationStrategy,
     ) -> Result<()> {
-        use nh_nixos::nixos::ActivationAction::{Boot, Switch, Test};
+        use nh::nixos::nixos::ActivationAction::{Boot, Switch, Test};
 
         match self {
             Self::Switch(args) => args.build_and_activate(
@@ -180,7 +180,7 @@ mod tests {
     use std::{env, ffi::OsString};
 
     use clap::{Parser, error::ErrorKind};
-    use nh_clean::args::CleanMode;
+    use nh::clean::args::CleanMode;
 
     use super::{Main, NHCommand};
 

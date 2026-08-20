@@ -16,23 +16,41 @@ default-run            = "nh"
 anstyle = "1.0.13"
 clap.workspace                = true
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+dix = "2.1.0"
+elasticsearch-dsl = "0.4.24"
+humantime = "2.3.0"
+indicatif.workspace           = true
+inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
-nh-clean = { path = "./crates/nh-clean" }
-nh-core = { path = "./crates/nh-core" }
+ino_tracing.workspace = true
+jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 nh-installable = { path = "./crates/nh-installable" }
-nh-nixos = { path = "./crates/nh-nixos" }
-nh-remote = { path = "./crates/nh-remote" }
-nh-search = { path = "./crates/nh-search" }
-rootcause.workspace = true
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+nix-command = { path = "./crates/nix-command" }
 regex = "1.12.2"
+reqwest = { default-features = false, features = [ "blocking", "json", "rustls" ], version = "0.13.1" }
+rootcause.workspace           = true
+secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
+serde.workspace               = true
+serde_json.workspace          = true
+shlex = "2.0.1"
+signal-hook = "0.4.1"
+spam-db = "0.2.4"
+subprocess = "1.0.3"
+supports-hyperlinks = "3.1.0"
+tempfile = "3.23.0"
+textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
+thiserror.workspace           = true
 tracing.workspace             = true
 tracing-subscriber.workspace  = true
+walkdir = "2.5.0"
+which = "8.0.0"
 yansi = "1.0.1"
-ino_tracing.workspace = true
 
 [dev-dependencies]
 proptest = "1.9.0"
+tempfile = "3.23.0"
 
 [lints]
 workspace = true

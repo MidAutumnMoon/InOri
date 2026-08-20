@@ -3,12 +3,12 @@ use std::str::FromStr;
 use color_eyre::Result;
 use ino_shell::{Shell, cmd};
 use nh::EyreRootcauseBridge;
-use nh_core::command::{
+use nh::command::{
     ElevationStrategy, ElevationStrategyArg, SudoConfig, SubprocessEnv,
 };
 use nh_installable::FlakeConfig;
-use nh_remote::SshConfig;
-use nh_search::GithubConfig;
+use nh::remote::SshConfig;
+use nh::search::GithubConfig;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 

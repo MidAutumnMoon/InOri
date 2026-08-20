@@ -25,7 +25,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/nixos/nixos-search/main/version.nix -o version.nix
           VERSION_CONTENT=$(nix eval --raw --file ./version.nix import)
 
-          VERSION_NUMBER=$(tr -d '[:space:]' < crates/nh-search/BACKEND_VERSION)
+          VERSION_NUMBER=$(tr -d '[:space:]' < src/search/BACKEND_VERSION)
 
           echo "Found VERSION: $VERSION_CONTENT"
 
