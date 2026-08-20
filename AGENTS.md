@@ -47,6 +47,14 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 | `ino_tap` | `tap` extension traits with `tracing` integration |
 | `ino_tracing` | Opinionated `tracing-subscriber` initialization |
 
+## Fitting New Code
+
+- Recover the domain truth before choosing a shape: valid states, natural owner, boundaries, and relevant failure or resource constraints.
+- Give each fact one authoritative home. Prefer representations and APIs that enforce invariants over comments or caller discipline.
+- Read the surrounding code first. Extend an abstraction only when the new behavior shares its policy and ownership; otherwise reshape proportionally instead of adding special cases, parallel paths, or copied logic.
+- Keep dependencies and data flow explicit. Do not recover required context from ambient state or reconstruct information discarded earlier.
+- Design for real pressures, not hypothetical reuse. Preserve existing behavior unless a change is requested; consolidate experiments before landing.
+
 ## Coding Conventions
 
 ### Linting
