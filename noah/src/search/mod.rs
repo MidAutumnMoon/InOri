@@ -108,7 +108,7 @@ fn run_packages(
         elapsed,
         &documents,
         |channel, documents| {
-            render::packages::print(channel, platforms, documents);
+            render::print_packages(channel, platforms, documents);
         },
     )
 }
@@ -141,7 +141,7 @@ fn run_options(
         channel,
         elapsed,
         &documents,
-        render::options::print,
+        render::print_options,
     )
 }
 
