@@ -28,7 +28,6 @@ nh-installable = { path = "./crates/nh-installable" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 nix-command = { path = "./crates/nix-command" }
 regex = "1.12.2"
-reqwest = { default-features = false, features = [ "blocking", "json", "rustls" ], version = "0.13.1" }
 rootcause.workspace           = true
 secrecy = { features = [ "serde" ], version = "0.10.3" }
 serde.workspace               = true

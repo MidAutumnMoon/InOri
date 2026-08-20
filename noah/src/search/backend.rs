@@ -2,13 +2,9 @@ use std::time::{Duration, Instant};
 
 use color_eyre::{
     Result,
-    eyre::{Context, bail},
+    eyre::{Context, ContextCompat, bail, eyre},
 };
 use elasticsearch_dsl::{Search, SearchResponse};
-use reqwest::{
-    StatusCode,
-    blocking::{Client, Response},
-};
 use serde::de::DeserializeOwned;
 use tracing::{debug, trace, warn};
 
@@ -37,7 +33,7 @@ pub struct BackendConfig {
 
 /// Outcome of a single request to a specific backend index version.
 enum BackendResponse {
-    Found(Response),
+    Found(String),
     /// The index does not exist, so the requested version is outdated.
     Outdated,
 }
@@ -60,7 +56,6 @@ where
     };
     let last = start.saturating_add(config.fallbacks);
 
-    let client = reqwest::blocking::Client::new();
     let then = Instant::now();
 
     // The requested index version tracks search.nixos.org but can fall behind
@@ -68,9 +63,9 @@ where
     // outdated we retry against successively newer versions, up to `fallbacks`
     // times, before giving up.
     let mut version = start;
-    let response = loop {
-        match query_backend(&client, query, channel, version, contexts)? {
-            BackendResponse::Found(response) => break response,
+    let body = loop {
+        match query_backend(query, channel, version, contexts)? {
+            BackendResponse::Found(body) => break body,
             BackendResponse::Outdated => {
                 if version >= last {
                     if start == last {
@@ -98,10 +93,8 @@ where
 
     let elapsed = then.elapsed();
     debug!(?elapsed);
-    trace!(?response);
 
-    let parsed_response: SearchResponse = response
-        .json()
+    let parsed_response: SearchResponse = serde_json::from_str(&body)
         .context("parsing response into the elasticsearch format")?;
     trace!(?parsed_response);
 
@@ -115,45 +108,77 @@ where
 /// Returns [`BackendResponse::Outdated`] on a 404 (missing index) so the caller
 /// can retry a newer version. Any other non-success status is a hard error.
 fn query_backend(
-    client: &Client,
     query: &Search,
     channel: &str,
     version: u32,
     contexts: SearchContexts,
 ) -> Result<BackendResponse> {
-    let req = client
-    .post(format!(
-      "https://search.nixos.org/backend/latest-{version}-{channel}/_search"
-    ))
-    .json(query)
-    .header("User-Agent", format!("nh/{NH_VERSION}"))
-    // Hardcoded upstream
-    // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
-    .basic_auth("aWVSALXpZv", Some("X8gPHnzL52wFEekuxsfQ9cSh"))
-    .build()
-    .context(contexts.build)?;
+    let body = serde_json::to_string(query).context(contexts.build)?;
+    let url = format!(
+        "https://search.nixos.org/backend/latest-{version}-{channel}/_search"
+    );
 
-    debug!(?req);
+    debug!(url, body);
 
-    let response = client.execute(req).context(contexts.execute)?;
-    trace!(?response);
+    // The HTTP status code is appended to stdout after the response body.
+    let output = std::process::Command::new("curl")
+        .arg("--silent")
+        .arg("--show-error")
+        .arg("--request")
+        .arg("POST")
+        .arg("--header")
+        .arg("Content-Type: application/json")
+        .arg("--user-agent")
+        .arg(format!("nh/{NH_VERSION}"))
+        // Hardcoded upstream
+        // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
+        .arg("--user")
+        .arg("aWVSALXpZv:X8gPHnzL52wFEekuxsfQ9cSh")
+        .arg("--data")
+        .arg(&body)
+        .arg("--write-out")
+        .arg("\n%{http_code}")
+        .arg(&url)
+        .output()
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                eyre!("`curl` was not found in PATH, but is required for searching")
+            } else {
+                eyre!(err).wrap_err(contexts.execute)
+            }
+        })?;
 
-    if response.status() == StatusCode::NOT_FOUND {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let execute = contexts.execute;
+        bail!(
+            "{execute}: curl exited with {}: {stderr}",
+            output.status
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (body, status) = stdout
+        .rsplit_once('\n')
+        .context("splitting curl's status code from the response body")?;
+    let status: u16 = status.parse().context("parsing curl's status code")?;
+
+    trace!(status, body);
+
+    if status == 404 {
         return Ok(BackendResponse::Outdated);
     }
 
-    if !response.status().is_success() {
+    if !(200..300).contains(&status) {
         eprintln!(
-            "Error: search.nixos.org returned HTTP {} for channel '{channel}'. This \
+            "Error: search.nixos.org returned HTTP {status} for channel '{channel}'. This \
        usually means the channel does not exist, is not indexed, or the \
        request was malformed.",
-            response.status(),
         );
         bail!(
-            "search.nixos.org returned HTTP {} for channel '{channel}'",
-            response.status(),
+            "search.nixos.org returned HTTP {status} for channel '{channel}'",
         );
     }
 
-    Ok(BackendResponse::Found(response))
+    Ok(BackendResponse::Found(body.into()))
 }
