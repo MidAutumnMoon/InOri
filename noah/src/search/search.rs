@@ -2,8 +2,7 @@ use color_eyre::Result;
 use tracing::trace;
 
 use crate::search::{
-    args, backend::BackendConfig, github::GithubConfig, issues, offline,
-    online, prs,
+    args, backend::BackendConfig, github::GithubConfig, issues, online, prs,
 };
 
 impl args::SearchArgs {
@@ -50,11 +49,6 @@ impl args::SearchArgs {
                 },
                 query,
             ),
-            args::ResolvedSearchMode::Offline {
-                limit,
-                databases,
-                query,
-            } => offline::run(limit, self.json, databases, query),
             args::ResolvedSearchMode::Prs(args) => {
                 prs::run(self.json, args, github_config)
             }

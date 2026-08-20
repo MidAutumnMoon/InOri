@@ -223,25 +223,19 @@ experience, done so with two subcommands provided out of the box.
 
 #### `nh search`
 
-[SPAM]: https://github.com/feel-co/SPAM
-
 We provide a super-fast search tool for Nix packages and NixOS/Home Manager
-options (powered by an Elasticsearch client against search.nixos.org), offline
-search against local [SPAM] databases, and Nixpkgs pull request and issue
-search. All available as `nh search`!
+options (powered by an Elasticsearch client against search.nixos.org), and
+Nixpkgs pull request and issue search. All available as `nh search`!
 
 The command exposes several explicit subcommands and a convenient shorthand:
 
 <!--markdownlint-disable MD013 -->
-
-[found here]: https://github.com/feel-co/spam/actions/workflows/auto-index.yml
 
 | Invocation                                    | What it does                                                                                                       |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
 | `nh search packages <query>`                  | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
 | `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
-| `nh search offline --db <PATH> <query>`       | Search a local [SPAM] database without network access. Generated DBs can be [found here].                          |
 | `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
 | `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
 
@@ -473,12 +467,6 @@ the common variables that you may encounter or choose to employ are as follows:
   - Number of newer index versions to try when the requested version is outdated
     (missing on the backend). Defaults to `1`, so nh retries the next version
     once before failing. Equivalent to `--backend-version-fallbacks`.
-
-- `NH_OFFLINE_DB`
-  - Colon-separated list of paths to SPAM database files used by
-    `nh search offline`. Each path is treated as a separate database. Equivalent
-    to passing `--db` multiple times. Example:
-    `NH_OFFLINE_DB=/var/cache/spam/nixpkgs.db:/var/cache/spam/hm.db`.
 
 - `NH_NOM`
   - Control whether `nom` (nix-output-monitor) should be enabled for the build

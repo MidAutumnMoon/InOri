@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use clap::{Args, Subcommand, ValueEnum};
 use color_eyre::{Result, eyre::bail};
 
@@ -8,8 +6,7 @@ const DEFAULT_CHANNEL: &str = "nixos-unstable";
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
-/// Searches packages or NixOS/home-manager options via search.nixos.org,
-/// or a local SPAM database
+/// Searches packages or NixOS/home-manager options via search.nixos.org
 pub struct SearchArgs {
     #[command(flatten)]
     pub limit: LimitArg,
@@ -57,8 +54,6 @@ pub enum SearchMode {
     Packages(PackagesArgs),
     /// Search NixOS/home-manager options via search.nixos.org
     Options(OptionsArgs),
-    /// Search local SPAM database(s) without network access
-    Offline(OfflineArgs),
     /// Search Nixpkgs pull requests and branch reachability
     Prs(PrsArgs),
     /// Search Nixpkgs issues, excluding pull requests
@@ -106,28 +101,6 @@ pub struct OptionsArgs {
     pub backend: BackendArgs,
 
     /// Name of the option to search
-    #[arg(required = true)]
-    pub query: Vec<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct OfflineArgs {
-    #[command(flatten)]
-    pub limit: LimitArg,
-
-    /// Path to a SPAM database file. Specify multiple times to search across
-    /// several databases
-    #[arg(
-        long = "db",
-        short = 'D',
-        value_name = "PATH",
-        env = "NH_OFFLINE_DB",
-        value_delimiter = ':',
-        required = true
-    )]
-    pub databases: Vec<PathBuf>,
-
-    /// Name of the package or option to search
     #[arg(required = true)]
     pub query: Vec<String>,
 }
@@ -264,11 +237,6 @@ pub enum ResolvedSearchMode<'a> {
         backend: BackendArgs,
         query: &'a [String],
     },
-    Offline {
-        limit: u64,
-        databases: &'a [PathBuf],
-        query: &'a [String],
-    },
     Prs(&'a PrsArgs),
     Issues(&'a IssuesArgs),
 }
@@ -297,13 +265,6 @@ impl SearchArgs {
                     limit: args.limit.value,
                     scope: args.scope.unwrap_or(OptionScope::All),
                     backend: args.backend,
-                    query: &args.query,
-                })
-            }
-            Some(SearchMode::Offline(args)) => {
-                Ok(ResolvedSearchMode::Offline {
-                    limit: args.limit.value,
-                    databases: &args.databases,
                     query: &args.query,
                 })
             }
@@ -556,31 +517,6 @@ mod tests {
             "hello",
             "--platforms",
         ])?;
-
-        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
-        Ok(())
-    }
-
-    #[test]
-    fn offline_rejects_channel() -> clap::error::Result<()> {
-        let err = parse_search(&[
-            "search",
-            "offline",
-            "--db",
-            "db.sqlite",
-            "hello",
-            "--channel",
-            "nixos-unstable",
-        ]);
-        let err = match err {
-            Ok(args) => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidValue,
-                    format!("expected parse error, got {args:?}"),
-                ));
-            }
-            Err(err) => err,
-        };
 
         assert_eq!(err.kind(), ErrorKind::UnknownArgument);
         Ok(())

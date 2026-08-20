@@ -7,7 +7,6 @@ pub use github::GithubConfig;
 
 mod github;
 mod issues;
-mod offline;
 mod online;
 mod prs;
 mod query;

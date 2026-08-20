@@ -54,26 +54,3 @@ pub struct OptionJsonOutput {
     pub elapsed_ms: u128,
     pub results: Vec<OptionSearchResult>,
 }
-
-#[derive(Debug, Serialize)]
-pub struct OfflineJsonOutput {
-    pub query: String,
-    pub db_paths: Vec<String>,
-    pub elapsed_ms: u128,
-    pub options: Vec<OfflineOptionResult>,
-    pub packages: Vec<OfflinePackageResult>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OfflineOptionResult {
-    pub db_path: String,
-    pub name: String,
-    pub summary: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OfflinePackageResult {
-    pub db_path: String,
-    pub path: String,
-    pub packages: Vec<String>,
-}
