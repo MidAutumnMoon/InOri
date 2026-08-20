@@ -1,16 +1,16 @@
-use std::{path::PathBuf, sync::OnceLock};
+use std::{path::PathBuf, sync::LazyLock};
 
 use crate::command::{CommandKind, NixCommand};
 use regex::Regex;
 use tracing::warn;
 
-static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
+static HYPERLINKS_SUPPORTED: LazyLock<bool> =
+    LazyLock::new(supports_hyperlinks::supports_hyperlinks);
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 
 pub(super) fn hyperlink(text: &str, link: &str) -> String {
-    let hyperlinks = *HYPERLINKS_SUPPORTED
-        .get_or_init(supports_hyperlinks::supports_hyperlinks);
+    let hyperlinks = *HYPERLINKS_SUPPORTED;
     let text = format!("{DIM}{text}{RESET}");
 
     if hyperlinks {
@@ -53,15 +53,14 @@ pub(super) fn print_wrapped_field(label: &str, value: &str) {
 }
 
 pub(super) fn strip_html(html: &str) -> String {
-    static HTML_TAG: OnceLock<Regex> = OnceLock::new();
-    let re = HTML_TAG.get_or_init(|| {
+    static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"<[^>]*>").unwrap_or_else(|err| {
             warn!("invalid HTML strip regex: {err}");
             #[allow(clippy::expect_used)]
             Regex::new("$^").expect("Regex $^ should always be valid")
         })
     });
-    re.replace_all(html, "").trim().to_string()
+    HTML_TAG.replace_all(html, "").trim().to_string()
 }
 
 /// Resolve the ambient nixpkgs lookup path without fetching a mutable channel.

@@ -224,8 +224,8 @@ experience, done so with two subcommands provided out of the box.
 #### `nh search`
 
 We provide a super-fast search tool for Nix packages and NixOS/Home Manager
-options (powered by an Elasticsearch client against search.nixos.org), and
-Nixpkgs pull request and issue search. All available as `nh search`!
+options (powered by an Elasticsearch client against search.nixos.org).
+All available as `nh search`!
 
 The command exposes several explicit subcommands and a convenient shorthand:
 
@@ -236,18 +236,12 @@ The command exposes several explicit subcommands and a convenient shorthand:
 | `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
 | `nh search packages <query>`                  | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
 | `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
-| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
-| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
 
 <!--markdownlint-enable MD013 -->
 
 `--json` is shared by all search modes. `--limit`, `--channel`, and
 `--platforms` are available on the modes that use them and on the shorthand
-form. `nh search prs` and `nh search issues` use `GH_TOKEN` for GitHub
-authentication. If `GH_TOKEN` is unset, NH reads the token from
-`NH_GITHUB_TOKEN_FILE`, or from `$XDG_STATE_HOME/nh/github-token` falling back
-to `~/.local/state/nh/github-token`. If no token is found in an interactive
-terminal, NH prompts for one and saves it to that token file.
+form.
 
 <p align="center">
     <img
@@ -427,17 +421,6 @@ the common variables that you may encounter or choose to employ are as follows:
   - Overrides the path to the NH configuration file. If unset, NH uses
     `$XDG_CONFIG_HOME/nh/config.toml`, falling back to
     `~/.config/nh/config.toml`.
-
-- `GH_TOKEN`
-  - GitHub token used by `nh search prs` and `nh search issues`. If set, this
-    takes priority over any token file.
-
-- `NH_GITHUB_TOKEN_FILE`
-  - Overrides the path to the GitHub token file used by `nh search prs` and
-    `nh search issues` when `GH_TOKEN` is unset. If unset, NH uses
-    `$XDG_STATE_HOME/nh/github-token`, falling back to
-    `~/.local/state/nh/github-token`. Tokens entered through the interactive
-    prompt are saved to this file with user-only permissions.
 
 - `NH_SEARCH_CHANNEL`
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`

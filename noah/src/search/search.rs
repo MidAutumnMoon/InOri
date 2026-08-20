@@ -1,9 +1,7 @@
 use color_eyre::Result;
 use tracing::trace;
 
-use crate::search::{
-    args, backend::BackendConfig, github::GithubConfig, issues, online, prs,
-};
+use crate::search::{args, backend::BackendConfig, online};
 
 impl args::SearchArgs {
     /// Execute the search subcommand.
@@ -12,7 +10,7 @@ impl args::SearchArgs {
     ///
     /// Returns an error if no query is provided when using the shorthand form,
     /// if the channel is unsupported, or if the underlying search request fails.
-    pub fn run(&self, github_config: &GithubConfig) -> Result<()> {
+    pub fn run(&self) -> Result<()> {
         trace!("args: {self:?}");
         match self.resolved_mode()? {
             args::ResolvedSearchMode::Packages {
@@ -49,12 +47,6 @@ impl args::SearchArgs {
                 },
                 query,
             ),
-            args::ResolvedSearchMode::Prs(args) => {
-                prs::run(self.json, args, github_config)
-            }
-            args::ResolvedSearchMode::Issues(args) => {
-                issues::run(self.json, args, github_config)
-            }
         }
     }
 }

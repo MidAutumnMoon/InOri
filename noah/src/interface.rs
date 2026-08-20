@@ -158,7 +158,7 @@ impl NHCommand {
                 &env.flake,
                 &env.ssh,
             ),
-            Self::Search(args) => args.run(&env.github),
+            Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(
                 elevation,
                 &env.subprocess,

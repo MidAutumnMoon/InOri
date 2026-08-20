@@ -8,7 +8,6 @@ use nh::command::{
 };
 use nh_installable::FlakeConfig;
 use nh::remote::SshConfig;
-use nh::search::GithubConfig;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -26,7 +25,6 @@ struct RuntimeEnv {
     sudo: SudoConfig,
     flake: FlakeConfig,
     ssh: SshConfig,
-    github: GithubConfig,
 }
 
 /// Variant of the system Nix. Determinate Nix is not supported.
@@ -57,7 +55,6 @@ fn main() -> rootcause::Result<()> {
         sudo: SudoConfig::from_env(),
         flake: FlakeConfig::from_env(),
         ssh: SshConfig::from_env(),
-        github: GithubConfig::from_env(),
     };
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
