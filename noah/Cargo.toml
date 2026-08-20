@@ -3,8 +3,8 @@ name                   = "nh"
 license = "EUPL-1.2"
 repository             = "https://github.com/nix-community/nh"
 description            = "Yet Another Nix Helper"
-keywords               = [ "nix", "nixos", "nix-darwin", "helper", "CLI" ]
-readme                 = "../../docs/README.md"
+keywords               = [ "nix", "nixos", "helper", "CLI" ]
+readme                 = "docs/README.md"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -31,7 +31,6 @@ regex = "1.12.2"
 reqwest = { default-features = false, features = [ "blocking", "json", "rustls" ], version = "0.13.1" }
 rootcause.workspace           = true
 secrecy = { features = [ "serde" ], version = "0.10.3" }
-semver = "1.0.27"
 serde.workspace               = true
 serde_json.workspace          = true
 shlex = "2.0.1"
@@ -42,7 +41,6 @@ tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 thiserror.workspace           = true
 tracing.workspace             = true
-tracing-subscriber.workspace  = true
 walkdir = "2.5.0"
 which = "8.0.0"
 yansi = "1.0.1"

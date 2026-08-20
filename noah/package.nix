@@ -1,6 +1,5 @@
 {
   lib,
-  stdenv,
   rustPlatform,
   makeBinaryWrapper,
   installShellFiles,
@@ -49,10 +48,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   versionCheckProgram = "${placeholder "out"}/bin/${finalAttrs.meta.mainProgram}";
   versionCheckProgramArg = "--version";
 
-  # pkgs.sudo is not available on the Darwin platform, and thus breaks build
-  # if added to nativeCheckInputs. We must manually disable the tests that
-  # *require* it, because they will fail when sudo is missing.
-  nativeCheckInputs = lib.optionals (!stdenv.hostPlatform.isDarwin) [ sudo ];
+  nativeCheckInputs = [ sudo ];
   checkFlags = [
     # These do not work in Nix's sandbox
     "--skip"
@@ -61,29 +57,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
     "test_get_build_image_variants_file"
     "--skip"
     "test_get_build_image_variants_flake"
-  ]
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [
-    # Tests that require sudo in PATH (not available on Darwin)
-    "--skip"
-    "test_build_sudo_cmd_basic"
-    "--skip"
-    "test_build_sudo_cmd_with_preserve_vars"
-    "--skip"
-    "test_build_sudo_cmd_with_preserve_vars_disabled"
-    "--skip"
-    "test_build_sudo_cmd_with_set_vars"
-    "--skip"
-    "test_build_sudo_cmd_force_no_stdin"
-    "--skip"
-    "test_build_sudo_cmd_with_remove_vars"
-    "--skip"
-    "test_build_sudo_cmd_with_askpass"
-    "--skip"
-    "test_build_sudo_cmd_env_added_once"
-    "--skip"
-    "test_elevation_strategy_passwordless_resolves"
-    "--skip"
-    "test_build_sudo_cmd_with_nix_config_spaces"
   ];
 
   # Besides the install check, we have a bunch of tests to run. Nextest is

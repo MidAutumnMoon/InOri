@@ -1101,23 +1101,10 @@ impl ActivationType {
 }
 
 /// Represents the target platform for remote operations.
-///
-/// This enum allows the remote module to support multiple platforms while
-/// keeping the implementation generic. Currently only NixOS is implemented.
-/// Other platforms can be added in the future.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     /// NixOS system configuration
     NixOS,
-    // TODO: Add Darwin and HomeManager support
-    //
-    // To add support for other platforms:
-    //
-    // 1. Add the platform variant to this enum
-    // 2. Implement platform-specific activation logic in a (private) function
-    // 3. Update `activate_remote()` to dispatch to the new platform handler
-    // Darwin,
-    // HomeManager,
 }
 
 /// Configuration for remote activation operations.
@@ -1166,10 +1153,7 @@ pub fn activate_remote(
     match config.platform {
         Platform::NixOS => {
             activate_nixos_remote(host, system_profile, config, ssh_config, sudo_config)
-        } // TODO:
-          // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
-          // Platform::HomeManager => activate_home_remote(host, system_profile,
-          // config),
+        }
     }
 }
 

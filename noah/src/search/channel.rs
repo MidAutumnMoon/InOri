@@ -74,6 +74,4 @@ fn test_supported_branch() {
     assert!(!supported_branch("nixos-.05"));
     assert!(!supported_branch("nixos-26."));
     assert!(!supported_branch("nixos-26.05.1"));
-    assert!(!supported_branch("nixpkgs-darwin"));
-    assert!(!supported_branch("nixpks-21.11-darwin"));
 }

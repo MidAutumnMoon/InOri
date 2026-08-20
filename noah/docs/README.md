@@ -42,21 +42,21 @@ To get started with NH, skip to the [Usage](#usage) section.
 
 ## Features
 
-- **Unified CLI**: Consistent, intuitive interface for many **Nix**, **NixOS**,
-  **Home Manager**, and **Darwin** workflows.
-  - **Rich Interface**: Each major function (`os`, `home`, `darwin`, `search`,
-    `clean`) exposes granular subcommands and flags for fine-tuned control.
+- **Unified CLI**: Consistent, intuitive interface for many **Nix** and
+  **NixOS** workflows.
+  - **Rich Interface**: Each major function (`os`, `search`, `clean`) exposes
+    granular subcommands and flags for fine-tuned control.
   - **Enhanced Garbage Collection**: `nh clean` extends `nix-collect-garbage`
     with gcroot cleanup, profile targeting, and time-based retention.
   - **Faster Nix Search**: search Nixpkgs via Elasticsearch for faster results
 - **Eye Candy**: It looks great, without any compromise. I mean who does not
   love some cool looking UIs?
-  - **Build-tree Visualization**: `nh os` and similar commands display build
-    trees for clear dependency tracking.
+  - **Build-tree Visualization**: `nh os` displays build trees for clear
+    dependency tracking.
   - **Diff & Change Review**: Integrated, super-fast diffing of derivation
     changes before activation or switch.
-- **Specialisation Support**: Easily select or ignore NixOS & Home-Manager
-  specialisations via flags.
+- **Specialisation Support**: Easily select or ignore NixOS specialisations via
+  flags.
 - **Generation Management**: Inspect, rollback, and manage system generations
   with explicit targeting.
 - **Extensible & Futureproof**: Designed for seamless, rapid addition of new
@@ -75,9 +75,8 @@ To get started with NH, skip to the [Usage](#usage) section.
 
 NH is an _unified_ CLI, meaning it aims to bring together core platform support
 into a single, convenient utility. For the time being, this appears in NH's
-interface as support for **NixOS** (first-class), **Home Manager** and
-**Nix-Darwin**. We hope to provide a familiar, convenient and _good looking_
-interface for users of any and all of those projects.
+interface as support for **NixOS** (first-class). We hope to provide a familiar,
+convenient and _good looking_ interface for its users.
 
 The familiar interface of NH should not be seen as a weakness, however, as NH is
 NOT a nixos-rebuild wrapper, and is not constrained by the limits of such tools.
@@ -179,25 +178,6 @@ config would look like this:
 }
 ```
 
-#### Home-Manager
-
-Home specialisations are read from `~/.local/share/home-manager/specialisation`.
-The config would look like this:
-
-```nix
-{config, pkgs, ...}: {
-  specialisation."foo".configuration = {
-    xdg.dataFile."home-manager/specialisation".text = "foo";
-    # ..rest of config
-  };
-
-  specialisation."bar".configuration = {
-    xdg.dataFile."home-manager/specialisation".text = "bar";
-    # ..rest of config
-  };
-}
-```
-
 ## Usage
 
 One of the features and the core principles of NH is to provide a clean, uniform
@@ -235,7 +215,7 @@ The command exposes several explicit subcommands and a convenient shorthand:
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
 | `nh search packages <query>`                  | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
-| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`.)                                      |
 
 <!--markdownlint-enable MD013 -->
 
@@ -276,7 +256,7 @@ the cleanup process to let you know what is to be cleaned.
 ### Platform Specific Subcommands
 
 Platform specific subcommands are those that implement CLI utilities for
-**NixOS**, **Home Manager** and **Nix-Darwin**.
+**NixOS**.
 
 #### `nh os`
 
@@ -299,17 +279,6 @@ come.
     >
   </p>
 
-#### `nh home`
-
-The `nh home` subcommand reimplements the `home-manager` script, with the same
-additions as `nh os`.
-
-#### `nh darwin`
-
-Last but not least, the `nh darwin` subcommand is a pure-rust reimplementation
-of the `darwin-rebuild` script featuring the same additions as `nh os` and
-`nh home`.
-
 [^1]: `nh os` does not yet provide full feature parity with `nixos-rebuild`.
     While a large collection of subcommands have been implemented, you might be
     missing some features. Please visit
@@ -319,20 +288,18 @@ of the `darwin-rebuild` script featuring the same additions as `nh os` and
 
 <!-- markdownlint-disable MD013 -->
 
-| Platform     | Old Command (Without NH)                 | New Command (With NH)          |
-| ------------ | ---------------------------------------- | ------------------------------ |
-| NixOS        | `nixos-rebuild switch --flake .#myHost`  | `nh os switch . -H myHost`     |
-| Darwin       | `darwin-rebuild switch --flake .#myHost` | `nh darwin switch . -H myHost` |
-| Home Manager | `home-manager switch --flake .#myHost`   | `nh home switch . -c myHome`   |
+| Platform | Old Command (Without NH)                | New Command (With NH)          |
+| -------- | --------------------------------------- | ------------------------------ |
+| NixOS    | `nixos-rebuild switch --flake .#myHost` | `nh os switch . -H myHost`     |
 
 <!-- markdownlint-enable MD013 -->
 
 If the `NH_FLAKE` variable is set, NH allows omitting the path to your flake.
-This is done automatically in the modules for NH in the NixOS and Home-Manager
-modules if `programs.nh.flake` is set.
+This is done automatically in the NixOS module for NH if `programs.nh.flake` is
+set.
 
-NH also allows omitting the hostname (`-H`) for NixOS/Darwin and the
-configuration (`-c`) parameters when it can be autodiscovered on the system. For
+NH also allows omitting the hostname (`-H`) when it can be autodiscovered on the
+system. For
 example, if `NH_FLAKE` or `NH_OS_FLAKE` is set you may simply run `nh os switch`
 with no additional arguments, and it will automatically resolve
 `nixosConfigurations.<myHost>`.
@@ -380,13 +347,11 @@ the common variables that you may encounter or choose to employ are as follows:
 
 - `NH_FLAKE`
   - Preferred path/reference to a directory containing your `flake.nix` used by
-    NH when running flake-based commands. Historically `FLAKE` was used; NH will
-    migrate `FLAKE` into `NH_FLAKE` if present and the specific `NH_*_FLAKE`
-    vars are not set.
+    NH when running flake-based commands.
 
-- `NH_OS_FLAKE`, `NH_HOME_FLAKE`, `NH_DARWIN_FLAKE`
-  - Command-specific flake references for `os`, `home`, and `darwin` commands
-    respectively. If present they take precedence over `NH_FLAKE`.
+- `NH_OS_FLAKE`
+  - OS-specific flake reference used by the `os` command. Takes precedence over
+    `NH_FLAKE`.
 
 - `NH_SUDO_ASKPASS`
   - Path to a program used as `SUDO_ASKPASS` when NH self-elevates with `sudo`.
@@ -410,8 +375,7 @@ the common variables that you may encounter or choose to employ are as follows:
 - `NH_SHOW_ACTIVATION_LOGS`
   - Controls whether activation output is displayed. By default, activation
     output is hidden. Setting this to `"1"` will show the full activation logs,
-    which is useful for debugging activation failures. Supported on all
-    platforms (NixOS, Home Manager, and Darwin).
+    which is useful for debugging activation failures.
 
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as
@@ -465,10 +429,6 @@ the common variables that you may encounter or choose to employ are as follows:
 
 - Any environment variables prefixed with `NH_` are explicitly propagated by NH
   to commands when appropriate, i.e., in environment isolation.
-- For backwards compatibility, if `FLAKE` is present and none of the
-  command-specific `NH_*_FLAKE` variables exist, NH will set `NH_FLAKE` from
-  `FLAKE` and emit a warning recommending migration to `NH_FLAKE`. `FLAKE` will
-  be removed in the future versions of NH.
 
 ## Frequently Asked Questions (FAQ)
 

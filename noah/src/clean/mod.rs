@@ -148,10 +148,8 @@ impl args::CleanMode {
                     ),
                 );
 
-                // Most unix systems start regular users at uid 1000+, but macos is
-                // special at 501+ https://en.wikipedia.org/wiki/User_identifier
-                let uid_min =
-                    if cfg!(target_os = "macos") { 501 } else { 1000 };
+                // Regular Linux users start at uid 1000
+                let uid_min = 1000;
                 let uid_max = uid_min + 100;
                 debug!(
                     "Scanning XDG profiles for users 0, {uid_min}-{uid_max}"
