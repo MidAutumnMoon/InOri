@@ -95,7 +95,7 @@ fn build_nix_copy_command<P: Into<OsString>>(
         .args(direction.args())
         .arg(path.into())
         .env("NIX_SSHOPTS", get_nix_sshopts_env(ssh_config))
-        .to_exec()
+        .into_exec()
 }
 
 pub fn copy_closure_from(host: &RemoteHost, path: &str, ssh_config: &SshConfig) -> Result<()> {

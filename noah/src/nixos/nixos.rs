@@ -1536,7 +1536,7 @@ impl ReplArgs {
 
         let status = NixCommand::new(CommandKind::Repl)
             .args(target_installable.to_args())
-            .with_env(subprocess_env)
+            .envs(subprocess_env.vars())
             .run_with_logs()?;
         if !status.success() {
             bail!("nix repl failed (exit status {status:?})");

@@ -9,7 +9,7 @@ homepage.workspace     = true
 publish                = true
 
 [dependencies]
-subprocess = "1.0.3"
+subprocess = "1.2.1"
 thiserror.workspace  = true
 
 [lints]

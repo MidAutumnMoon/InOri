@@ -1,272 +1,51 @@
 use std::{
     ffi::{OsStr, OsString},
-    io::{self, BufRead, BufReader, Write},
-    process::{Command, ExitStatus, Output, Stdio},
-    sync::mpsc,
-    thread,
+    io::{self, Write},
     time::{Duration, Instant},
 };
 
-use subprocess::Exec;
+use subprocess::{Capture, Exec, ExitStatus, Job, Redirection};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("io: {0}")]
     Io(#[from] io::Error),
-    #[error("command '{command}' failed")]
-    CommandFailed { command: String },
-    #[error("nix {command} timed out after {} seconds", duration.as_secs())]
+    #[error("command '{command}' timed out after {duration:?}")]
     Timeout { command: String, duration: Duration },
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Pre-captured environment variables for subprocess execution.
-///
-/// Replaces ad-hoc `env::var` calls in `with_required_env`. Construct once
-/// at startup via `from_env()`, pass by reference. For tests, use `from_pairs()`.
-#[derive(Debug, Clone, Default)]
-pub struct SubprocessEnv {
-    /// `USER` env var, if set.
-    pub user: Option<String>,
-    /// `HOME` env var, if set.
-    pub home: Option<String>,
-    /// Preserved Nix-related vars (key, value) — only those present at capture.
-    /// Covers: `LOCALE_ARCHIVE`, `PATH`, `NIX_SSHOPTS`, `NIX_CONFIG`,
-    /// `NIX_PATH`, `NIX_REMOTE`, `NIX_SSL_CERT_FILE`, `NIX_USER_CONF_FILES`
-    pub nix_preserve: Vec<(String, String)>,
-    /// All `NH_*` env vars (key, value).
-    pub nh_vars: Vec<(String, String)>,
-}
-
-impl SubprocessEnv {
-    /// Capture subprocess-relevant env vars from the current process.
-    ///
-    /// Called once in `main()`. Tests should use `from_pairs()` instead.
-    #[must_use]
-    pub fn from_env() -> Self {
-        const PRESERVE_ENV: &[&str] = &[
-            "LOCALE_ARCHIVE",
-            "PATH",
-            "NIX_SSHOPTS",
-            "NIX_CONFIG",
-            "NIX_PATH",
-            "NIX_REMOTE",
-            "NIX_SSL_CERT_FILE",
-            "NIX_USER_CONF_FILES",
-        ];
-
-        let mut env = Self::default();
-        env.user = std::env::var("USER").ok();
-        env.home = std::env::var("HOME").ok();
-
-        for key in PRESERVE_ENV {
-            if let Ok(value) = std::env::var(key) {
-                env.nix_preserve.push(((*key).to_string(), value));
-            }
-        }
-
-        for (key, value) in std::env::vars() {
-            if key.starts_with("NH_") {
-                env.nh_vars.push((key, value));
-            }
-        }
-
-        env
-    }
-
-    /// Construct from explicit pairs (for testing).
-    #[must_use]
-    pub fn from_pairs(
-        user: Option<&str>,
-        home: Option<&str>,
-        nix_preserve: Vec<(&str, &str)>,
-        nh_vars: Vec<(&str, &str)>,
-    ) -> Self {
-        Self {
-            user: user.map(String::from),
-            home: home.map(String::from),
-            nix_preserve: nix_preserve
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-            nh_vars: nh_vars
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-        }
-    }
-
-    /// Look up a variable by key across all captured env vars.
-    ///
-    /// Searches `nix_preserve` first, then `nh_vars`. Used by
-    /// `Command::apply_env_to_exec` to resolve `Preserve` actions.
-    #[must_use]
-    pub fn lookup(&self, key: &str) -> Option<&str> {
-        self.nix_preserve
-            .iter()
-            .find_map(|(k, v)| (k == key).then_some(v.as_str()))
-            .or_else(|| {
-                self.nh_vars
-                    .iter()
-                    .find_map(|(k, v)| (k == key).then_some(v.as_str()))
-            })
-    }
-}
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
     Build,
-    Config,
     Copy,
-    Develop,
     Eval,
     Flake,
     PathInfo,
     Repl,
-    Run,
-    Shell,
-    Store,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CommandSpec {
-    pub name: &'static str,
-    pub print_build_logs: bool,
-    pub interactive: bool,
 }
 
 impl CommandKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        self.spec().name
-    }
-
-    #[must_use]
-    pub const fn spec(self) -> CommandSpec {
         match self {
-            Self::Build => CommandSpec {
-                name: "build",
-                print_build_logs: true,
-                interactive: false,
-            },
-            Self::Config => CommandSpec {
-                name: "config",
-                print_build_logs: false,
-                interactive: false,
-            },
-            Self::Copy => CommandSpec {
-                name: "copy",
-                print_build_logs: false,
-                interactive: false,
-            },
-            Self::Develop => CommandSpec {
-                name: "develop",
-                print_build_logs: true,
-                interactive: true,
-            },
-            Self::Eval => CommandSpec {
-                name: "eval",
-                print_build_logs: false,
-                interactive: false,
-            },
-            Self::Flake => CommandSpec {
-                name: "flake",
-                print_build_logs: false,
-                interactive: false,
-            },
-            Self::PathInfo => CommandSpec {
-                name: "path-info",
-                print_build_logs: false,
-                interactive: false,
-            },
-            Self::Repl => CommandSpec {
-                name: "repl",
-                print_build_logs: false,
-                interactive: true,
-            },
-            Self::Run => CommandSpec {
-                name: "run",
-                print_build_logs: true,
-                interactive: true,
-            },
-            Self::Shell => CommandSpec {
-                name: "shell",
-                print_build_logs: true,
-                interactive: true,
-            },
-            Self::Store => CommandSpec {
-                name: "store",
-                print_build_logs: false,
-                interactive: false,
-            },
+            Self::Build => "build",
+            Self::Copy => "copy",
+            Self::Eval => "eval",
+            Self::Flake => "flake",
+            Self::PathInfo => "path-info",
+            Self::Repl => "repl",
         }
     }
-}
 
-impl TryFrom<&str> for CommandKind {
-    type Error = UnknownCommand;
-
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
-        match value {
-            "build" => Ok(Self::Build),
-            "config" => Ok(Self::Config),
-            "copy" => Ok(Self::Copy),
-            "develop" => Ok(Self::Develop),
-            "eval" => Ok(Self::Eval),
-            "flake" => Ok(Self::Flake),
-            "path-info" => Ok(Self::PathInfo),
-            "repl" => Ok(Self::Repl),
-            "run" => Ok(Self::Run),
-            "shell" => Ok(Self::Shell),
-            "store" => Ok(Self::Store),
-            command => Err(UnknownCommand {
-                command: command.to_string(),
-            }),
-        }
+    const fn print_build_logs(self) -> bool {
+        matches!(self, Self::Build)
     }
-}
 
-#[derive(Debug, Error, Eq, PartialEq)]
-#[error("unknown nix command '{command}'")]
-pub struct UnknownCommand {
-    command: String,
-}
-
-#[derive(Debug)]
-enum PipeEvent {
-    Stdout(Vec<u8>),
-    Stderr(Vec<u8>),
-    Error(io::Error),
-}
-
-fn read_pipe<R: BufRead>(
-    mut reader: R,
-    tx: &mpsc::Sender<PipeEvent>,
-    is_stderr: bool,
-) {
-    loop {
-        let buf = match reader.fill_buf() {
-            Ok(buf) => buf,
-            Err(e) => {
-                let _ = tx.send(PipeEvent::Error(e));
-                break;
-            }
-        };
-        if buf.is_empty() {
-            break;
-        }
-        let event = if is_stderr {
-            PipeEvent::Stderr(buf.to_vec())
-        } else {
-            PipeEvent::Stdout(buf.to_vec())
-        };
-        let len = buf.len();
-        reader.consume(len);
-        if tx.send(event).is_err() {
-            break;
-        }
+    const fn interactive(self) -> bool {
+        matches!(self, Self::Repl)
     }
 }
 
@@ -276,80 +55,45 @@ pub struct NixCommand {
     global_args: Vec<OsString>,
     args: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
-    impure: bool,
     print_build_logs: bool,
     interactive: bool,
     timeout: Option<Duration>,
-    eval_profiler_mode: Option<String>,
-    eval_profiler_frequency: Option<u32>,
-    eval_profile_file: Option<String>,
 }
 
 impl NixCommand {
     #[must_use]
     pub fn new(kind: CommandKind) -> Self {
-        let spec = kind.spec();
+        Self::with_binary("nix", Some(kind))
+    }
+
+    fn with_binary<S: AsRef<OsStr>>(
+        binary: S,
+        kind: Option<CommandKind>,
+    ) -> Self {
+        let (print_build_logs, interactive) = kind
+            .map_or((false, false), |kind| {
+                (kind.print_build_logs(), kind.interactive())
+            });
         Self {
-            kind: Some(kind),
-            binary: OsString::from("nix"),
+            kind,
+            binary: binary.as_ref().to_os_string(),
             global_args: Vec::new(),
             args: Vec::new(),
             env: Vec::new(),
-            impure: false,
-            print_build_logs: spec.print_build_logs,
-            interactive: spec.interactive,
+            print_build_logs,
+            interactive,
             timeout: None,
-            eval_profiler_mode: None,
-            eval_profiler_frequency: None,
-            eval_profile_file: None,
         }
     }
 
     #[must_use]
-    pub fn raw() -> Self {
-        Self {
-            kind: None,
-            binary: OsString::from("nix"),
-            global_args: Vec::new(),
-            args: Vec::new(),
-            env: Vec::new(),
-            impure: false,
-            print_build_logs: false,
-            interactive: false,
-            timeout: None,
-            eval_profiler_mode: None,
-            eval_profiler_frequency: None,
-            eval_profile_file: None,
-        }
+    pub fn nix_instantiate() -> Self {
+        Self::with_binary("nix-instantiate", None)
     }
 
     #[must_use]
     pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
         self.args.push(arg.as_ref().to_os_string());
-        self
-    }
-
-    #[must_use]
-    pub fn global_arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
-        self.global_args.push(arg.as_ref().to_os_string());
-        self
-    }
-
-    #[must_use]
-    pub fn global_args<I>(mut self, args: I) -> Self
-    where
-        I: IntoIterator,
-        I::Item: AsRef<OsStr>,
-    {
-        self.global_args.extend(
-            args.into_iter().map(|arg| arg.as_ref().to_os_string()),
-        );
-        self
-    }
-
-    #[must_use]
-    pub fn args_ref(mut self, args: &[String]) -> Self {
-        self.args.extend(args.iter().map(OsString::from));
         self
     }
 
@@ -360,6 +104,18 @@ impl NixCommand {
         I::Item: AsRef<OsStr>,
     {
         self.args.extend(
+            args.into_iter().map(|arg| arg.as_ref().to_os_string()),
+        );
+        self
+    }
+
+    #[must_use]
+    pub fn global_args<I>(mut self, args: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: AsRef<OsStr>,
+    {
+        self.global_args.extend(
             args.into_iter().map(|arg| arg.as_ref().to_os_string()),
         );
         self
@@ -385,27 +141,9 @@ impl NixCommand {
         K: AsRef<OsStr>,
         V: AsRef<OsStr>,
     {
-        for (key, value) in envs {
-            self = self.env(key, value);
-        }
-        self
-    }
-
-    #[must_use]
-    pub const fn impure(mut self, yes: bool) -> Self {
-        self.impure = yes;
-        self
-    }
-
-    #[must_use]
-    pub fn binary<S: AsRef<OsStr>>(mut self, path: S) -> Self {
-        self.binary = path.as_ref().to_os_string();
-        self
-    }
-
-    #[must_use]
-    pub const fn interactive(mut self, yes: bool) -> Self {
-        self.interactive = yes;
+        self.env.extend(envs.into_iter().map(|(key, value)| {
+            (key.as_ref().to_os_string(), value.as_ref().to_os_string())
+        }));
         self
     }
 
@@ -422,238 +160,199 @@ impl NixCommand {
     }
 
     #[must_use]
-    pub fn eval_profiler<S: Into<String>>(mut self, mode: S) -> Self {
-        self.eval_profiler_mode = Some(mode.into());
-        self
-    }
-
-    #[must_use]
-    pub const fn eval_profiler_frequency(mut self, hz: u32) -> Self {
-        self.eval_profiler_frequency = Some(hz);
-        self
-    }
-
-    #[must_use]
-    pub fn eval_profile_file<S: Into<String>>(mut self, path: S) -> Self {
-        self.eval_profile_file = Some(path.into());
-        self
-    }
-
-    /// Apply subprocess environment variables from a [`SubprocessEnv`].
-    ///
-    /// Replaces the old `with_required_env()` which read `env::var` directly.
-    #[must_use]
-    pub fn with_env(mut self, env: &SubprocessEnv) -> Self {
-        if let Some(user) = &env.user {
-            self = self.env("USER", user);
-        }
-        if let Some(home) = &env.home {
-            self = self.env("HOME", home);
-        }
-        for (key, value) in &env.nix_preserve {
-            self = self.env(key, value);
-        }
-        for (key, value) in &env.nh_vars {
-            self = self.env(key, value);
-        }
-        self
-    }
-
-    #[must_use]
     pub fn argv(&self) -> Vec<OsString> {
-        let mut argv = vec![self.binary.clone()];
-        argv.extend(self.global_args.iter().cloned());
-        if let Some(kind) = self.kind {
-            argv.push(OsString::from(kind.as_str()));
-        }
-        if self.print_build_logs
-            && !self
-                .args
-                .iter()
-                .any(|a| a == OsStr::new("--no-build-output"))
-        {
-            argv.push(OsString::from("--print-build-logs"));
-        }
-        if self.impure {
-            argv.push(OsString::from("--impure"));
-        }
-        if let Some(ref mode) = self.eval_profiler_mode {
-            argv.push(OsString::from("--eval-profiler"));
-            argv.push(OsString::from(mode));
-        }
-        if let Some(hz) = self.eval_profiler_frequency {
-            argv.push(OsString::from("--eval-profiler-frequency"));
-            argv.push(OsString::from(hz.to_string()));
-        }
-        if let Some(ref path) = self.eval_profile_file {
-            argv.push(OsString::from("--eval-profile-file"));
-            argv.push(OsString::from(path));
-        }
-        argv.extend(self.args.iter().cloned());
+        let mut argv = Vec::with_capacity(
+            1 + self.global_args.len() + self.args.len() + 2,
+        );
+        argv.push(self.binary.clone());
+        argv.extend(assemble_args(
+            self.kind,
+            self.print_build_logs,
+            self.global_args.clone(),
+            self.args.clone(),
+        ));
         argv
     }
 
-    #[must_use]
-    pub fn to_std_command(&self) -> Command {
-        let mut argv = self.argv();
-        let binary = argv.remove(0);
-        let mut cmd = Command::new(binary);
-        cmd.args(argv);
-        for (k, v) in &self.env {
-            cmd.env(k, v);
+    pub fn into_exec(self) -> Exec {
+        let Self {
+            kind,
+            binary,
+            global_args,
+            args,
+            env,
+            print_build_logs,
+            ..
+        } = self;
+        let args =
+            assemble_args(kind, print_build_logs, global_args, args);
+        let command = Exec::cmd(binary).args(args);
+        if env.is_empty() {
+            command
+        } else {
+            command.env_extend(env)
         }
-        cmd
     }
 
-    pub fn to_exec(&self) -> Exec {
-        let mut argv = self.argv();
-        let binary = argv.remove(0);
-        let mut cmd = Exec::cmd(binary).args(argv);
-        for (key, value) in &self.env {
-            cmd = cmd.env(key, value);
+    /// Run the command, forwarding stdout and stderr as they arrive.
+    ///
+    /// Interactive commands inherit all three standard streams. Non-interactive
+    /// commands use [`subprocess::Communicator`] to drain stdout and stderr
+    /// concurrently without deadlock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot start, stream communication or
+    /// waiting fails, or the configured timeout expires.
+    pub fn run_with_logs(self) -> Result<ExitStatus> {
+        if self.interactive {
+            return self.run_interactive();
         }
-        cmd
+
+        let stdout = io::stdout();
+        let stderr = io::stderr();
+        self.communicate_to(&mut stdout.lock(), &mut stderr.lock())
     }
 
-    #[must_use]
-    pub fn into_parts(
+    /// Run the command and collect stdout and stderr.
+    ///
+    /// The configured timeout applies to both communication and process exit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot start, capture or waiting fails,
+    /// or the configured timeout expires.
+    pub fn output(self) -> Result<Capture> {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let exit_status = self.communicate_to(&mut stdout, &mut stderr)?;
+        Ok(Capture {
+            stdout,
+            stderr,
+            exit_status,
+        })
+    }
+
+    fn run_interactive(self) -> Result<ExitStatus> {
+        let timeout = self.timeout_context();
+        let job = self.into_exec().start()?;
+        let deadline = timeout
+            .as_ref()
+            .map(|timeout| Instant::now() + timeout.duration);
+        wait_for_job(&job, timeout.as_ref(), deadline)
+    }
+
+    fn communicate_to(
         self,
-    ) -> (OsString, Vec<OsString>, Vec<(OsString, OsString)>) {
-        let mut argv = self.argv();
-        let binary = argv.remove(0);
-        (binary, argv, self.env)
-    }
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<ExitStatus> {
+        let timeout = self.timeout_context();
+        let mut job = self
+            .into_exec()
+            .stdout(Redirection::Pipe)
+            .stderr(Redirection::Pipe)
+            .start()?;
+        let deadline = timeout
+            .as_ref()
+            .map(|timeout| Instant::now() + timeout.duration);
+        let communicator = job.communicate()?;
+        let communication = if let Some(deadline) = deadline {
+            communicator
+                .limit_time(
+                    deadline.saturating_duration_since(Instant::now()),
+                )
+                .read_to(stdout, stderr)
+        } else {
+            let mut communicator = communicator;
+            communicator.read_to(stdout, stderr)
+        };
 
-    #[must_use]
-    pub fn nix_store() -> Self {
-        Self::raw().binary("nix-store")
-    }
-
-    #[must_use]
-    pub fn nix_instantiate() -> Self {
-        Self::raw().binary("nix-instantiate")
-    }
-
-    /// Run the command, streaming stdout and stderr.
-    ///
-    /// Interactive commands inherit stdio directly, while non-interactive
-    /// commands stream stdout and stderr while the process runs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the command cannot be started, stdout or stderr
-    /// cannot be captured, a pipe read fails, waiting for the process fails, or
-    /// the configured timeout expires.
-    pub fn run_with_logs(&self) -> Result<ExitStatus> {
-        let mut cmd = self.to_std_command();
-
-        if self.interactive {
-            return Ok(cmd
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .stdin(Stdio::inherit())
-                .status()?);
-        }
-
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = cmd.spawn()?;
-        let stdout =
-            child.stdout.take().ok_or_else(|| self.command_failed())?;
-        let stderr =
-            child.stderr.take().ok_or_else(|| self.command_failed())?;
-        let (tx, rx) = mpsc::channel();
-        let stdout_thread = thread::spawn({
-            let tx = tx.clone();
-            move || read_pipe(BufReader::new(stdout), &tx, false)
-        });
-        let stderr_thread = thread::spawn(move || {
-            read_pipe(BufReader::new(stderr), &tx, true);
-        });
-        let start = Instant::now();
-
-        loop {
-            if let Some(timeout) = self.timeout
-                && start.elapsed() > timeout
+        if let Err(error) = communication {
+            kill_and_wait(&job)?;
+            if error.kind() == io::ErrorKind::TimedOut
+                && let Some(timeout) = timeout
             {
-                kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
-                return Err(self.timeout_error(timeout));
+                return Err(timeout.into_error());
             }
-
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(PipeEvent::Stdout(data)) => {
-                    let _ = io::stdout().write_all(&data);
-                }
-                Ok(PipeEvent::Stderr(data)) => {
-                    let _ = io::stderr().write_all(&data);
-                }
-                Ok(PipeEvent::Error(e)) => {
-                    kill_wait_join(
-                        &mut child,
-                        stdout_thread,
-                        stderr_thread,
-                    )?;
-                    return Err(Error::Io(e));
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
+            return Err(error.into());
         }
 
-        let _ = stdout_thread.join();
-        let _ = stderr_thread.join();
-        Ok(child.wait()?)
+        wait_for_job(&job, timeout.as_ref(), deadline)
     }
 
-    /// Run the command and collect its output.
-    ///
-    /// Interactive commands inherit stdio directly.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the command cannot be started or its output cannot be
-    /// collected.
-    pub fn output(&self) -> Result<Output> {
-        let mut cmd = self.to_std_command();
-        if self.interactive {
-            return Ok(cmd
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .stdin(Stdio::inherit())
-                .output()?);
-        }
-        Ok(cmd.output()?)
-    }
-
-    fn command_failed(&self) -> Error {
-        Error::CommandFailed {
-            command: self.command_name(),
-        }
-    }
-
-    fn timeout_error(&self, duration: Duration) -> Error {
-        Error::Timeout {
+    fn timeout_context(&self) -> Option<TimeoutContext> {
+        self.timeout.map(|duration| TimeoutContext {
             command: self.command_name(),
             duration,
-        }
+        })
     }
 
     fn command_name(&self) -> String {
         self.kind.map_or_else(
             || self.binary.to_string_lossy().into_owned(),
-            |kind| kind.as_str().to_string(),
+            |kind| format!("nix {}", kind.as_str()),
         )
     }
 }
 
-fn kill_wait_join(
-    child: &mut std::process::Child,
-    stdout_thread: thread::JoinHandle<()>,
-    stderr_thread: thread::JoinHandle<()>,
-) -> Result<()> {
-    let _ = child.kill();
-    let _ = stdout_thread.join();
-    let _ = stderr_thread.join();
-    child.wait()?;
+fn assemble_args(
+    kind: Option<CommandKind>,
+    print_build_logs: bool,
+    mut global_args: Vec<OsString>,
+    args: Vec<OsString>,
+) -> Vec<OsString> {
+    if let Some(kind) = kind {
+        global_args.push(OsString::from(kind.as_str()));
+    }
+    if print_build_logs
+        && !args
+            .iter()
+            .any(|arg| arg == OsStr::new("--no-build-output"))
+    {
+        global_args.push(OsString::from("--print-build-logs"));
+    }
+    global_args.extend(args);
+    global_args
+}
+
+struct TimeoutContext {
+    command: String,
+    duration: Duration,
+}
+
+impl TimeoutContext {
+    fn into_error(self) -> Error {
+        Error::Timeout {
+            command: self.command,
+            duration: self.duration,
+        }
+    }
+}
+
+fn wait_for_job(
+    job: &Job,
+    timeout: Option<&TimeoutContext>,
+    deadline: Option<Instant>,
+) -> Result<ExitStatus> {
+    if let (Some(timeout), Some(deadline)) = (timeout, deadline) {
+        if let Some(status) = job.wait_timeout(
+            deadline.saturating_duration_since(Instant::now()),
+        )? {
+            return Ok(status);
+        }
+        kill_and_wait(job)?;
+        return Err(Error::Timeout {
+            command: timeout.command.clone(),
+            duration: timeout.duration,
+        });
+    }
+    Ok(job.wait()?)
+}
+
+fn kill_and_wait(job: &Job) -> Result<()> {
+    let _ = job.kill();
+    job.wait()?;
     Ok(())
 }
 
@@ -662,43 +361,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn schema_parses_supported_commands() {
-        for kind in [
-            CommandKind::Build,
-            CommandKind::Config,
-            CommandKind::Copy,
-            CommandKind::Develop,
-            CommandKind::Eval,
-            CommandKind::Flake,
-            CommandKind::PathInfo,
-            CommandKind::Repl,
-            CommandKind::Run,
-            CommandKind::Shell,
-            CommandKind::Store,
-        ] {
-            assert_eq!(
-                CommandKind::try_from(kind.as_str()),
-                Ok(kind),
-                "kind {kind:?} should round-trip through its name",
-            );
-        }
-    }
-
-    #[test]
-    fn schema_rejects_unknown_commands() {
-        assert_eq!(
-            CommandKind::try_from("doctor"),
-            Err(UnknownCommand {
-                command: "doctor".to_string(),
-            })
-        );
-    }
-
-    #[test]
     fn argv_is_deterministic_and_schema_driven() {
         let argv = NixCommand::new(CommandKind::Build)
+            .arg("--impure")
             .arg("nixpkgs#hello")
-            .impure(true)
             .argv();
         assert_eq!(
             argv,
@@ -729,53 +395,9 @@ mod tests {
     }
 
     #[test]
-    fn interactive_defaults_come_from_schema() {
-        assert!(NixCommand::new(CommandKind::Run).interactive);
-        assert!(NixCommand::new(CommandKind::Shell).interactive);
-        assert!(NixCommand::new(CommandKind::Develop).interactive);
+    fn interactive_defaults_are_schema_owned() {
+        assert!(NixCommand::new(CommandKind::Repl).interactive);
         assert!(!NixCommand::new(CommandKind::Build).interactive);
-    }
-
-    #[test]
-    fn commands_default_to_no_timeout() {
-        assert_eq!(NixCommand::new(CommandKind::Build).timeout, None);
-        assert_eq!(NixCommand::raw().timeout, None);
-    }
-
-    #[test]
-    fn with_timeout_sets_command_timeout() {
-        assert_eq!(
-            NixCommand::new(CommandKind::Build)
-                .with_timeout(Duration::from_secs(30))
-                .timeout,
-            Some(Duration::from_secs(30))
-        );
-    }
-
-    #[test]
-    fn eval_profiler_flags_are_added_to_argv() {
-        let argv = NixCommand::new(CommandKind::Eval)
-            .arg("nixpkgs#hello")
-            .impure(true)
-            .eval_profiler("flamegraph")
-            .eval_profiler_frequency(9999)
-            .eval_profile_file("/tmp/nix.profile")
-            .argv();
-        assert_eq!(
-            argv,
-            [
-                "nix",
-                "eval",
-                "--impure",
-                "--eval-profiler",
-                "flamegraph",
-                "--eval-profiler-frequency",
-                "9999",
-                "--eval-profile-file",
-                "/tmp/nix.profile",
-                "nixpkgs#hello"
-            ]
-        );
     }
 
     #[test]
@@ -802,14 +424,45 @@ mod tests {
     }
 
     #[test]
-    fn raw_command_omits_subcommand() {
-        let argv = NixCommand::raw().arg("--version").argv();
-        assert_eq!(argv, ["nix", "--version"]);
+    fn legacy_binary_omits_nix_subcommand() {
+        let argv = NixCommand::nix_instantiate().arg("--eval").argv();
+        assert_eq!(argv, ["nix-instantiate", "--eval"]);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn alternate_binary_omits_nix_subcommand() {
-        let argv = NixCommand::nix_store().arg("--optimise").argv();
-        assert_eq!(argv, ["nix-store", "--optimise"]);
+    fn output_captures_both_streams() -> Result<()> {
+        let output = NixCommand::with_binary("sh", None)
+            .args(["-c", "printf stdout; printf stderr >&2"])
+            .output()?;
+        assert!(output.success());
+        assert_eq!(output.stdout, b"stdout");
+        assert_eq!(output.stderr, b"stderr");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_timeout_kills_the_process() {
+        let start = Instant::now();
+        let result = NixCommand::with_binary("sh", None)
+            .args(["-c", "exec sleep 5"])
+            .with_timeout(Duration::from_millis(50))
+            .output();
+        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn interactive_timeout_kills_the_process() {
+        let mut command = NixCommand::with_binary("sh", None)
+            .args(["-c", "exec sleep 5"])
+            .with_timeout(Duration::from_millis(50));
+        command.interactive = true;
+
+        let start = Instant::now();
+        let result = command.run_with_logs();
+        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

@@ -156,7 +156,6 @@ pub fn get_closure_sizes_batch(
     let output = match NixCommand::new(CommandKind::PathInfo)
         .args(["-Sh", "--json"])
         .args(generation_dirs)
-        .to_std_command()
         .output()
     {
         Ok(out) => out,
@@ -206,7 +205,6 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
     let output = match NixCommand::new(CommandKind::PathInfo)
         .args(["-Sh", "--json"])
         .arg(generation_dir)
-        .to_std_command()
         .output()
     {
         Ok(out) => out,

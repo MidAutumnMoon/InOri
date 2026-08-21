@@ -1,54 +1,53 @@
 # nix-command
 
-`nix-command` provides a schema-driven builder API for constructing and running
-`nix` subcommands. Each supported command (build, develop, eval, flake, run,
-shell) carries predefined defaults via `CommandSpec`, so flags like
-`--print-build-logs` and interactive stdio are set correctly without manual
-wiring.
+`nix-command` builds the Nix commands used by `nh`. It owns argv policy:
+global flags precede the subcommand, `nix build` prints build logs by default,
+and `nix repl` inherits interactive stdio. The `subprocess` crate owns process
+execution, capture, streaming, pipelines, timeouts, and cleanup.
 
 ## Features
 
-- Each `CommandKind` carries default flags (`--print-build-logs`, interactive
-  mode) via `CommandSpec`.
-- Chain `.arg()`, `.env()`, `.impure()`, `.interactive()`,
-  `.print_build_logs()`, `.with_timeout()` to configure a `NixCommand` via the
-  builder API.
-- Stdout and stderr are forwarded as they arrive using streaming execution via
-  `run_with_logs()`
-- Captured execution via `output()`; stdout and stderr are collected into
-  buffers.
+- Typed `CommandKind` values for the Nix subcommands used by `nh`.
+- Builder methods for arguments, global arguments, environment variables,
+  build-log policy, and timeouts.
+- Deadlock-free concurrent stdout/stderr forwarding via `run_with_logs()`.
+- Captured stdout/stderr via `output()`.
+- Conversion to `subprocess::Exec` via `into_exec()` for pipelines and custom
+  redirection.
 
 ## Quick start
 
 ```rust
 use nix_command::{CommandKind, NixCommand};
 
-// Build a command
-let cmd = NixCommand::new(CommandKind::Build)
-    .arg("nixpkgs#hello")
-    .impure(true);
+let command = NixCommand::new(CommandKind::Build)
+    .arg("--impure")
+    .arg("nixpkgs#hello");
 
-// Inspect the argv
-assert_eq!(cmd.argv(), [
-    "nix", "build", "--print-build-logs", "--impure", "nixpkgs#hello"
+assert_eq!(command.argv(), [
+    "nix",
+    "build",
+    "--print-build-logs",
+    "--impure",
+    "nixpkgs#hello",
 ]);
 
-// Run with streaming output
-let status = cmd.run_with_logs()?;
+let status = command.run_with_logs()?;
 assert!(status.success());
 
-// Or capture output
-let output = cmd.output()?;
-let stdout = String::from_utf8_lossy(&output.stdout);
+let output = NixCommand::new(CommandKind::Eval)
+    .args(["--raw", "nixpkgs#hello.name"])
+    .output()?;
+assert!(output.success());
 ```
 
 ## Supported commands
 
-| Command   | `--print-build-logs` | Interactive |
-| --------- | -------------------- | ----------- |
-| `build`   | yes                  | no          |
-| `develop` | yes                  | yes         |
-| `eval`    | no                   | no          |
-| `flake`   | no                   | no          |
-| `run`     | yes                  | yes         |
-| `shell`   | yes                  | yes         |
+| Command     | `--print-build-logs` | Interactive |
+| ----------- | -------------------- | ----------- |
+| `build`     | yes                  | no          |
+| `copy`      | no                   | no          |
+| `eval`      | no                   | no          |
+| `flake`     | no                   | no          |
+| `path-info` | no                   | no          |
+| `repl`      | no                   | yes         |

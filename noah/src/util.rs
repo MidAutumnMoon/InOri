@@ -26,25 +26,25 @@ fn format_argv(argv: &[OsString]) -> String {
         .join(" ")
 }
 
-fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
+fn capture_nix_stdout(command: NixCommand) -> Result<String> {
     let argv = command.argv();
     let command_text = format_argv(&argv);
     let output = command
         .output()
         .wrap_err_with(|| format!("Failed to run {command_text}"))?;
 
-    if !output.status.success() {
+    if !output.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stderr = stderr.trim();
         if stderr.is_empty() {
             bail!(
                 "{command_text} failed (exit status {:?})",
-                output.status
+                output.exit_status
             );
         }
         bail!(
             "{command_text} failed (exit status {:?})\nstderr:\n{stderr}",
-            output.status
+            output.exit_status
         );
     }
 
@@ -206,7 +206,7 @@ in
     };
 
     let result = capture_nix_stdout(
-        &NixCommand::nix_instantiate()
+        NixCommand::nix_instantiate()
             .arg("--eval")
             .arg("--strict")
             .arg("--json")
@@ -243,7 +243,7 @@ pub fn get_build_image_variants_flake(
     installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
     let result = capture_nix_stdout(
-        &NixCommand::new(CommandKind::Eval)
+        NixCommand::new(CommandKind::Eval)
             .arg("--json")
             .args(installable.to_args())
             .arg("--apply")

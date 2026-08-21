@@ -1418,7 +1418,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
         .global_args(get_flake_flags())
         .arg("--raw")
         .args(&args)
-        .to_exec()
+        .into_exec()
         .stdout(Redirection::Pipe)
         .stderr(Redirection::Pipe);
 

@@ -34,7 +34,7 @@ serde.workspace               = true
 serde_json.workspace          = true
 shlex = "2.0.1"
 signal-hook = "0.4.1"
-subprocess = "1.0.3"
+subprocess = "1.2.1"
 supports-hyperlinks = "3.1.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }

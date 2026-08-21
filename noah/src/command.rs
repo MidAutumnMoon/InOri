@@ -14,7 +14,7 @@ use color_eyre::{
     eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
-pub use nix_command::{CommandKind, NixCommand, SubprocessEnv};
+pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
@@ -22,6 +22,102 @@ use tracing::{debug, info, warn};
 use which::which;
 
 use crate::args::NixBuildPassthroughArgs;
+
+/// Process environment captured once at startup.
+///
+/// Commands receive this explicitly instead of reading ambient process state.
+#[derive(Debug, Clone, Default)]
+pub struct SubprocessEnv {
+    user: Option<String>,
+    home: Option<String>,
+    nix_preserve: Vec<(String, String)>,
+    nh_vars: Vec<(String, String)>,
+}
+
+impl SubprocessEnv {
+    /// Capture variables needed by Nix and nh subprocesses.
+    #[must_use]
+    pub fn from_env() -> Self {
+        const PRESERVE_ENV: &[&str] = &[
+            "LOCALE_ARCHIVE",
+            "PATH",
+            "NIX_SSHOPTS",
+            "NIX_CONFIG",
+            "NIX_PATH",
+            "NIX_REMOTE",
+            "NIX_SSL_CERT_FILE",
+            "NIX_USER_CONF_FILES",
+        ];
+
+        let mut env = Self {
+            user: std::env::var("USER").ok(),
+            home: std::env::var("HOME").ok(),
+            ..Self::default()
+        };
+
+        for key in PRESERVE_ENV {
+            if let Ok(value) = std::env::var(key) {
+                env.nix_preserve.push(((*key).to_string(), value));
+            }
+        }
+
+        env.nh_vars.extend(
+            std::env::vars().filter(|(key, _)| key.starts_with("NH_")),
+        );
+        env
+    }
+
+    #[cfg(test)]
+    fn from_pairs(
+        user: Option<&str>,
+        home: Option<&str>,
+        nix_preserve: Vec<(&str, &str)>,
+        nh_vars: Vec<(&str, &str)>,
+    ) -> Self {
+        Self {
+            user: user.map(String::from),
+            home: home.map(String::from),
+            nix_preserve: nix_preserve
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+            nh_vars: nh_vars
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+
+    fn lookup(&self, key: &str) -> Option<&str> {
+        self.nix_preserve
+            .iter()
+            .chain(&self.nh_vars)
+            .find_map(|(candidate, value)| {
+                (candidate == key).then_some(value.as_str())
+            })
+    }
+
+    pub(crate) fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.user
+            .iter()
+            .map(|value| ("USER", value.as_str()))
+            .chain(
+                self.home
+                    .iter()
+                    .map(|value| ("HOME", value.as_str())),
+            )
+            .chain(
+                self.nix_preserve
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
+            )
+            .chain(
+                self.nh_vars
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
+            )
+    }
+}
 
 /// Privilege-elevation configuration captured from environment variables.
 ///
@@ -1056,7 +1152,7 @@ impl Build {
             .print_build_logs(false)
             .args(&installable_args)
             .args(&self.extra_args)
-            .to_exec();
+            .into_exec();
 
         if self.nom {
             let pipeline = {
