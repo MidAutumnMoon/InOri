@@ -51,6 +51,11 @@ pub enum ActivationAction {
     Switch,
 }
 
+struct BuiltConfiguration {
+    target_profile: PathBuf,
+    actual_store_path: Option<PathBuf>,
+}
+
 impl RebuildActivateArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn build_and_activate(
@@ -72,20 +77,9 @@ impl RebuildActivateArgs {
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
 
-        let toplevel = self.rebuild.resolve_installable_and_toplevel(
-            &target_hostname,
-            flake_config,
-        )?;
-
-        if self.rebuild.update_args.update_all
-            || self.rebuild.update_args.update_input.is_some()
-        {
-            update(
-                &toplevel,
-                self.rebuild.update_args.update_input.clone(),
-                self.rebuild.common.passthrough.commit_lock_file,
-            )?;
-        }
+        let toplevel = self
+            .rebuild
+            .prepare_toplevel(&target_hostname, flake_config)?;
 
         // Initialize SSH control early if we have remote hosts - guard will keep
         // connections alive for both build and activation
@@ -130,24 +124,9 @@ impl RebuildActivateArgs {
             local_elevate
         };
 
-        let actual_store_path = self.rebuild.execute_build(
-            toplevel,
-            &out_path,
-            "Building NixOS configuration",
-            ssh_config,
-        )?;
-
-        let target_profile =
-            self.rebuild.resolve_specialisation_and_profile(&out_path)?;
-
-        handle_nixos_diff(
-            &self.rebuild.common.diff,
-            self.rebuild.target_host.as_ref(),
-            &target_profile,
-            actual_store_path.as_deref(),
-            &out_path,
-            ssh_config,
-        )?;
+        let built = self
+            .rebuild
+            .build_and_diff(toplevel, &out_path, ssh_config)?;
 
         if self.rebuild.common.dry {
             if self.rebuild.common.ask {
@@ -160,8 +139,8 @@ impl RebuildActivateArgs {
         self.activate_rebuilt_config(
             action,
             &out_path,
-            &target_profile,
-            actual_store_path.as_deref(),
+            &built.target_profile,
+            built.actual_store_path.as_deref(),
             elevate,
             elevation,
             subprocess_env,
@@ -573,27 +552,84 @@ impl RebuildArgs {
         }
     }
 
-    fn resolve_installable_and_toplevel(
+    fn prepare_toplevel(
         &self,
         target_hostname: &str,
         flake_config: &FlakeConfig,
     ) -> Result<Installable> {
-        let installable = self
+        let mut toplevel = self
             .common
             .installable
             .clone()
             .resolve_or_default(flake_config)?;
+        let attrs = ["config", "system", "build", "toplevel"]
+            .into_iter()
+            .map(String::from);
 
-        toplevel_for(target_hostname, installable, &["toplevel"])
+        match &mut toplevel {
+            Installable::Flake { attribute, .. } => {
+                let first = attribute.first().cloned();
+                let second = attribute.get(1).cloned();
+                match (first.as_deref(), attribute.len()) {
+                    (None, _) => {
+                        attribute
+                            .push(String::from("nixosConfigurations"));
+                        attribute.push(target_hostname.to_owned());
+                    }
+                    (Some("nixosConfigurations"), 1) => {
+                        info!(
+                            "Inferring hostname '{target_hostname}' for \
+                             nixosConfigurations"
+                        );
+                        attribute.push(target_hostname.to_owned());
+                    }
+                    (Some("nixosConfigurations"), 2) => {}
+                    (Some("nixosConfigurations"), _) => {
+                        bail!(
+                            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+                             flake reference without attributes (e.g., '.')\n  2. Specify \
+                             only the configuration name (e.g., '.#{}')",
+                            attribute.join("."),
+                            second.as_deref().unwrap_or_default()
+                        );
+                    }
+                    _ => {
+                        attribute.insert(
+                            0,
+                            String::from("nixosConfigurations"),
+                        );
+                    }
+                }
+                attribute.extend(attrs);
+            }
+            Installable::File { attribute, .. }
+            | Installable::Expression { attribute, .. } => {
+                attribute.extend(attrs);
+            }
+            Installable::Store { .. } => {}
+        }
+
+        if self.update_args.update_all
+            || self.update_args.update_input.is_some()
+        {
+            update(
+                &toplevel,
+                self.update_args.update_input.clone(),
+                self.common.passthrough.commit_lock_file,
+            )?;
+        }
+
+        Ok(toplevel)
     }
 
     fn execute_build(
         &self,
         toplevel: Installable,
         out_path: &Path,
-        message: &str,
         ssh_config: &SshConfig,
     ) -> Result<Option<PathBuf>> {
+        const MESSAGE: &str = "Building NixOS configuration";
+
         // If a build host is specified, use proper remote build semantics:
         //
         // 1. Evaluate derivation locally
@@ -601,7 +637,7 @@ impl RebuildArgs {
         // 3. Build on remote host
         // 4. Copy result back (to localhost or target_host)
         if let Some(build_host) = self.build_host.clone() {
-            info!("{message}");
+            info!("{MESSAGE}");
             let config = RemoteBuildConfig {
                 build_host,
                 target_host: self.target_host.clone(),
@@ -636,13 +672,39 @@ impl RebuildArgs {
                 .extra_arg(out_path)
                 .extra_args(&self.extra_args)
                 .passthrough(&self.common.passthrough)
-                .message(message)
+                .message(MESSAGE)
                 .nom(!self.common.no_nom)
                 .run()
                 .wrap_err("Failed to build configuration")?;
 
             Ok(None) // Local builds don't have separate store path
         }
+    }
+
+    fn build_and_diff(
+        &self,
+        toplevel: Installable,
+        out_path: &Path,
+        ssh_config: &SshConfig,
+    ) -> Result<BuiltConfiguration> {
+        let actual_store_path =
+            self.execute_build(toplevel, out_path, ssh_config)?;
+        let target_profile =
+            self.resolve_specialisation_and_profile(out_path)?;
+
+        handle_nixos_diff(
+            &self.common.diff,
+            self.target_host.as_ref(),
+            &target_profile,
+            actual_store_path.as_deref(),
+            out_path,
+            ssh_config,
+        )?;
+
+        Ok(BuiltConfiguration {
+            target_profile,
+            actual_store_path,
+        })
     }
 
     fn resolve_specialisation_and_profile(
@@ -714,39 +776,9 @@ impl RebuildArgs {
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
 
-        let toplevel = self.resolve_installable_and_toplevel(
-            &target_hostname,
-            flake_config,
-        )?;
-
-        if self.update_args.update_all
-            || self.update_args.update_input.is_some()
-        {
-            update(
-                &toplevel,
-                self.update_args.update_input.clone(),
-                self.common.passthrough.commit_lock_file,
-            )?;
-        }
-
-        let actual_store_path = self.execute_build(
-            toplevel,
-            &out_path,
-            "Building NixOS configuration",
-            ssh_config,
-        )?;
-
-        let target_profile =
-            self.resolve_specialisation_and_profile(&out_path)?;
-
-        handle_nixos_diff(
-            &self.common.diff,
-            self.target_host.as_ref(),
-            &target_profile,
-            actual_store_path.as_deref(),
-            &out_path,
-            ssh_config,
-        )?;
+        let toplevel =
+            self.prepare_toplevel(&target_hostname, flake_config)?;
+        self.build_and_diff(toplevel, &out_path, ssh_config)?;
 
         Ok(())
     }
@@ -1122,76 +1154,6 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     generations.sort_by_key(|g| g.number);
 
     Ok(generations)
-}
-
-/// Resolve a NixOS installable to the requested system build attributes.
-///
-/// # Errors
-///
-/// Returns an error if the flake attribute path is too specific to infer the
-/// requested build attributes.
-pub fn toplevel_for<S: AsRef<str>>(
-    hostname: S,
-    installable: Installable,
-    final_attrs: &[&str],
-) -> Result<Installable> {
-    let mut res = installable;
-    let hostname_str = hostname.as_ref();
-
-    let toplevel = vec!["config", "system", "build"]
-        .into_iter()
-        .map(String::from)
-        .chain(final_attrs.iter().map(|&s| String::from(s)));
-
-    match res {
-        Installable::Flake {
-            ref mut attribute, ..
-        } => {
-            let first = attribute.first().cloned();
-            let second = attribute.get(1).cloned();
-            match (first.as_deref(), attribute.len()) {
-                (None, _) => {
-                    attribute.push(String::from("nixosConfigurations"));
-                    attribute.push(hostname_str.to_owned());
-                }
-                (Some("nixosConfigurations"), 1) => {
-                    info!(
-                        "Inferring hostname '{}' for nixosConfigurations",
-                        hostname_str
-                    );
-                    attribute.push(hostname_str.to_owned());
-                }
-                (Some("nixosConfigurations"), 2) => {
-                    // nixosConfigurations.hostname - fine
-                }
-                (Some("nixosConfigurations"), _) => {
-                    bail!(
-                        "Attribute path is too specific: {}. Please either:\n  1. Use the \
-             flake reference without attributes (e.g., '.')\n  2. Specify \
-             only the configuration name (e.g., '.#{}')",
-                        attribute.join("."),
-                        second.as_deref().unwrap_or_default()
-                    );
-                }
-                _ => {
-                    // User provided ".#myhost" - prepend nixosConfigurations
-                    attribute
-                        .insert(0, String::from("nixosConfigurations"));
-                }
-            }
-            attribute.extend(toplevel);
-        }
-        Installable::File {
-            ref mut attribute, ..
-        }
-        | Installable::Expression {
-            ref mut attribute, ..
-        } => attribute.extend(toplevel),
-
-        Installable::Store { .. } => {}
-    }
-
-    Ok(res)
 }
 
 impl ReplArgs {

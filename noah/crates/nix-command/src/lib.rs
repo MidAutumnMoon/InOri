@@ -50,8 +50,7 @@ impl CommandKind {
 }
 
 pub struct NixCommand {
-    kind: Option<CommandKind>,
-    binary: OsString,
+    kind: CommandKind,
     global_args: Vec<OsString>,
     args: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
@@ -63,32 +62,15 @@ pub struct NixCommand {
 impl NixCommand {
     #[must_use]
     pub fn new(kind: CommandKind) -> Self {
-        Self::with_binary("nix", Some(kind))
-    }
-
-    fn with_binary<S: AsRef<OsStr>>(
-        binary: S,
-        kind: Option<CommandKind>,
-    ) -> Self {
-        let (print_build_logs, interactive) = kind
-            .map_or((false, false), |kind| {
-                (kind.print_build_logs(), kind.interactive())
-            });
         Self {
             kind,
-            binary: binary.as_ref().to_os_string(),
             global_args: Vec::new(),
             args: Vec::new(),
             env: Vec::new(),
-            print_build_logs,
-            interactive,
+            print_build_logs: kind.print_build_logs(),
+            interactive: kind.interactive(),
             timeout: None,
         }
-    }
-
-    #[must_use]
-    pub fn nix_instantiate() -> Self {
-        Self::with_binary("nix-instantiate", None)
     }
 
     #[must_use]
@@ -164,7 +146,7 @@ impl NixCommand {
         let mut argv = Vec::with_capacity(
             1 + self.global_args.len() + self.args.len() + 2,
         );
-        argv.push(self.binary.clone());
+        argv.push(OsString::from("nix"));
         argv.extend(assemble_args(
             self.kind,
             self.print_build_logs,
@@ -177,7 +159,6 @@ impl NixCommand {
     pub fn into_exec(self) -> Exec {
         let Self {
             kind,
-            binary,
             global_args,
             args,
             env,
@@ -186,7 +167,7 @@ impl NixCommand {
         } = self;
         let args =
             assemble_args(kind, print_build_logs, global_args, args);
-        let command = Exec::cmd(binary).args(args);
+        let command = Exec::cmd("nix").args(args);
         if env.is_empty() {
             command
         } else {
@@ -223,23 +204,13 @@ impl NixCommand {
     /// Returns an error if the command cannot start, capture or waiting fails,
     /// or the configured timeout expires.
     pub fn output(self) -> Result<Capture> {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let exit_status = self.communicate_to(&mut stdout, &mut stderr)?;
-        Ok(Capture {
-            stdout,
-            stderr,
-            exit_status,
-        })
+        let timeout = self.timeout_context();
+        capture_exec(self.into_exec(), timeout)
     }
 
     fn run_interactive(self) -> Result<ExitStatus> {
         let timeout = self.timeout_context();
-        let job = self.into_exec().start()?;
-        let deadline = timeout
-            .as_ref()
-            .map(|timeout| Instant::now() + timeout.duration);
-        wait_for_job(&job, timeout.as_ref(), deadline)
+        run_interactive_exec(self.into_exec(), timeout.as_ref())
     }
 
     fn communicate_to(
@@ -248,63 +219,85 @@ impl NixCommand {
         stderr: &mut dyn Write,
     ) -> Result<ExitStatus> {
         let timeout = self.timeout_context();
-        let mut job = self
-            .into_exec()
-            .stdout(Redirection::Pipe)
-            .stderr(Redirection::Pipe)
-            .start()?;
-        let deadline = timeout
-            .as_ref()
-            .map(|timeout| Instant::now() + timeout.duration);
-        let communicator = job.communicate()?;
-        let communication = if let Some(deadline) = deadline {
-            communicator
-                .limit_time(
-                    deadline.saturating_duration_since(Instant::now()),
-                )
-                .read_to(stdout, stderr)
-        } else {
-            let mut communicator = communicator;
-            communicator.read_to(stdout, stderr)
-        };
-
-        if let Err(error) = communication {
-            kill_and_wait(&job)?;
-            if error.kind() == io::ErrorKind::TimedOut
-                && let Some(timeout) = timeout
-            {
-                return Err(timeout.into_error());
-            }
-            return Err(error.into());
-        }
-
-        wait_for_job(&job, timeout.as_ref(), deadline)
+        communicate_exec(self.into_exec(), timeout, stdout, stderr)
     }
 
     fn timeout_context(&self) -> Option<TimeoutContext> {
         self.timeout.map(|duration| TimeoutContext {
-            command: self.command_name(),
+            command: format!("nix {}", self.kind.as_str()),
             duration,
         })
     }
+}
 
-    fn command_name(&self) -> String {
-        self.kind.map_or_else(
-            || self.binary.to_string_lossy().into_owned(),
-            |kind| format!("nix {}", kind.as_str()),
-        )
+fn capture_exec(
+    exec: Exec,
+    timeout: Option<TimeoutContext>,
+) -> Result<Capture> {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let exit_status =
+        communicate_exec(exec, timeout, &mut stdout, &mut stderr)?;
+    Ok(Capture {
+        stdout,
+        stderr,
+        exit_status,
+    })
+}
+
+fn run_interactive_exec(
+    exec: Exec,
+    timeout: Option<&TimeoutContext>,
+) -> Result<ExitStatus> {
+    let job = exec.start()?;
+    let deadline =
+        timeout.map(|timeout| Instant::now() + timeout.duration);
+    wait_for_job(&job, timeout, deadline)
+}
+
+fn communicate_exec(
+    exec: Exec,
+    timeout: Option<TimeoutContext>,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExitStatus> {
+    let mut job = exec
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .start()?;
+    let deadline = timeout
+        .as_ref()
+        .map(|timeout| Instant::now() + timeout.duration);
+    let communicator = job.communicate()?;
+    let communication = if let Some(deadline) = deadline {
+        communicator
+            .limit_time(deadline.saturating_duration_since(Instant::now()))
+            .read_to(stdout, stderr)
+    } else {
+        let mut communicator = communicator;
+        communicator.read_to(stdout, stderr)
+    };
+
+    if let Err(error) = communication {
+        kill_and_wait(&job)?;
+        if error.kind() == io::ErrorKind::TimedOut
+            && let Some(timeout) = timeout
+        {
+            return Err(timeout.into_error());
+        }
+        return Err(error.into());
     }
+
+    wait_for_job(&job, timeout.as_ref(), deadline)
 }
 
 fn assemble_args(
-    kind: Option<CommandKind>,
+    kind: CommandKind,
     print_build_logs: bool,
     mut global_args: Vec<OsString>,
     args: Vec<OsString>,
 ) -> Vec<OsString> {
-    if let Some(kind) = kind {
-        global_args.push(OsString::from(kind.as_str()));
-    }
+    global_args.push(OsString::from(kind.as_str()));
     if print_build_logs
         && !args
             .iter()
@@ -423,18 +416,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn legacy_binary_omits_nix_subcommand() {
-        let argv = NixCommand::nix_instantiate().arg("--eval").argv();
-        assert_eq!(argv, ["nix-instantiate", "--eval"]);
-    }
-
     #[cfg(unix)]
     #[test]
-    fn output_captures_both_streams() -> Result<()> {
-        let output = NixCommand::with_binary("sh", None)
-            .args(["-c", "printf stdout; printf stderr >&2"])
-            .output()?;
+    fn capture_exec_captures_both_streams() -> Result<()> {
+        let output = capture_exec(
+            Exec::cmd("sh")
+                .args(["-c", "printf stdout; printf stderr >&2"]),
+            None,
+        )?;
         assert!(output.success());
         assert_eq!(output.stdout, b"stdout");
         assert_eq!(output.stderr, b"stderr");
@@ -443,25 +432,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn output_timeout_kills_the_process() {
+    fn capture_timeout_kills_the_process() {
+        let duration = Duration::from_millis(50);
         let start = Instant::now();
-        let result = NixCommand::with_binary("sh", None)
-            .args(["-c", "exec sleep 5"])
-            .with_timeout(Duration::from_millis(50))
-            .output();
+        let result = capture_exec(
+            Exec::cmd("sh").args(["-c", "exec sleep 5"]),
+            Some(TimeoutContext {
+                command: "sh".to_owned(),
+                duration,
+            }),
+        );
         assert!(matches!(result, Err(Error::Timeout { .. })));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
     #[cfg(unix)]
     #[test]
     fn interactive_timeout_kills_the_process() {
-        let mut command = NixCommand::with_binary("sh", None)
-            .args(["-c", "exec sleep 5"])
-            .with_timeout(Duration::from_millis(50));
-        command.interactive = true;
-
+        let duration = Duration::from_millis(50);
+        let timeout = TimeoutContext {
+            command: "sh".to_owned(),
+            duration,
+        };
         let start = Instant::now();
-        let result = command.run_with_logs();
+        let result = run_interactive_exec(
+            Exec::cmd("sh").args(["-c", "exec sleep 5"]),
+            Some(&timeout),
+        );
         assert!(matches!(result, Err(Error::Timeout { .. })));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
