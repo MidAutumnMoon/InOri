@@ -8,30 +8,6 @@ use nh_installable::{FlakeConfig, InstallableArgs};
 use crate::nixos::generations::Field;
 
 #[derive(Debug, Args)]
-pub struct BuildImageArgs {
-    #[command(flatten)]
-    pub common: RebuildArgs,
-
-    /// Image variant
-    #[arg(long)]
-    pub image_variant: String,
-}
-
-#[derive(Debug, Args)]
-pub struct RebuildVmArgs {
-    #[command(flatten)]
-    pub common: RebuildArgs,
-
-    /// Build with bootloader. Bootloader is bypassed by default.
-    #[arg(long, short = 'B')]
-    pub with_bootloader: bool,
-
-    /// Run the VM immediately after building
-    #[arg(long, short = 'r')]
-    pub run: bool,
-}
-
-#[derive(Debug, Args)]
 pub struct RebuildArgs {
     #[command(flatten)]
     pub common: CommonRebuildArgs,

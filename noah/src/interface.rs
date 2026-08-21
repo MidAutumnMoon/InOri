@@ -68,10 +68,6 @@ pub enum NHCommand {
     Info(nh::nixos::args::GenerationsArgs),
     /// Rollback to a previous generation
     Rollback(nh::nixos::args::RollbackArgs),
-    /// Build a `NixOS` VM image
-    BuildVm(nh::nixos::args::RebuildVmArgs),
-    /// Build a `NixOS` disk-image variant
-    BuildImage(nh::nixos::args::BuildImageArgs),
     /// Searches packages or NixOS options via search.nixos.org
     Search(nh::search::args::SearchArgs),
     /// Enhanced nix cleanup
@@ -139,20 +135,6 @@ impl NHCommand {
                 &env.subprocess,
                 &env.sudo,
                 &env.flake,
-            ),
-            Self::BuildVm(args) => args.build_vm(
-                &elevation,
-                &env.subprocess,
-                &env.sudo,
-                &env.flake,
-                &env.ssh,
-            ),
-            Self::BuildImage(args) => args.build_image(
-                &elevation,
-                &env.subprocess,
-                &env.sudo,
-                &env.flake,
-                &env.ssh,
             ),
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => {
@@ -229,4 +211,26 @@ mod tests {
         Ok(())
     }
     */
+    use clap::{Parser, error::ErrorKind};
+
+    use super::Main;
+
+    #[test]
+    fn removed_build_variants_are_rejected() -> clap::error::Result<()> {
+        for command in ["build-vm", "build-image"] {
+            let error = match Main::try_parse_from(["nh", command]) {
+                Ok(parsed) => {
+                    return Err(clap::Error::raw(
+                        ErrorKind::InvalidValue,
+                        format!(
+                            "removed command still parsed: {parsed:?}"
+                        ),
+                    ));
+                }
+                Err(error) => error,
+            };
+            assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
+        }
+        Ok(())
+    }
 }

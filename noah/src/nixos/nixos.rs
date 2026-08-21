@@ -13,10 +13,7 @@ use crate::{
         SubprocessEnv, SudoConfig,
     },
     update::update,
-    util::{
-        ensure_ssh_key_login, get_build_image_variants,
-        get_build_image_variants_flake, get_hostname,
-    },
+    util::{ensure_ssh_key_login, get_hostname},
 };
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_installable::{FlakeConfig, Installable};
@@ -24,8 +21,8 @@ use tracing::{debug, info, warn};
 
 use crate::nixos::{
     args::{
-        BuildImageArgs, GenerationsArgs, RebuildActivateArgs, RebuildArgs,
-        RebuildVmArgs, ReplArgs, RollbackArgs,
+        GenerationsArgs, RebuildActivateArgs, RebuildArgs, ReplArgs,
+        RollbackArgs,
     },
     generations,
 };
@@ -45,42 +42,6 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
     ("sw/bin", "system path"),
 ];
 
-/// What `config.system.build` attribute to build.
-#[derive(Debug)]
-enum BuildTarget {
-    Toplevel,
-    Vm { with_bootloader: bool },
-    Image { variant: String },
-}
-
-impl BuildTarget {
-    /// The `config.system.build` attribute tail this target builds.
-    fn attrs(&self) -> Vec<&str> {
-        match self {
-            Self::Toplevel => vec!["toplevel"],
-            Self::Vm { with_bootloader } => {
-                vec![if *with_bootloader {
-                    "vmWithBootLoader"
-                } else {
-                    "vm"
-                }]
-            }
-            Self::Image { variant } => vec!["images", variant.as_str()],
-        }
-    }
-
-    /// Human-readable message shown while building.
-    fn message(&self) -> String {
-        match self {
-            Self::Toplevel => "Building NixOS configuration".to_owned(),
-            Self::Vm { .. } => "Building NixOS VM image".to_owned(),
-            Self::Image { variant } => {
-                format!("Building NixOS image ({variant})")
-            }
-        }
-    }
-}
-
 /// Post-build activation action. `Switch` runs the test phase, then the boot
 /// phase.
 #[derive(Debug, Clone, Copy)]
@@ -88,65 +49,6 @@ pub enum ActivationAction {
     Test,
     Boot,
     Switch,
-}
-
-impl RebuildVmArgs {
-    #[expect(clippy::missing_errors_doc)]
-    pub fn build_vm(
-        &self,
-        elevation: &ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
-        sudo_config: &SudoConfig,
-        flake_config: &FlakeConfig,
-        ssh_config: &SshConfig,
-    ) -> Result<()> {
-        let attr = if self.with_bootloader {
-            "vmWithBootLoader"
-        } else {
-            "vm"
-        };
-        let out_path = self
-            .common
-            .common
-            .out_link
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("result"));
-
-        debug!("Building VM with attribute: {attr}");
-
-        // Show warning if no hostname was explicitly provided for VM builds
-        if self.common.hostname.is_none() {
-            let (_, target_hostname) = self.common.setup_build_context(
-                elevation,
-                subprocess_env,
-                sudo_config,
-            )?;
-            tracing::warn!(
-                "Guessing system is {target_hostname} for a VM image. If this isn't \
-         intended, use --hostname to change."
-            );
-        }
-
-        self.common.build_target(
-            &BuildTarget::Vm {
-                with_bootloader: self.with_bootloader,
-            },
-            elevation,
-            subprocess_env,
-            sudo_config,
-            flake_config,
-            ssh_config,
-        )?;
-
-        // Run the VM if requested; otherwise print how to run it.
-        if self.run {
-            run_vm(&out_path, subprocess_env, sudo_config)?;
-        } else {
-            print_vm_instructions(&out_path);
-        }
-
-        Ok(())
-    }
 }
 
 impl RebuildActivateArgs {
@@ -172,7 +74,6 @@ impl RebuildActivateArgs {
 
         let toplevel = self.rebuild.resolve_installable_and_toplevel(
             &target_hostname,
-            &BuildTarget::Toplevel,
             flake_config,
         )?;
 
@@ -675,7 +576,6 @@ impl RebuildArgs {
     fn resolve_installable_and_toplevel(
         &self,
         target_hostname: &str,
-        target: &BuildTarget,
         flake_config: &FlakeConfig,
     ) -> Result<Installable> {
         let installable = self
@@ -684,7 +584,7 @@ impl RebuildArgs {
             .clone()
             .resolve_or_default(flake_config)?;
 
-        toplevel_for(target_hostname, installable, &target.attrs())
+        toplevel_for(target_hostname, installable, &["toplevel"])
     }
 
     fn execute_build(
@@ -805,28 +705,6 @@ impl RebuildArgs {
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
-        self.build_target(
-            &BuildTarget::Toplevel,
-            elevation,
-            subprocess_env,
-            sudo_config,
-            flake_config,
-            ssh_config,
-        )
-    }
-
-    /// Shared flow for the build-only subcommands (`build`, `build-vm`,
-    /// `build-image`). `target` selects which `config.system.build` attribute
-    /// to evaluate.
-    fn build_target(
-        &self,
-        target: &BuildTarget,
-        elevation: &ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
-        sudo_config: &SudoConfig,
-        flake_config: &FlakeConfig,
-        ssh_config: &SshConfig,
-    ) -> Result<()> {
         let (_, target_hostname) = self.setup_build_context(
             elevation,
             subprocess_env,
@@ -838,7 +716,6 @@ impl RebuildArgs {
 
         let toplevel = self.resolve_installable_and_toplevel(
             &target_hostname,
-            target,
             flake_config,
         )?;
 
@@ -855,7 +732,7 @@ impl RebuildArgs {
         let actual_store_path = self.execute_build(
             toplevel,
             &out_path,
-            &target.message(),
+            "Building NixOS configuration",
             ssh_config,
         )?;
 
@@ -1055,216 +932,6 @@ impl RollbackArgs {
 
         Ok(())
     }
-}
-
-impl BuildImageArgs {
-    #[expect(clippy::missing_errors_doc)]
-    pub fn build_image(
-        &self,
-        elevation: &ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
-        sudo_config: &SudoConfig,
-        flake_config: &FlakeConfig,
-        ssh_config: &SshConfig,
-    ) -> Result<()> {
-        let (_, target_hostname) = self.common.setup_build_context(
-            elevation,
-            subprocess_env,
-            sudo_config,
-        )?;
-
-        // Show warning if no hostname was explicitly provided for image builds
-        if self.common.hostname.is_none() {
-            tracing::warn!(
-                "Guessing system is {target_hostname} for an image ({}). If this \
-         isn't intended, use --hostname to change.",
-                self.image_variant
-            );
-        }
-
-        let installable = self
-            .common
-            .common
-            .installable
-            .clone()
-            .resolve_or_default(flake_config)?;
-
-        // Get the available image variants for validation
-        let valid_variants = match &installable {
-            Installable::Flake { .. } => {
-                let images_installable = toplevel_for(
-                    &target_hostname,
-                    installable.clone(),
-                    &["images"],
-                )?;
-                get_build_image_variants_flake(&images_installable)?
-            }
-            Installable::File { .. } | Installable::Expression { .. } => {
-                get_build_image_variants(&installable, &target_hostname)?
-            }
-            Installable::Store { .. } => {
-                bail!("Unsupported installable type for image building")
-            }
-        };
-
-        // Validate that the requested variant exists
-        if !valid_variants.contains(&self.image_variant) {
-            bail!(
-                "Invalid image variant '{}'. Available variants:\n- {}",
-                self.image_variant,
-                valid_variants.join("\n- ")
-            );
-        }
-
-        self.common.build_target(
-            &BuildTarget::Image {
-                variant: self.image_variant.clone(),
-            },
-            elevation,
-            subprocess_env,
-            sudo_config,
-            flake_config,
-            ssh_config,
-        )?;
-
-        Ok(())
-    }
-}
-
-/// Finds the VM runner script in the given build output directory.
-///
-/// Searches for a file matching `run-*-vm` in the `bin` subdirectory of
-/// `out_path`.
-///
-/// # Arguments
-///
-/// * `out_path` - The path to the build output directory (usually `result`).
-///
-/// # Returns
-///
-/// * `Ok(PathBuf)` with the path to the VM runner script if found.
-/// * `Err` if the script cannot be found or the bin directory is missing.
-///
-/// # Errors
-///
-/// Returns an error if the bin directory does not exist or if no matching
-/// script is found.
-fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
-    let bin_dir = out_path.join("bin");
-
-    if !bin_dir.is_dir() {
-        bail!(
-            "VM build output missing bin directory at {}",
-            bin_dir.display()
-        );
-    }
-
-    let vm_script = fs::read_dir(&bin_dir)
-        .wrap_err_with(|| {
-            format!("Failed to read directory {}", bin_dir.display())
-        })?
-        .filter_map(|entry_result| match entry_result {
-            Ok(entry) => Some(entry),
-            Err(e) => {
-                warn!(
-                    "Error reading entry in {}: {}",
-                    bin_dir.display(),
-                    e
-                );
-                None
-            }
-        })
-        .find_map(|entry| {
-            let fname = entry.file_name();
-            if fname.to_str().is_some_and(|name| {
-                name.starts_with("run-") && name.ends_with("-vm")
-            }) {
-                Some(entry.path())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            eyre!(
-                "Could not find VM runner script in {}",
-                bin_dir.display()
-            )
-        })?;
-
-    Ok(vm_script)
-}
-
-/// Prints instructions for running the built VM to the user.
-///
-/// Attempts to locate the VM runner script in the build output directory and
-/// prints a message with the path to the script. If the script cannot be found,
-/// prints a warning and a generic path pattern.
-///
-/// # Arguments
-///
-/// * `out_path` - The path to the build output directory (usually `result`).
-///
-/// # Returns
-///
-/// * `Ok(())` on success.
-/// * `Err` if there is an error searching for the VM script.
-fn print_vm_instructions(out_path: &Path) {
-    match find_vm_script(out_path) {
-        Ok(script) => {
-            info!(
-                "Done. The virtual machine can be started by running {}",
-                script.display()
-            );
-        }
-        Err(e) => {
-            warn!(
-                "VM build completed, but could not find run script: {}",
-                e
-            );
-            info!(
-                "Done. The virtual machine script should be at {}/bin/run-*-vm",
-                out_path.display()
-            );
-        }
-    }
-}
-
-/// Runs the built NixOS VM by executing the VM runner script.
-///
-/// Locates the VM runner script in the build output directory and executes it,
-/// streaming its output to the user. Returns an error if the script cannot be
-/// found or if execution fails.
-///
-/// # Arguments
-///
-/// * `out_path` - The path to the build output directory (usually `result`).
-///
-/// # Returns
-///
-/// * `Ok(())` if the VM was started successfully.
-/// * `Err` if the script cannot be found or execution fails.
-fn run_vm(
-    out_path: &Path,
-    subprocess_env: &SubprocessEnv,
-    sudo_config: &SudoConfig,
-) -> Result<()> {
-    let vm_script = find_vm_script(out_path)?;
-
-    info!(
-        "Running VM... Starting virtual machine with {}",
-        vm_script.display()
-    );
-
-    Command::new(&vm_script, subprocess_env, sudo_config)
-        .message("Running VM")
-        .show_output(true)
-        .with_env()
-        .run()
-        .wrap_err_with(|| {
-            format!("Failed to run VM script at {}", vm_script.display())
-        })?;
-
-    Ok(())
 }
 
 /// Validates that essential files exist in the system closure.
