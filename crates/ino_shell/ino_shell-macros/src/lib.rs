@@ -284,10 +284,7 @@ impl Fragment {
 /// Unlike [`str::trim_matches`], at most one quote is removed from each side,
 /// so `""` becomes an empty string and `"""` becomes `"`.
 fn strip_outer_quotes(s: &str) -> &str {
-    s.strip_prefix('"')
-        .unwrap_or(s)
-        .strip_suffix('"')
-        .unwrap_or(s)
+    s.strip_circumfix('"', '"').unwrap_or(s)
 }
 
 /// Validates that `name` is a plain identifier (ASCII alphanumerics and

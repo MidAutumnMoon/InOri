@@ -58,15 +58,8 @@ impl FromStr for BaseSeqExt {
             if part.chars().all(|c| c.is_ascii_digit()) {
                 debug!("Part is all digits, use it as seq");
 
-                let num: u64 = part
-                    .parse()
-                    .context("[BUG] Can't parse all digits into number")?;
-                ensure!(
-                    num != 0,
-                    r#"Sequence must be > 0 in filename "{s}""#
-                );
-                seq = NonZeroU64::new(num)
-                    .context("[BUG] Can't create NoneZeroU64")?
+                seq = NonZeroU64::from_str_radix(part, 10)
+                    .with_context(|| format!(r#"Sequence must be > 0 in filename "{s}""#))?
                     .tap(|num| debug!(?num))
                     .pipe(Some);
                 seq_index = Some(idx);
