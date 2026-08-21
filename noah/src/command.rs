@@ -7,12 +7,9 @@ use std::{
     str::FromStr,
 };
 
-use color_eyre::{
-    Result,
-    eyre::{self, Context, bail},
-};
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
+use rootcause::{Result, bail, prelude::ResultExt, report};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -109,19 +106,23 @@ pub(crate) fn exec_with_writers(
         .stdout(Redirection::Pipe)
         .stderr(Redirection::Pipe)
         .start()
-        .wrap_err("Failed to start command")?;
+        .context("Failed to start command")?;
 
     let communication = job
         .communicate()
-        .wrap_err("Failed to open command pipes")?
+        .context("Failed to open command pipes")?
         .read_to(stdout, stderr);
     if let Err(error) = communication {
         let _ = job.kill();
         let _ = job.wait();
-        return Err(error).wrap_err("Failed to stream command output");
+        return Err(error)
+            .context("Failed to stream command output")
+            .map_err(Into::into);
     }
 
-    job.wait().wrap_err("Failed to wait for command completion")
+    job.wait()
+        .context("Failed to wait for command completion")
+        .map_err(Into::into)
 }
 
 /// Run a command while forwarding and retaining both output streams.
@@ -176,7 +177,7 @@ impl From<&str> for ElevationStrategyArg {
 impl FromStr for ElevationStrategyArg {
     type Err = Infallible;
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
         Ok(Self::from(value))
     }
 }
@@ -279,7 +280,7 @@ impl ElevationStrategy {
             }
         }
 
-        Err(eyre::eyre!(
+        Err(report!(
             "No elevation strategy found. Checked: {}",
             STRATEGIES.join(", ")
         ))
@@ -453,7 +454,7 @@ impl<'env> Command<'env> {
 
     fn elevation_parts(&self) -> Result<ElevationParts<'_>> {
         let strategy = self.elevate.as_ref().ok_or_else(|| {
-            eyre::eyre!("Command is not configured for elevation")
+            report!("Command is not configured for elevation")
         })?;
         let program = strategy
             .resolve(self.runtime_env)
@@ -462,7 +463,7 @@ impl<'env> Command<'env> {
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| {
-                eyre::eyre!("Failed to determine elevation program name")
+                report!("Failed to determine elevation program name")
             })?;
         let passwordless =
             matches!(strategy, ElevationStrategy::Passwordless);
@@ -572,12 +573,9 @@ impl<'env> Command<'env> {
             .unwrap_or_else(|| "Command failed".to_string());
 
         if self.show_output {
-            let exit_status = cmd.join().wrap_err(msg.clone())?;
+            let exit_status = cmd.join().context(msg.clone())?;
             if !exit_status.success() {
-                return Err(eyre::eyre!(format!(
-                    "{} (exit status {:?})",
-                    msg, exit_status
-                )));
+                bail!(format!("{} (exit status {:?})", msg, exit_status));
             }
             Ok(())
         } else {
@@ -588,19 +586,19 @@ impl<'env> Command<'env> {
                     if !status.success() {
                         let stderr = capture.stderr_str();
                         if stderr.trim().is_empty() {
-                            return Err(eyre::eyre!(format!(
+                            bail!(format!(
                                 "{} (exit status {:?})",
                                 msg, status
-                            )));
+                            ));
                         }
-                        return Err(eyre::eyre!(format!(
+                        bail!(format!(
                             "{} (exit status {:?})\nstderr:\n{}",
                             msg, status, stderr
-                        )));
+                        ));
                     }
                     Ok(())
                 }
-                Err(e) => Err(e).wrap_err(msg),
+                Err(e) => Err(e).context(msg).map_err(Into::into),
             }
         }
     }

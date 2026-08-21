@@ -7,8 +7,8 @@ use std::{
 
 use crate::command::{CommandKind, NixCommand};
 use clap::ValueEnum;
-use color_eyre::eyre::Result;
 use jiff::{Timestamp, tz::TimeZone};
+use rootcause::Result;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
@@ -284,7 +284,7 @@ pub fn describe(
             |_| "Unknown".to_string(),
             |entries| {
                 let mut versions = Vec::with_capacity(4);
-                for entry in entries.filter_map(Result::ok) {
+                for entry in entries.filter_map(std::result::Result::ok) {
                     if let Some(name) = entry.file_name().to_str() {
                         versions.push(name.to_string());
                     }
@@ -297,7 +297,7 @@ pub fn describe(
             |_| "Unknown".to_string(),
             |entries| {
                 let mut versions = Vec::with_capacity(4);
-                for entry in entries.filter_map(Result::ok) {
+                for entry in entries.filter_map(std::result::Result::ok) {
                     if let Some(name) = entry.file_name().to_str() {
                         versions.push(name.to_string());
                     }
@@ -331,7 +331,7 @@ pub fn describe(
             let specs = fs::read_dir(specialisation_path)
                 .map(|entries| {
                     entries
-                        .filter_map(Result::ok)
+                        .filter_map(std::result::Result::ok)
                         .filter_map(|e| e.file_name().into_string().ok())
                         .collect::<Vec<String>>()
                 })

@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use color_eyre::{
-    Result,
-    eyre::{bail, eyre},
-};
+use crate::EyreRootcauseBridge;
+use rootcause::{Result, bail, report};
 
 use super::{
     RemoteHost, SshConfig, get_nix_sshopts_env, run_remote_command,
@@ -39,19 +37,21 @@ impl ResolvedRemoteStorePath {
             });
         }
 
-        let path = path
-            .to_str()
-            .ok_or_else(|| eyre!("remote path contains invalid UTF-8"))?;
+        let path = path.to_str().ok_or_else(|| {
+            report!("remote path contains invalid UTF-8")
+        })?;
         let output = run_remote_command(
             host,
             &["readlink", "-f", "--", path],
             true,
             ssh_config,
         )?
-        .ok_or_else(|| eyre!("readlink did not return a resolved path"))?;
+        .ok_or_else(|| {
+            report!("readlink did not return a resolved path")
+        })?;
         let mut paths = output.lines();
         let resolved_path = paths.next().ok_or_else(|| {
-            eyre!("readlink did not return a resolved path")
+            report!("readlink did not return a resolved path")
         })?;
 
         if paths.next().is_some() {
@@ -83,6 +83,7 @@ impl ResolvedRemoteStorePath {
             .store_url(self.host.nix_store_uri())
             .env("NIX_SSHOPTS", get_nix_sshopts_env(ssh_config));
         dix::query_store_snapshot_with_backend(&backend, self.path())
+            .into_rootcause()
     }
 
     fn new(

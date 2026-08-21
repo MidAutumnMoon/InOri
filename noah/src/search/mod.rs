@@ -11,7 +11,7 @@ use crate::search::{
     backend::BackendConfig,
     types::{OptionSearchResult, PackageSearchResult},
 };
-use color_eyre::{Result, eyre::bail};
+use rootcause::{Result, bail};
 use serde::Serialize;
 use tracing::{debug, trace};
 

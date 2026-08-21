@@ -6,10 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use color_eyre::{
-    Result,
-    eyre::{Context, eyre},
-};
+use rootcause::{Result, prelude::ResultExt, report};
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",
@@ -45,10 +42,10 @@ impl RuntimeEnv {
         Ok(Self {
             vars: env::vars_os().collect(),
             executable: env::current_exe()
-                .wrap_err("Failed to determine the current executable")?,
+                .context("Failed to determine the current executable")?,
             arguments: env::args_os().skip(1).collect(),
             current_dir: env::current_dir()
-                .wrap_err("Failed to determine the current directory")?,
+                .context("Failed to determine the current directory")?,
         })
     }
 
@@ -113,7 +110,7 @@ impl RuntimeEnv {
         }
 
         shlex::split(value).ok_or_else(|| {
-            eyre!("{name} contains unmatched shell quoting")
+            report!("{name} contains unmatched shell quoting")
         })
     }
 

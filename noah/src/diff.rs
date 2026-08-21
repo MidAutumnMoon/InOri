@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::remote::{RemoteHost, ResolvedRemoteStorePath, SshConfig};
-use crate::{args::DiffType, progress};
-use color_eyre::eyre::{Result, eyre};
+use crate::{EyreRootcauseBridge, args::DiffType, progress};
+use rootcause::{Result, report};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
@@ -43,7 +43,9 @@ impl DiffEndpoint {
         ssh_config: &SshConfig,
     ) -> Result<dix::StoreSnapshot> {
         match self {
-            Self::Local(path) => dix::query_store_snapshot(path, true),
+            Self::Local(path) => {
+                dix::query_store_snapshot(path, true).into_rootcause()
+            }
             Self::Remote(root) => root.query_snapshot(ssh_config),
         }
     }
@@ -74,7 +76,8 @@ fn query_local_dix_diff(
     new_generation: &Path,
 ) -> Result<QueriedDiff> {
     let report =
-        dix::query_diff_report(old_generation, new_generation, true)?;
+        dix::query_diff_report(old_generation, new_generation, true)
+            .into_rootcause()?;
 
     Ok(QueriedDiff {
         old_label: display_path(old_generation),
@@ -220,10 +223,10 @@ fn query_endpoint_diff(
         let new_snapshot = scope.spawn(|| new.query_snapshot(ssh_config));
 
         let old_snapshot = old_snapshot.join().map_err(|_| {
-            eyre!("old diff endpoint snapshot thread panicked")
+            report!("old diff endpoint snapshot thread panicked")
         })??;
         let new_snapshot = new_snapshot.join().map_err(|_| {
-            eyre!("new diff endpoint snapshot thread panicked")
+            report!("new diff endpoint snapshot thread panicked")
         })??;
 
         Ok(QueriedDiff {

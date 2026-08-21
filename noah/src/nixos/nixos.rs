@@ -7,6 +7,7 @@ use std::{
 use crate::diff::{handle_nixos_diff, print_dix_diff};
 use crate::remote::{RemoteBuildConfig, RemoteHost, SshConfig};
 use crate::{
+    EyreRootcauseBridge,
     args::DiffType,
     command::{
         self, Command, CommandKind, ElevationStrategy, NixCommand,
@@ -16,8 +17,8 @@ use crate::{
     update::update,
     util::{ensure_ssh_key_login, get_hostname},
 };
-use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_installable::{FlakeConfig, Installable};
+use rootcause::{Result, bail, prelude::ResultExt, report};
 use tracing::{debug, info, warn};
 
 use crate::nixos::{
@@ -368,7 +369,7 @@ impl RebuildActivateArgs {
                 ssh_config,
                 sudo_config,
             )
-            .wrap_err(format!(
+            .context(format!(
                 "Activation ({}) failed",
                 activation_type.as_str()
             ))?;
@@ -384,7 +385,7 @@ impl RebuildActivateArgs {
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
             .show_output(self.show_activation_logs)
             .run()
-            .wrap_err("Activation (test) failed")?;
+            .context("Activation (test) failed")?;
         }
 
         Ok(())
@@ -418,7 +419,7 @@ impl RebuildActivateArgs {
                 ssh_config,
                 sudo_config,
             )
-            .wrap_err("Bootloader activation failed")?;
+            .context("Bootloader activation failed")?;
         } else {
             // Use the base system closure instead of the specialisation one.
             // This is what makes all specialisations visible in the bootloader
@@ -432,7 +433,7 @@ impl RebuildActivateArgs {
                 .arg(&base_store_path)
                 .elevate(elevate.then_some(elevation.clone()))
                 .run()
-                .wrap_err("Failed to set system profile")?;
+                .context("Failed to set system profile")?;
 
             let mut cmd = Command::new(
                 switch_to_configuration,
@@ -448,7 +449,7 @@ impl RebuildActivateArgs {
                 cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
             }
 
-            cmd.run().wrap_err("Bootloader activation failed")?;
+            cmd.run().context("Bootloader activation failed")?;
         }
 
         Ok(())
@@ -555,7 +556,8 @@ impl RebuildArgs {
             .common
             .installable
             .clone()
-            .resolve_or_default(flake_config)?;
+            .resolve_or_default(flake_config)
+            .into_rootcause()?;
         let attrs = ["config", "system", "build", "toplevel"]
             .into_iter()
             .map(String::from);
@@ -669,7 +671,7 @@ impl RebuildArgs {
                 .message(MESSAGE)
                 .nom(!self.common.no_nom)
                 .run()
-                .wrap_err("Failed to build configuration")?;
+                .context("Failed to build configuration")?;
 
             Ok(None) // Local builds don't have separate store path
         }
@@ -742,7 +744,7 @@ impl RebuildArgs {
 
         // Validate the final target profile exists if it's a local build
         if out_path.exists() && !target_profile.exists() {
-            return Err(eyre!(
+            return Err(report!(
                 "Target profile path does not exist: {}",
                 target_profile.display()
             ));
@@ -789,7 +791,7 @@ impl RollbackArgs {
         let current_generation = generations
             .iter()
             .find(|g| g.current)
-            .ok_or_else(|| eyre!("Current generation not found"))?;
+            .ok_or_else(|| report!("Current generation not found"))?;
 
         // Find previous generation or specific generation
         let target_generation = if let Some(gen_number) = self.to {
@@ -875,7 +877,7 @@ impl RollbackArgs {
             .elevate(elevate.then_some(elevation.clone()))
             .message("Setting system profile")
             .run()
-            .wrap_err("Failed to set system profile during rollback")?;
+            .context("Failed to set system profile during rollback")?;
 
         // Determine the correct profile to use with specialisations
         let final_profile = match &target_specialisation {
@@ -939,11 +941,12 @@ impl RollbackArgs {
                         .elevate(elevate.then_some(elevation))
                         .message("Rolling back system profile")
                         .run()
-                        .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
+                        .context("NixOS: Failed to restore previous system profile after failed activation")?;
                 }
 
-                return Err(eyre!("Activation (switch) failed: {}", e))
-                    .context("Failed to activate configuration");
+                return Err(report!("Activation (switch) failed: {}", e)
+                    .context("Failed to activate configuration")
+                    .into());
             }
         }
 
@@ -975,7 +978,7 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
 
     if !missing.is_empty() {
         let missing_list = missing.join("\n");
-        return Err(eyre!(
+        return Err(report!(
             "System closure validation failed. Missing essential files:\n{}\n\nThis \
        typically happens when:\n1. 'system.switch.enable' is set to false in \
        your configuration\n2. The build was incomplete or corrupted\n3. \
@@ -1021,8 +1024,8 @@ fn validate_system_closure_remote(
 
 /// Returns an error indicating that the 'switch-to-configuration' binary is
 /// missing, along with common reasons and solutions.
-fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
-    eyre!(
+fn missing_switch_to_configuration_error() -> rootcause::Report {
+    report!(
         "The 'switch-to-configuration' binary is missing from the built \
      configuration.\n\nThis typically happens when 'system.switch.enable' is \
      set to false in your\nNixOS configuration. To fix this, please \
@@ -1082,7 +1085,7 @@ fn find_previous_generation(
     let current = generations
         .iter()
         .find(|g| g.number == current_number)
-        .ok_or_else(|| eyre!("Current generation not found"))?;
+        .ok_or_else(|| report!("Current generation not found"))?;
 
     generations
         .iter()
@@ -1090,7 +1093,7 @@ fn find_previous_generation(
         .find(|g| g.number < current.number)
         .cloned()
         .ok_or_else(|| {
-            eyre!("No generation older than the current one exists")
+            report!("No generation older than the current one exists")
         })
 }
 
@@ -1101,7 +1104,7 @@ fn get_generation_by_number(
     generations
         .iter()
         .find(|g| g.number == number)
-        .ok_or_else(|| eyre!("Generation {} not found", number))
+        .ok_or_else(|| report!("Generation {} not found", number))
 }
 
 fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
@@ -1148,8 +1151,10 @@ impl ReplArgs {
         runtime_env: &RuntimeEnv,
         flake_config: &FlakeConfig,
     ) -> Result<()> {
-        let mut target_installable =
-            self.installable.resolve_or_default(flake_config)?;
+        let mut target_installable = self
+            .installable
+            .resolve_or_default(flake_config)
+            .into_rootcause()?;
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
@@ -1187,7 +1192,7 @@ impl GenerationsArgs {
         };
 
         if !profile.is_symlink() {
-            return Err(eyre!(
+            return Err(report!(
                 "No profile `{:?}` found",
                 profile.file_name().unwrap_or_default()
             ));

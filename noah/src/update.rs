@@ -1,7 +1,7 @@
 use clap::Args;
-use color_eyre::{Result, eyre::bail};
 use nh_installable::Installable;
 use nix_command::{CommandKind, NixCommand};
+use rootcause::{Result, bail};
 use tracing::{info, warn};
 
 #[derive(Debug, Args)]

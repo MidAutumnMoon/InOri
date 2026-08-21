@@ -1,4 +1,3 @@
-use color_eyre::Result;
 use ino_shell::{Shell, cmd};
 use nh::{
     EyreRootcauseBridge,
@@ -7,6 +6,7 @@ use nh::{
     runtime::RuntimeEnv,
 };
 use nh_installable::FlakeConfig;
+use rootcause::Result;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -69,8 +69,8 @@ fn main() -> rootcause::Result<()> {
 
     // Capture environment-derived configuration once, after clap has handled
     // early exits such as --help and --version.
-    let process = RuntimeEnv::capture().into_rootcause()?;
-    let env = RuntimeConfig::from_env(process).into_rootcause()?;
+    let process = RuntimeEnv::capture()?;
+    let env = RuntimeConfig::from_env(process)?;
 
     // Validate the Nix environment before dispatching the command.
     nix_variant()?;
@@ -107,7 +107,7 @@ fn main() -> rootcause::Result<()> {
         },
     );
 
-    args.command.run(&env, elevation).into_rootcause()
+    args.command.run(&env, elevation)
 }
 
 fn nix_variant() -> rootcause::Result<NixVariant> {

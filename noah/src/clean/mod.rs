@@ -12,10 +12,6 @@ use crate::{
     command::{Command, ElevationStrategy, SudoConfig},
     runtime::RuntimeEnv,
 };
-use color_eyre::{
-    Result,
-    eyre::{Context, ContextCompat, bail, eyre},
-};
 use inquire::Confirm;
 use nix::{
     errno::Errno,
@@ -23,6 +19,9 @@ use nix::{
     unistd::{AccessFlags, faccessat},
 };
 use regex::Regex;
+use rootcause::{
+    Result, bail, option_ext::OptionExt, prelude::ResultExt, report,
+};
 use tracing::{Level, debug, info, instrument, span, warn};
 use walkdir::WalkDir;
 use yansi::{Color, Paint};
@@ -197,7 +196,7 @@ impl args::CleanMode {
                     bail!("nh clean user: don't run me as root!");
                 }
                 let user = nix::unistd::User::from_uid(uid)?.ok_or_else(
-                    || eyre!("User not found for uid {}", uid),
+                    || report!("User not found for uid {}", uid),
                 )?;
                 let home_dir = user.dir;
 
@@ -262,7 +261,7 @@ impl args::CleanMode {
                 let src = entry.path().to_path_buf();
                 let dst = src
                     .read_link()
-                    .wrap_err("Reading symlink destination")?;
+                    .context("Reading symlink destination")?;
                 let span = span!(Level::TRACE, "gcroot detection", ?dst);
                 let _entered = span.enter();
                 debug!(?src);
@@ -319,7 +318,7 @@ impl args::CleanMode {
                         } else {
                             let dur = now.duration_since(
                                 dst.symlink_metadata()
-                                    .wrap_err("Reading gcroot metadata")?
+                                    .context("Reading gcroot metadata")?
                                     .modified()?,
                             );
                             debug!(?dur);
@@ -370,8 +369,8 @@ impl args::CleanMode {
                     }
                     Err(errno) => {
                         bail!(
-              eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                .wrap_err(errno)
+              report!("Checking access for gcroot {:?}, unknown error", dst)
+                .context(errno)
             )
                     }
                 }

@@ -6,7 +6,7 @@ use crate::{
     },
     progress::{self, Spinner},
 };
-use color_eyre::{Result, eyre::Context};
+use rootcause::{Result, prelude::ResultExt};
 use subprocess::Exec;
 use tracing::{debug, error, info};
 
@@ -108,10 +108,10 @@ pub fn copy_closure_from(
     debug!(?cmd, "nix copy --from");
 
     let (exit_status, _stdout, stderr) = exec_with_streaming(cmd)
-        .wrap_err("Failed to copy closure from remote host")?;
+        .context("Failed to copy closure from remote host")?;
 
     if !exit_status.success() {
-        color_eyre::eyre::bail!(format_copy_failure(
+        rootcause::bail!(format_copy_failure(
             &format!("nix copy --from '{host}' failed"),
             exit_status,
             &stderr,
@@ -261,11 +261,11 @@ pub fn copy_to_remote(
     // or `error!` style.
     spinner.finish_and_clear();
     let (exit_status, _stdout, stderr) =
-        copy_result.wrap_err("Failed to copy closure to remote host")?;
+        copy_result.context("Failed to copy closure to remote host")?;
 
     if !exit_status.success() {
         error!("Failed to copy closure to remote host '{host}'");
-        color_eyre::eyre::bail!(format_copy_failure(
+        rootcause::bail!(format_copy_failure(
             &format!("nix copy --to '{host}' failed"),
             exit_status,
             &stderr,
@@ -298,10 +298,10 @@ pub fn copy_closure_between_remotes(
     debug!(?cmd, "nix copy between remotes");
 
     let (exit_status, _stdout, stderr) = exec_with_streaming(cmd)
-        .wrap_err("Failed to copy closure between remote hosts")?;
+        .context("Failed to copy closure between remote hosts")?;
 
     if !exit_status.success() {
-        color_eyre::eyre::bail!(format_copy_failure(
+        rootcause::bail!(format_copy_failure(
             &format!("nix copy from '{from_host}' to '{to_host}' failed"),
             exit_status,
             &stderr,

@@ -1,10 +1,9 @@
 use std::time::{Duration, Instant};
 
-use color_eyre::{
-    Result,
-    eyre::{Context, ContextCompat, bail, eyre},
-};
 use elasticsearch_dsl::{Search, SearchResponse};
+use rootcause::{
+    Result, bail, option_ext::OptionExt, prelude::ResultExt, report,
+};
 use serde::de::DeserializeOwned;
 use subprocess::Exec;
 use tracing::{debug, trace, warn};
@@ -127,9 +126,11 @@ fn query_backend(
         .capture()
         .map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
-                eyre!("`curl` was not found in PATH, but is required for searching")
+                report!("`curl` was not found in PATH, but is required for searching")
             } else {
-                eyre!(error).wrap_err("querying the elasticsearch API")
+                report!(error)
+                    .context("querying the elasticsearch API")
+                    .into()
             }
         })?;
 

@@ -3,7 +3,7 @@ use std::{
     process::{Command as StdCommand, Stdio},
 };
 
-use color_eyre::{Result, eyre};
+use rootcause::{Result, prelude::ResultExt, report};
 use tracing::debug;
 
 use crate::{
@@ -70,8 +70,6 @@ pub fn ensure_ssh_key_login(ssh_config: &SshConfig) -> Result<()> {
 /// Returns an error if:
 /// - No hostname is supplied and the system hostname cannot be retrieved
 pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
-    use color_eyre::eyre::Context;
-
     if let Some(h) = supplied_hostname {
         return Ok(h);
     }
@@ -79,7 +77,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
     nix::unistd::gethostname()
         .context("Failed to get hostname, and no hostname supplied")?
         .into_string()
-        .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
+        .map_err(|_| report!("Hostname contains invalid UTF-8"))
 }
 
 /// Self-elevates the current process by re-executing it with `sudo`
