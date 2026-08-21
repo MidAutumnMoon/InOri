@@ -7,6 +7,7 @@ pub mod diff;
 pub mod nixos;
 pub mod progress;
 pub mod remote;
+pub mod runtime;
 pub mod search;
 pub mod update;
 pub mod util;

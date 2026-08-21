@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -11,10 +11,7 @@ use yansi::{Color, Paint};
 
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
-/// Flake reference configuration captured from environment variables.
-///
-/// Replaces ad-hoc `env::var("NH_FLAKE")` etc. reads. Construct once
-/// in `main()` via `from_env()`, pass by reference.
+/// Flake selection settings supplied by the application.
 #[derive(Debug, Clone, Default)]
 pub struct FlakeConfig {
     /// `NH_OS_FLAKE` — OS-specific flake reference.
@@ -27,20 +24,6 @@ pub struct FlakeConfig {
     pub attrp: String,
 }
 
-impl FlakeConfig {
-    /// Capture flake-related env vars from the current process.
-    ///
-    /// Called once in `main()`. Tests should construct `FlakeConfig` directly.
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            os_flake: std::env::var("NH_OS_FLAKE").ok().filter(|s| !s.is_empty()),
-            flake: std::env::var("NH_FLAKE").ok().filter(|s| !s.is_empty()),
-            file: std::env::var("NH_FILE").ok().filter(|s| !s.is_empty()),
-            attrp: std::env::var("NH_ATTRP").unwrap_or_default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum InstallableArgs {
@@ -223,13 +206,13 @@ Nix accepts various kinds of installables:
 
 [FLAKEREF[#ATTRPATH]]
     Flake reference with an optional attribute path.
-    [env: NH_FLAKE={}]
-    [env: NH_OS_FLAKE={}]
+    [env: NH_FLAKE]
+    [env: NH_OS_FLAKE]
 
 {}, {} <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
-    [env: NH_FILE={}]
-    [env: NH_ATTRP={}]
+    [env: NH_FILE]
+    [env: NH_ATTRP]
 
 {}, {} <EXPR> [ATTRPATH]
     Nix expression with an optional attribute path.
@@ -237,12 +220,8 @@ Nix accepts various kinds of installables:
 [PATH]
     Path or symlink to a /nix/store path
 ",
-                    env::var("NH_FLAKE").unwrap_or_default(),
-                    env::var("NH_OS_FLAKE").unwrap_or_default(),
                     Paint::new("-f").fg(Color::Yellow),
                     Paint::new("--file").fg(Color::Yellow),
-                    env::var("NH_FILE").unwrap_or_default(),
-                    env::var("NH_ATTRP").unwrap_or_default(),
                     Paint::new("-e").fg(Color::Yellow),
                     Paint::new("--expr").fg(Color::Yellow),
                 )),

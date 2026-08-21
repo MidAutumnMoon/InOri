@@ -10,8 +10,9 @@ use crate::{
     args::DiffType,
     command::{
         self, Command, CommandKind, ElevationStrategy, NixCommand,
-        SubprocessEnv, SudoConfig,
+        SudoConfig,
     },
+    runtime::RuntimeEnv,
     update::update,
     util::{ensure_ssh_key_login, get_hostname},
 };
@@ -62,17 +63,13 @@ impl RebuildActivateArgs {
         &self,
         action: ActivationAction,
         elevation: ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
+        runtime_env: &RuntimeEnv,
         sudo_config: &SudoConfig,
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
         let (local_elevate, target_hostname) =
-            self.rebuild.setup_build_context(
-                &elevation,
-                subprocess_env,
-                sudo_config,
-            )?;
+            self.rebuild.setup_build_context(&elevation, ssh_config)?;
 
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
@@ -86,7 +83,7 @@ impl RebuildActivateArgs {
         let _ssh_guard = if self.rebuild.build_host.is_some()
             || self.rebuild.target_host.is_some()
         {
-            let guard = crate::remote::init_ssh_control();
+            let guard = crate::remote::init_ssh_control(ssh_config)?;
 
             // Pre-establish ControlMaster connections so that delegated SSH
             // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
@@ -143,7 +140,7 @@ impl RebuildActivateArgs {
             built.actual_store_path.as_deref(),
             elevate,
             elevation,
-            subprocess_env,
+            runtime_env,
             sudo_config,
             ssh_config,
         )?;
@@ -160,7 +157,7 @@ impl RebuildActivateArgs {
         actual_store_path: Option<&Path>,
         elevate: bool,
         elevation: ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
+        runtime_env: &RuntimeEnv,
         sudo_config: &SudoConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
@@ -204,7 +201,7 @@ impl RebuildActivateArgs {
                     ActivationAction::Test,
                     elevate,
                     &elevation,
-                    subprocess_env,
+                    runtime_env,
                     sudo_config,
                     ssh_config,
                 )?;
@@ -216,7 +213,7 @@ impl RebuildActivateArgs {
                     &switch_to_configuration,
                     elevate,
                     elevation,
-                    subprocess_env,
+                    runtime_env,
                     sudo_config,
                     ssh_config,
                 )?;
@@ -228,7 +225,7 @@ impl RebuildActivateArgs {
                     ActivationAction::Switch,
                     elevate,
                     &elevation,
-                    subprocess_env,
+                    runtime_env,
                     sudo_config,
                     ssh_config,
                 )?;
@@ -238,7 +235,7 @@ impl RebuildActivateArgs {
                     &switch_to_configuration,
                     elevate,
                     elevation,
-                    subprocess_env,
+                    runtime_env,
                     sudo_config,
                     ssh_config,
                 )?;
@@ -336,7 +333,7 @@ impl RebuildActivateArgs {
         action: ActivationAction,
         elevate: bool,
         elevation: &ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
+        runtime_env: &RuntimeEnv,
         sudo_config: &SudoConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
@@ -367,6 +364,7 @@ impl RebuildActivateArgs {
                     show_logs: self.show_activation_logs,
                     elevation: elevate.then_some(elevation.clone()),
                 },
+                runtime_env,
                 ssh_config,
                 sudo_config,
             )
@@ -377,14 +375,13 @@ impl RebuildActivateArgs {
         } else {
             Command::new(
                 switch_to_configuration,
-                subprocess_env,
+                runtime_env,
                 sudo_config,
             )
             .arg("test")
             .message("Activating configuration")
             .elevate(elevate.then_some(elevation.clone()))
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .with_env()
             .show_output(self.show_activation_logs)
             .run()
             .wrap_err("Activation (test) failed")?;
@@ -402,7 +399,7 @@ impl RebuildActivateArgs {
         switch_to_configuration: &Path,
         elevate: bool,
         elevation: ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
+        runtime_env: &RuntimeEnv,
         sudo_config: &SudoConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
@@ -417,6 +414,7 @@ impl RebuildActivateArgs {
                     show_logs: false,
                     elevation: elevate.then_some(elevation),
                 },
+                runtime_env,
                 ssh_config,
                 sudo_config,
             )
@@ -429,17 +427,16 @@ impl RebuildActivateArgs {
                 "Failed to resolve base output path to store path",
             )?;
 
-            Command::new("nix", subprocess_env, sudo_config)
+            Command::new("nix", runtime_env, sudo_config)
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(&base_store_path)
                 .elevate(elevate.then_some(elevation.clone()))
-                .with_env()
                 .run()
                 .wrap_err("Failed to set system profile")?;
 
             let mut cmd = Command::new(
                 switch_to_configuration,
-                subprocess_env,
+                runtime_env,
                 sudo_config,
             )
             .arg("boot")
@@ -451,9 +448,7 @@ impl RebuildActivateArgs {
                 cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
             }
 
-            cmd.with_env()
-                .run()
-                .wrap_err("Bootloader activation failed")?;
+            cmd.run().wrap_err("Bootloader activation failed")?;
         }
 
         Ok(())
@@ -483,12 +478,11 @@ impl RebuildArgs {
     fn setup_build_context(
         &self,
         elevation: &ElevationStrategy,
-        _subprocess_env: &SubprocessEnv,
-        _sudo_config: &SudoConfig,
+        ssh_config: &SshConfig,
     ) -> Result<(bool, String)> {
         // Only check SSH key login if remote hosts are involved
         if self.build_host.is_some() || self.target_host.is_some() {
-            ensure_ssh_key_login()?;
+            ensure_ssh_key_login(ssh_config)?;
         }
 
         // We still call this for the local-root guard it performs, even though
@@ -762,16 +756,11 @@ impl RebuildArgs {
     pub fn build_only(
         &self,
         elevation: &ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
-        sudo_config: &SudoConfig,
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (_, target_hostname) = self.setup_build_context(
-            elevation,
-            subprocess_env,
-            sudo_config,
-        )?;
+        let (_, target_hostname) =
+            self.setup_build_context(elevation, ssh_config)?;
 
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
@@ -789,9 +778,8 @@ impl RollbackArgs {
     pub fn rollback(
         &self,
         elevation: ElevationStrategy,
-        subprocess_env: &SubprocessEnv,
+        runtime_env: &RuntimeEnv,
         sudo_config: &SudoConfig,
-        _flake_config: &FlakeConfig,
     ) -> Result<()> {
         let elevate =
             has_elevation_status(self.bypass_root_check, &elevation)?;
@@ -880,13 +868,12 @@ impl RollbackArgs {
         info!("Setting system profile...");
 
         // Instead of direct symlink operations, use a command with proper elevation
-        Command::new("ln", subprocess_env, sudo_config)
+        Command::new("ln", runtime_env, sudo_config)
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
             .arg(SYSTEM_PROFILE)
             .elevate(elevate.then_some(elevation.clone()))
             .message("Setting system profile")
-            .with_env()
             .run()
             .wrap_err("Failed to set system profile during rollback")?;
 
@@ -923,13 +910,12 @@ impl RollbackArgs {
 
         match Command::new(
             &switch_to_configuration,
-            subprocess_env,
+            runtime_env,
             sudo_config,
         )
         .arg("switch")
         .elevate(elevate.then_some(elevation.clone()))
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-        .with_env()
         .run()
         {
             Ok(()) => {
@@ -946,13 +932,12 @@ impl RollbackArgs {
                         current_generation.number
                     ));
 
-                    Command::new("ln", subprocess_env, sudo_config)
+                    Command::new("ln", runtime_env, sudo_config)
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
                         .arg(SYSTEM_PROFILE)
                         .elevate(elevate.then_some(elevation))
                         .message("Rolling back system profile")
-                        .with_env()
                         .run()
                         .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
                 }
@@ -1160,8 +1145,7 @@ impl ReplArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn run(
         self,
-        subprocess_env: &SubprocessEnv,
-        _sudo_config: &SudoConfig,
+        runtime_env: &RuntimeEnv,
         flake_config: &FlakeConfig,
     ) -> Result<()> {
         let mut target_installable =
@@ -1184,7 +1168,7 @@ impl ReplArgs {
 
         let status = NixCommand::new(CommandKind::Repl)
             .args(target_installable.to_args())
-            .envs(subprocess_env.vars())
+            .envs(runtime_env.child_env())
             .run_with_logs()?;
         if !status.success() {
             bail!("nix repl failed (exit status {status:?})");
@@ -1196,11 +1180,7 @@ impl ReplArgs {
 
 impl GenerationsArgs {
     #[expect(clippy::missing_errors_doc)]
-    pub fn info(
-        &self,
-        _subprocess_env: &SubprocessEnv,
-        _sudo_config: &SudoConfig,
-    ) -> Result<()> {
+    pub fn info(&self) -> Result<()> {
         let profile = match self.profile {
             Some(ref p) => PathBuf::from(p),
             None => bail!("Profile path is required"),
@@ -1245,7 +1225,6 @@ impl GenerationsArgs {
                 generations::describe(gen_dir, size)
             })
             .collect();
-
         generations::print_info(descriptions, self.fields.as_deref())?;
 
         Ok(())

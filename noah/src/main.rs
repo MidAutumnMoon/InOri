@@ -1,12 +1,11 @@
-use std::str::FromStr;
-
 use color_eyre::Result;
 use ino_shell::{Shell, cmd};
-use nh::EyreRootcauseBridge;
-use nh::command::{
-    ElevationStrategy, ElevationStrategyArg, SubprocessEnv, SudoConfig,
+use nh::{
+    EyreRootcauseBridge,
+    command::{ElevationStrategy, ElevationStrategyArg, SudoConfig},
+    remote::SshConfig,
+    runtime::RuntimeEnv,
 };
-use nh::remote::SshConfig;
 use nh_installable::FlakeConfig;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
@@ -20,11 +19,33 @@ const NH_REV: Option<&str> = option_env!("NH_REV");
 ///
 /// Assembled once in `main()`, passed by reference to subcommands.
 /// Each subsystem receives only the slice it needs.
-struct RuntimeEnv {
-    subprocess: SubprocessEnv,
+struct RuntimeConfig {
+    process: RuntimeEnv,
     sudo: SudoConfig,
     flake: FlakeConfig,
     ssh: SshConfig,
+}
+
+impl RuntimeConfig {
+    fn from_env(process: RuntimeEnv) -> Result<Self> {
+        let sudo = SudoConfig::from_env(&process)?;
+        let flake = FlakeConfig {
+            os_flake: process
+                .non_empty_var("NH_OS_FLAKE")
+                .map(str::to_owned),
+            flake: process.non_empty_var("NH_FLAKE").map(str::to_owned),
+            file: process.non_empty_var("NH_FILE").map(str::to_owned),
+            attrp: process.var("NH_ATTRP").unwrap_or_default().to_owned(),
+        };
+        let ssh = SshConfig::from_env(&process)?;
+
+        Ok(Self {
+            process,
+            sudo,
+            flake,
+            ssh,
+        })
+    }
 }
 
 /// Variant of the system Nix. Determinate Nix is not supported.
@@ -46,41 +67,27 @@ fn main() -> rootcause::Result<()> {
         .display_env_section(false)
         .install().into_rootcause()?;
 
-    // Capture all environment-derived configuration once at startup.
-    // Subcommands receive only the slices they need.
-    // Validate the Nix environment before doing anything else.
+    // Capture environment-derived configuration once, after clap has handled
+    // early exits such as --help and --version.
+    let process = RuntimeEnv::capture().into_rootcause()?;
+    let env = RuntimeConfig::from_env(process).into_rootcause()?;
+
+    // Validate the Nix environment before dispatching the command.
     nix_variant()?;
-    let env = RuntimeEnv {
-        subprocess: SubprocessEnv::from_env(),
-        sudo: SudoConfig::from_env(),
-        flake: FlakeConfig::from_env(),
-        ssh: SshConfig::from_env(),
-    };
 
     // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
     // NH_ELEVATION_STRATEGY is not set.
     // TODO: Remove this fallback in a future version
     if args.elevation_strategy.is_none()
-        && let Some(old_value) = std::env::var("NH_ELEVATION_PROGRAM")
-            .ok()
-            .filter(|v| !v.is_empty())
+        && let Some(old_value) =
+            env.process.non_empty_var("NH_ELEVATION_PROGRAM")
     {
         tracing::warn!(
             "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
             Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
             Accepted values: none, passwordless, program:<path>"
         );
-        match ElevationStrategyArg::from_str(&old_value) {
-            Ok(strategy) => args.elevation_strategy = Some(strategy),
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to parse NH_ELEVATION_PROGRAM value '{}': {}. Falling back \
-                    to none.",
-                    old_value,
-                    e
-                );
-            }
-        }
+        args.elevation_strategy = Some(old_value.into());
     }
 
     tracing::debug!("{args:#?}");

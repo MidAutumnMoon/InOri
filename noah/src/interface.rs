@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, builder::Styles};
 use nh::command::ElevationStrategy;
 
 use crate::Result;
-use crate::RuntimeEnv;
+use crate::RuntimeConfig;
 
 const fn make_style() -> Styles {
     Styles::plain().header(Style::new().bold()).literal(
@@ -82,16 +82,15 @@ impl NHCommand {
     /// Returns an error if required Nix features are unavailable or if the
     pub fn run(
         self,
-        env: &RuntimeEnv,
+        env: &RuntimeConfig,
         elevation: ElevationStrategy,
     ) -> Result<()> {
         use nh::nixos::nixos::ActivationAction::{Boot, Switch, Test};
-
         match self {
             Self::Switch(args) => args.build_and_activate(
                 Switch,
                 elevation,
-                &env.subprocess,
+                &env.process,
                 &env.sudo,
                 &env.flake,
                 &env.ssh,
@@ -99,7 +98,7 @@ impl NHCommand {
             Self::Boot(args) => args.build_and_activate(
                 Boot,
                 elevation,
-                &env.subprocess,
+                &env.process,
                 &env.sudo,
                 &env.flake,
                 &env.ssh,
@@ -107,7 +106,7 @@ impl NHCommand {
             Self::Test(args) => args.build_and_activate(
                 Test,
                 elevation,
-                &env.subprocess,
+                &env.process,
                 &env.sudo,
                 &env.flake,
                 &env.ssh,
@@ -118,27 +117,16 @@ impl NHCommand {
                         "`--ask` and `--dry` have no effect for `nh build`"
                     );
                 }
-                args.build_only(
-                    &elevation,
-                    &env.subprocess,
-                    &env.sudo,
-                    &env.flake,
-                    &env.ssh,
-                )
+                args.build_only(&elevation, &env.flake, &env.ssh)
             }
-            Self::Repl(args) => {
-                args.run(&env.subprocess, &env.sudo, &env.flake)
+            Self::Repl(args) => args.run(&env.process, &env.flake),
+            Self::Info(args) => args.info(),
+            Self::Rollback(args) => {
+                args.rollback(elevation, &env.process, &env.sudo)
             }
-            Self::Info(args) => args.info(&env.subprocess, &env.sudo),
-            Self::Rollback(args) => args.rollback(
-                elevation,
-                &env.subprocess,
-                &env.sudo,
-                &env.flake,
-            ),
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => {
-                proxy.command.run(elevation, &env.subprocess, &env.sudo)
+                proxy.command.run(elevation, &env.process, &env.sudo)
             }
         }
     }

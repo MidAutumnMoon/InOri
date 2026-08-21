@@ -403,10 +403,8 @@ fn test_uses_flakes_respects_resolution_precedence() {
 
 #[test]
 fn test_uses_flakes_ignores_empty_env_values() {
-    // `FlakeConfig::default()` has all `None`; empty strings are filtered by
-    // `from_env()`. Constructing directly with empty `Some(String::new())`
-    // mirrors the old `EnvGuard::set` behavior, but `env_installable_source`
-    // now returns `Some` for these. `uses_flakes` itself checks `!value.is_empty()`.
+    // Application startup filters empty values before constructing this model.
+    // Constructing empty fields directly still must not select a flake source.
     let config = FlakeConfig {
         os_flake: Some(String::new()),
         flake: Some(String::new()),

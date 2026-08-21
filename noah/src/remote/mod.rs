@@ -1,18 +1,18 @@
 use std::{
-    env,
+    collections::HashMap,
     ffi::OsString,
     io::Read,
     path::{Path, PathBuf},
     sync::{
-        Arc, OnceLock,
+        Arc, LazyLock, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
-use crate::command::{
-    CommandKind, ElevationStrategy, NixCommand, cache_password,
-    get_cached_password, get_sudo_opts,
+use crate::{
+    command::{CommandKind, ElevationStrategy, NixCommand},
+    runtime::RuntimeEnv,
 };
 use color_eyre::{
     Report, Result,
@@ -21,7 +21,7 @@ use color_eyre::{
 use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 mod copy;
 mod dix;
@@ -30,60 +30,87 @@ pub use copy::copy_to_remote;
 use copy::{copy_closure_between_remotes, copy_closure_from};
 pub use dix::ResolvedRemoteStorePath;
 
-/// SSH configuration captured from environment variables.
-///
-/// Replaces ad-hoc `env::var("NH_SSHOPTS")` etc. reads. Construct once
-/// in `main()` via `from_env()`, pass by reference.
-#[derive(Debug, Clone, Default)]
+/// SSH and remote-execution settings derived from the startup environment.
+#[derive(Debug, Clone)]
 pub struct SshConfig {
     /// `NH_SSHOPTS` (preferred) or `NIX_SSHOPTS` (legacy), shell-split.
     pub user_opts: Vec<String>,
     /// `NH_REMOTE_CLEANUP` — defaults to `true` when unset; `false` when "0".
     pub cleanup_remote: bool,
-    /// `XDG_RUNTIME_DIR` — used for `ControlMaster` socket path.
-    pub control_dir: Option<String>,
+    control_dir: PathBuf,
+    agent_socket: Option<PathBuf>,
+    nixos_no_check: Option<String>,
 }
 
-impl SshConfig {
-    /// Capture SSH-related env vars from the current process.
-    ///
-    /// Called once in `main()`. Tests should construct `SshConfig` directly.
-    #[must_use]
-    pub fn from_env() -> Self {
-        let user_opts = std::env::var("NH_SSHOPTS")
-            .or_else(|_| std::env::var("NIX_SSHOPTS"))
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                shlex::split(&s).unwrap_or_else(|| {
-                    tracing::warn!(
-                        "Failed to parse NH_SSHOPTS/NIX_SSHOPTS, \
-                         ignoring. Value: {s}"
-                    );
-                    Vec::new()
-                })
-            })
-            .unwrap_or_default();
-
+impl Default for SshConfig {
+    fn default() -> Self {
         Self {
-            user_opts,
-            cleanup_remote: std::env::var("NH_REMOTE_CLEANUP")
-                .as_deref()
-                .map_or(true, |x| !matches!(x, "0")),
-            control_dir: std::env::var("XDG_RUNTIME_DIR").ok(),
+            user_opts: Vec::new(),
+            cleanup_remote: true,
+            control_dir: PathBuf::from("/tmp")
+                .join(format!("nh-ssh-{}", std::process::id())),
+            agent_socket: None,
+            nixos_no_check: None,
         }
     }
 }
 
-/// Global flag indicating whether a SIGINT (Ctrl+C) was received.
-static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+impl SshConfig {
+    /// Parse remote-execution settings from a startup environment snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the selected SSH options contain unmatched shell
+    /// quoting.
+    pub fn from_env(env: &RuntimeEnv) -> Result<Self> {
+        let control_base = env
+            .var_os("XDG_RUNTIME_DIR")
+            .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
 
-/// Get or initialize the interrupt flag.
-///
-/// Returns a reference to the shared interrupt flag, initializing it on first
-/// call.
+        Ok(Self {
+            user_opts: env.shell_words("NH_SSHOPTS", "NIX_SSHOPTS")?,
+            cleanup_remote: env
+                .var("NH_REMOTE_CLEANUP")
+                .is_none_or(|value| value != "0"),
+            control_dir: control_base
+                .join(format!("nh-ssh-{}", std::process::id())),
+            agent_socket: env.var_os("SSH_AUTH_SOCK").map(PathBuf::from),
+            nixos_no_check: env
+                .non_empty_var("NIXOS_NO_CHECK")
+                .map(str::to_owned),
+        })
+    }
+
+    pub(crate) fn has_usable_agent(&self) -> bool {
+        self.agent_socket.as_deref().is_some_and(Path::exists)
+    }
+}
+
+static PASSWORD_CACHE: LazyLock<Mutex<HashMap<String, SecretString>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
+    let guard = PASSWORD_CACHE
+        .lock()
+        .map_err(|_| eyre!("Password cache lock poisoned"))?;
+    Ok(guard.get(host).cloned())
+}
+
+fn cache_password(host: &str, password: SecretString) -> Result<()> {
+    PASSWORD_CACHE
+        .lock()
+        .map_err(|_| eyre!("Password cache lock poisoned"))?
+        .insert(host.to_owned(), password);
+    Ok(())
+}
+
+/// Global flag indicating whether a SIGINT (Ctrl+C) was received.
+static INTERRUPTED: LazyLock<Arc<AtomicBool>> =
+    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+
+/// Return the shared interrupt flag.
 fn get_interrupt_flag() -> &'static Arc<AtomicBool> {
-    INTERRUPTED.get_or_init(|| Arc::new(AtomicBool::new(false)))
+    &INTERRUPTED
 }
 
 /// Cache for signal handler registration status.
@@ -108,6 +135,7 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 fn build_remote_command(
     strategy: Option<&ElevationStrategy>,
     base_cmd: &str,
+    runtime_env: &RuntimeEnv,
     sudo_config: &crate::command::SudoConfig,
 ) -> Result<String> {
     if let Some(strategy) = strategy {
@@ -115,7 +143,7 @@ fn build_remote_command(
             return Ok(base_cmd.to_string());
         }
 
-        let program = strategy.resolve()?;
+        let program = strategy.resolve(runtime_env)?;
         let program_name = program
             .file_name()
             .and_then(|name| name.to_str())
@@ -199,7 +227,8 @@ fn remote_sudo_command(
     base_cmd: &str,
     sudo_config: &crate::command::SudoConfig,
 ) -> String {
-    let sudo_opts = get_sudo_opts(sudo_config)
+    let sudo_opts = sudo_config
+        .opts
         .iter()
         .map(|opt| shell_quote(opt))
         .collect::<Vec<_>>()
@@ -216,6 +245,7 @@ fn nixos_activation_command(
     switch_to_config: &str,
     action: &str,
     install_bootloader: bool,
+    ssh_config: &SshConfig,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -223,8 +253,8 @@ fn nixos_activation_command(
         parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
     }
 
-    if let Ok(no_check) = env::var("NIXOS_NO_CHECK") {
-        parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
+    if let Some(no_check) = &ssh_config.nixos_no_check {
+        parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(no_check)));
     }
 
     parts.push(format!("{} {action}", shell_quote(switch_to_config)));
@@ -271,6 +301,12 @@ pub struct SshControlGuard {
 impl Drop for SshControlGuard {
     fn drop(&mut self) {
         cleanup_ssh_control_sockets(&self.control_dir);
+        if let Err(error) = std::fs::remove_dir(&self.control_dir) {
+            debug!(
+                "Could not remove SSH control directory {}: {error}",
+                self.control_dir.display()
+            );
+        }
     }
 }
 
@@ -340,11 +376,22 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
 
 /// Initialize SSH control socket management.
 ///
-/// Returns a guard that will clean up SSH `ControlMaster` connections when
-/// dropped. The guard should be held for the duration of remote operations.
-pub fn init_ssh_control() -> SshControlGuard {
-    let control_dir = get_ssh_control_dir().clone();
-    SshControlGuard { control_dir }
+/// Returns a guard that closes control connections and removes the socket
+/// directory when dropped.
+///
+/// # Errors
+///
+/// Returns an error if the configured socket directory cannot be created.
+pub fn init_ssh_control(config: &SshConfig) -> Result<SshControlGuard> {
+    std::fs::create_dir_all(&config.control_dir).wrap_err_with(|| {
+        format!(
+            "Failed to create SSH control directory {}",
+            config.control_dir.display()
+        )
+    })?;
+    Ok(SshControlGuard {
+        control_dir: config.control_dir.clone(),
+    })
 }
 
 /// Pre-establish a `ControlMaster` SSH connection to `host`.
@@ -435,79 +482,6 @@ pub fn probe_remote_uid(
         .wrap_err_with(|| {
             format!("Unexpected `id -u` output from '{host}'")
         })
-}
-
-/// Cache for the SSH control socket directory.
-static SSH_CONTROL_DIR: OnceLock<PathBuf> = OnceLock::new();
-
-/// Get or create the SSH control socket directory.
-///
-/// This creates a temporary directory that persists for the lifetime of the
-/// program, similar to nixos-rebuild-ng's tmpdir module.
-fn get_ssh_control_dir() -> &'static PathBuf {
-    SSH_CONTROL_DIR.get_or_init(|| {
-    // Try to use XDG_RUNTIME_DIR first (usually /run/user/<uid>), fall back to
-    // /tmp
-    // XXX: I do not want to use the dirs crate just for this.
-    let base = env::var("XDG_RUNTIME_DIR")
-      .map_or_else(|_| PathBuf::from("/tmp"), PathBuf::from);
-
-    let control_dir = base.join(format!("nh-ssh-{}", std::process::id()));
-
-    // Create the directory if it doesn't exist
-    if let Err(e1) = std::fs::create_dir_all(&control_dir) {
-      debug!(
-        "Failed to create SSH control directory at {}: {e1}",
-        control_dir.display()
-      );
-
-      // Fall back to /tmp/nh-ssh-<pid> - try creating there instead
-      let fallback_dir =
-        PathBuf::from("/tmp").join(format!("nh-ssh-{}", std::process::id()));
-
-      // As a last resort, if *all else* fails, we construct a unique
-      // subdirectory under /tmp with PID and full timestamp to preserve
-      // process isolation and avoid collisions between concurrent invocations
-      if let Err(e2) = std::fs::create_dir_all(&fallback_dir) {
-        let timestamp = std::time::SystemTime::now()
-          .duration_since(std::time::UNIX_EPOCH)
-          .map_or(0, |d| {
-            d.as_secs() * 1_000_000_000 + u64::from(d.subsec_nanos())
-          });
-
-        let unique_dir = PathBuf::from("/tmp").join(format!(
-          "nh-ssh-{}-{}",
-          std::process::id(),
-          timestamp
-        ));
-
-        if let Err(e3) = std::fs::create_dir_all(&unique_dir) {
-          error!(
-            "Failed to create SSH control directory after exhausting all \
-             fallbacks. Errors: (1) {}: {e1}, (2) {}: {e2}, (3) {}: {e3}. SSH \
-             operations will likely fail.",
-            control_dir.display(),
-            fallback_dir.display(),
-            unique_dir.display()
-          );
-
-          // Return the path anyway; SSH will fail with a clear error if
-          // directory creation is truly impossible, and at this point we
-          // are out of options.
-          return unique_dir;
-        }
-
-        debug!(
-          "Created unique SSH control directory: {}",
-          unique_dir.display()
-        );
-        return unique_dir;
-      }
-      return fallback_dir;
-    }
-
-    control_dir
-  })
 }
 
 /// A parsed remote host specification.
@@ -717,11 +691,7 @@ impl std::fmt::Display for RemoteHost {
 /// Get the default SSH options for connection multiplexing.
 /// Includes a `ControlPath` pointing to our control socket directory.
 fn get_default_ssh_opts(config: &SshConfig) -> Vec<String> {
-    let control_path = config
-        .control_dir
-        .as_deref()
-        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
-        .join("ssh-%n");
+    let control_path = config.control_dir.join("ssh-%n");
 
     vec![
         "-o".to_string(),
@@ -1165,6 +1135,7 @@ pub fn activate_remote(
     host: &RemoteHost,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
+    runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
     sudo_config: &crate::command::SudoConfig,
 ) -> Result<()> {
@@ -1173,6 +1144,7 @@ pub fn activate_remote(
             host,
             system_profile,
             config,
+            runtime_env,
             ssh_config,
             sudo_config,
         ),
@@ -1196,6 +1168,7 @@ fn activate_nixos_remote(
     host: &RemoteHost,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
+    runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
     sudo_config: &crate::command::SudoConfig,
 ) -> Result<()> {
@@ -1256,11 +1229,16 @@ fn activate_nixos_remote(
             ssh_cmd = ssh_cmd.arg(host.ssh_host());
 
             // Build the remote command using helper function
-            let base_cmd =
-                nixos_activation_command(switch_path_str, action, false);
+            let base_cmd = nixos_activation_command(
+                switch_path_str,
+                action,
+                false,
+                ssh_config,
+            );
             let remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                runtime_env,
                 sudo_config,
             )?;
 
@@ -1311,6 +1289,7 @@ fn activate_nixos_remote(
             let profile_remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                runtime_env,
                 sudo_config,
             )?;
 
@@ -1350,10 +1329,12 @@ fn activate_nixos_remote(
                 switch_path_str,
                 "boot",
                 config.install_bootloader,
+                ssh_config,
             );
             let boot_remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
                 &base_cmd,
+                runtime_env,
                 sudo_config,
             )?;
 
@@ -1905,47 +1886,6 @@ mod tests {
         reason = "Fine in tests"
     )]
     use proptest::prelude::*;
-    // TODO: Rewrite these tests to use SshConfig directly once the remote
-    // build feature is confirmed for keeping in this fork.
-    // use serial_test::serial;
-    /*
-
-    struct SshOptsEnvGuard {
-        nh_sshopts: Option<OsString>,
-        nix_sshopts: Option<OsString>,
-    }
-
-    impl SshOptsEnvGuard {
-        fn new() -> Self {
-            Self {
-                nh_sshopts: env::var_os("NH_SSHOPTS"),
-                nix_sshopts: env::var_os("NIX_SSHOPTS"),
-            }
-        }
-
-        fn clear(&self) {
-            unsafe {
-                env::remove_var("NH_SSHOPTS");
-                env::remove_var("NIX_SSHOPTS");
-            }
-        }
-    }
-
-    impl Drop for SshOptsEnvGuard {
-        fn drop(&mut self) {
-            unsafe {
-                match &self.nh_sshopts {
-                    Some(value) => env::set_var("NH_SSHOPTS", value),
-                    None => env::remove_var("NH_SSHOPTS"),
-                }
-                match &self.nix_sshopts {
-                    Some(value) => env::set_var("NIX_SSHOPTS", value),
-                    None => env::remove_var("NIX_SSHOPTS"),
-                }
-            }
-        }
-    }
-    */
 
     use super::*;
 
@@ -2297,8 +2237,40 @@ mod tests {
         );
     }
 
-    // Serial tests commented out — they tested the old env-var-based
-    // get_ssh_opts/get_nix_sshopts_env/should_cleanup_remote functions.
-    // These will be rewritten to use SshConfig directly when the remote
-    // build feature is confirmed for keeping.
+    #[test]
+    fn ssh_configuration_is_parsed_from_the_startup_snapshot() {
+        let env = RuntimeEnv::from_pairs([
+            ("NH_SSHOPTS", "-p 2222 -o 'ProxyJump=bastion.example'"),
+            ("NIX_SSHOPTS", "--legacy"),
+            ("NH_REMOTE_CLEANUP", "0"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("SSH_AUTH_SOCK", "/tmp/ssh-agent.sock"),
+            ("NIXOS_NO_CHECK", "1"),
+        ]);
+
+        let config = SshConfig::from_env(&env).unwrap();
+        assert_eq!(
+            config.user_opts,
+            ["-p", "2222", "-o", "ProxyJump=bastion.example"]
+        );
+        assert!(!config.cleanup_remote);
+        assert_eq!(
+            config.control_dir.parent(),
+            Some(Path::new("/run/user/1000"))
+        );
+        assert_eq!(
+            config.agent_socket.as_deref(),
+            Some(Path::new("/tmp/ssh-agent.sock"))
+        );
+        assert_eq!(config.nixos_no_check.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn malformed_ssh_options_are_rejected_at_startup() {
+        let env =
+            RuntimeEnv::from_pairs([("NH_SSHOPTS", "'unterminated")]);
+
+        let error = SshConfig::from_env(&env).unwrap_err();
+        assert!(error.to_string().contains("NH_SSHOPTS"));
+    }
 }

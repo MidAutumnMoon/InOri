@@ -8,7 +8,10 @@ use std::{
     time::SystemTime,
 };
 
-use crate::command::{Command, ElevationStrategy};
+use crate::{
+    command::{Command, ElevationStrategy, SudoConfig},
+    runtime::RuntimeEnv,
+};
 use color_eyre::{
     Result,
     eyre::{Context, ContextCompat, bail, eyre},
@@ -99,8 +102,8 @@ impl args::CleanMode {
     pub fn run(
         &self,
         elevate: ElevationStrategy,
-        subprocess_env: &crate::command::SubprocessEnv,
-        sudo_config: &crate::command::SudoConfig,
+        runtime_env: &RuntimeEnv,
+        sudo_config: &SudoConfig,
     ) -> Result<()> {
         let mut profiles = Vec::new();
         let mut gcroots_tagged = Vec::new();
@@ -119,7 +122,7 @@ impl args::CleanMode {
                 if !uid.is_root() {
                     crate::util::self_elevate(
                         elevate,
-                        subprocess_env,
+                        runtime_env,
                         sudo_config,
                     );
                 }
@@ -196,7 +199,7 @@ impl args::CleanMode {
                 let user = nix::unistd::User::from_uid(uid)?.ok_or_else(
                     || eyre!("User not found for uid {}", uid),
                 )?;
-                let home_dir = PathBuf::from(std::env::var("HOME")?);
+                let home_dir = user.dir;
 
                 let paths_to_check = [
                     home_dir.join(".local/state/nix/profiles"),
@@ -508,22 +511,20 @@ impl args::CleanMode {
                 gc_args.push("--max");
                 gc_args.push(max.as_str());
             }
-            Command::new("nix", subprocess_env, sudo_config)
+            Command::new("nix", runtime_env, sudo_config)
                 .args(gc_args)
                 .dry(args.dry)
                 .message("Performing garbage collection on the nix store")
                 .show_output(true)
-                .with_env()
                 .run()?;
         }
 
         if args.optimise {
-            Command::new("nix-store", subprocess_env, sudo_config)
+            Command::new("nix-store", runtime_env, sudo_config)
                 .arg("--optimise")
                 .dry(args.dry)
                 .message("Optimising the nix store")
                 .show_output(true)
-                .with_env()
                 .run()?;
         }
 

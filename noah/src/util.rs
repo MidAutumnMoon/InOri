@@ -6,8 +6,10 @@ use std::{
 use color_eyre::{Result, eyre};
 use tracing::debug;
 
-use crate::command::{
-    Command, ElevationStrategy, SubprocessEnv, SudoConfig,
+use crate::{
+    command::{Command, ElevationStrategy, SudoConfig},
+    remote::SshConfig,
+    runtime::RuntimeEnv,
 };
 
 /// Prompts the user for ssh key login if needed.
@@ -25,13 +27,9 @@ use crate::command::{
 /// is valid, and SSH can authenticate via the keys in `~/.ssh` or via
 /// `~/.ssh/config` without an agent. NH should be able to handle the
 /// case without erroring.
-pub fn ensure_ssh_key_login() -> Result<()> {
-    // No usable agent socket means ssh-add has nothing to talk to.
-    let agent_available = std::env::var_os("SSH_AUTH_SOCK")
-        .is_some_and(|s| std::path::Path::new(&s).exists());
-    if !agent_available {
+pub fn ensure_ssh_key_login(ssh_config: &SshConfig) -> Result<()> {
+    if !ssh_config.has_usable_agent() {
         debug!("SSH agent socket not available, skipping ssh-add check");
-
         return Ok(());
     }
 
@@ -92,11 +90,11 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 #[allow(clippy::panic, clippy::expect_used)]
 pub fn self_elevate(
     strategy: ElevationStrategy,
-    subprocess_env: &SubprocessEnv,
+    runtime_env: &RuntimeEnv,
     sudo_config: &SudoConfig,
 ) -> ! {
     let mut cmd =
-        Command::self_elevate_cmd(strategy, subprocess_env, sudo_config)
+        Command::self_elevate_cmd(strategy, runtime_env, sudo_config)
             .expect("Failed to create self-elevation command");
     debug!("{:?}", cmd);
 
