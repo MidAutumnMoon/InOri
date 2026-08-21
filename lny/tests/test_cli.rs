@@ -73,7 +73,7 @@ fn typical_workload() {
             sym_dst.is_symlink()
                 && sym_dst.read_link().unwrap() == sym_src.path()
         );
-        assert!(std::fs::read_to_string(norm_file).unwrap() == "f");
+        assert_eq!(std::fs::read_to_string(norm_file).unwrap(), "f");
     }
 
     // normal uses

@@ -916,9 +916,9 @@ mod test {
             assert!(!dir_dir_dir.try_exists_no_traverse().unwrap());
 
             assert!(!dst.try_exists_no_traverse().unwrap());
-            assert!(
-                std::fs::read_to_string(no_touch).unwrap()
-                    == no_touch_text
+            assert_eq!(
+                std::fs::read_to_string(no_touch).unwrap(),
+                no_touch_text
             );
         }
     }
@@ -963,7 +963,7 @@ mod test {
             };
 
             assert!(s.execute().is_ok());
-            assert!(dst.read_link().unwrap().as_path() == new_src.path());
+            assert_eq!(dst.read_link().unwrap().as_path(), new_src.path());
         }
         // 2. not ours
         {
@@ -990,7 +990,7 @@ mod test {
             symlink(&trdsrc, &dst).unwrap();
 
             assert!(s.execute().is_err());
-            assert!(dst.read_link().unwrap() == trdsrc.path());
+            assert_eq!(dst.read_link().unwrap(), trdsrc.path());
         }
         // 3. subdirs
         {
