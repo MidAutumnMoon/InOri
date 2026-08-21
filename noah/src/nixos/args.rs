@@ -8,7 +8,7 @@ use crate::remote::RemoteHost;
 use crate::nixos::generations::Field;
 
 #[derive(Debug, Args)]
-pub struct OsBuildImageArgs {
+pub struct BuildImageArgs {
     #[command(flatten)]
     pub common: RebuildArgs,
 
@@ -82,7 +82,7 @@ pub struct RebuildArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsRebuildActivateArgs {
+pub struct RebuildActivateArgs {
     #[command(flatten)]
     pub rebuild: RebuildArgs,
 
@@ -99,7 +99,7 @@ impl RebuildArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsRollbackArgs {
+pub struct RollbackArgs {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
     pub dry: bool,
@@ -170,7 +170,7 @@ pub struct CommonRebuildArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsReplArgs {
+pub struct ReplArgs {
     #[command(flatten)]
     pub installable: InstallableArgs,
 
@@ -180,7 +180,7 @@ pub struct OsReplArgs {
     pub hostname: Option<String>,
 }
 
-impl OsReplArgs {
+impl ReplArgs {
     #[must_use]
     pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
         self.installable.uses_flakes(config)
@@ -188,7 +188,7 @@ impl OsReplArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct OsGenerationsArgs {
+pub struct GenerationsArgs {
     /// Path to Nix' profiles directory
     #[arg(
         long,

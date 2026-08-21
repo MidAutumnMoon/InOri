@@ -55,23 +55,23 @@ pub struct Main {
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
     /// Build and activate the new configuration, and make it the boot default
-    Switch(nh::nixos::args::OsRebuildActivateArgs),
+    Switch(nh::nixos::args::RebuildActivateArgs),
     /// Build the new configuration and make it the boot default
-    Boot(nh::nixos::args::OsRebuildActivateArgs),
+    Boot(nh::nixos::args::RebuildActivateArgs),
     /// Build and activate the new configuration
-    Test(nh::nixos::args::OsRebuildActivateArgs),
+    Test(nh::nixos::args::RebuildActivateArgs),
     /// Build the new configuration
     Build(nh::nixos::args::RebuildArgs),
     /// Load system in a repl
-    Repl(nh::nixos::args::OsReplArgs),
+    Repl(nh::nixos::args::ReplArgs),
     /// List available generations from profile path
-    Info(nh::nixos::args::OsGenerationsArgs),
+    Info(nh::nixos::args::GenerationsArgs),
     /// Rollback to a previous generation
-    Rollback(nh::nixos::args::OsRollbackArgs),
+    Rollback(nh::nixos::args::RollbackArgs),
     /// Build a `NixOS` VM image
     BuildVm(nh::nixos::args::RebuildVmArgs),
     /// Build a `NixOS` disk-image variant
-    BuildImage(nh::nixos::args::OsBuildImageArgs),
+    BuildImage(nh::nixos::args::BuildImageArgs),
     /// Searches packages or NixOS options via search.nixos.org
     Search(nh::search::args::SearchArgs),
     /// Enhanced nix cleanup

@@ -24,8 +24,8 @@ use tracing::{debug, info, warn};
 
 use crate::nixos::{
     args::{
-        OsBuildImageArgs, OsGenerationsArgs, OsRebuildActivateArgs,
-        OsReplArgs, OsRollbackArgs, RebuildArgs, RebuildVmArgs,
+        BuildImageArgs, GenerationsArgs, RebuildActivateArgs,
+        ReplArgs, RollbackArgs, RebuildArgs, RebuildVmArgs,
     },
     generations,
 };
@@ -147,7 +147,7 @@ impl RebuildVmArgs {
     }
 }
 
-impl OsRebuildActivateArgs {
+impl RebuildActivateArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn build_and_activate(
         &self,
@@ -858,7 +858,7 @@ impl RebuildArgs {
     }
 }
 
-impl OsRollbackArgs {
+impl RollbackArgs {
     #[expect(clippy::too_many_lines, clippy::missing_errors_doc)]
     pub fn rollback(
         &self,
@@ -1040,7 +1040,7 @@ impl OsRollbackArgs {
     }
 }
 
-impl OsBuildImageArgs {
+impl BuildImageArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn build_image(
         &self,
@@ -1508,7 +1508,7 @@ pub fn toplevel_for<S: AsRef<str>>(
     Ok(res)
 }
 
-impl OsReplArgs {
+impl ReplArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn run(
         self,
@@ -1546,7 +1546,7 @@ impl OsReplArgs {
     }
 }
 
-impl OsGenerationsArgs {
+impl GenerationsArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn info(
         &self,
