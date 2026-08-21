@@ -7,7 +7,6 @@ use std::{
 use crate::diff::{handle_nixos_diff, print_dix_diff};
 use crate::remote::{RemoteBuildConfig, RemoteHost, SshConfig};
 use crate::{
-    EyreRootcauseBridge,
     args::DiffType,
     command::{
         self, Command, CommandKind, ElevationStrategy, NixCommand,
@@ -556,8 +555,7 @@ impl RebuildArgs {
             .common
             .installable
             .clone()
-            .resolve_or_default(flake_config)
-            .into_rootcause()?;
+            .resolve_or_default(flake_config)?;
         let attrs = ["config", "system", "build", "toplevel"]
             .into_iter()
             .map(String::from);
@@ -1151,10 +1149,8 @@ impl ReplArgs {
         runtime_env: &RuntimeEnv,
         flake_config: &FlakeConfig,
     ) -> Result<()> {
-        let mut target_installable = self
-            .installable
-            .resolve_or_default(flake_config)
-            .into_rootcause()?;
+        let mut target_installable =
+            self.installable.resolve_or_default(flake_config)?;
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");

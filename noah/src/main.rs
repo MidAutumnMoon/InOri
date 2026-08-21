@@ -1,6 +1,5 @@
 use ino_shell::{Shell, cmd};
 use nh::{
-    EyreRootcauseBridge,
     command::{ElevationStrategy, ElevationStrategyArg, SudoConfig},
     remote::SshConfig,
     runtime::RuntimeEnv,
@@ -57,15 +56,16 @@ pub enum NixVariant {
 
 fn main() -> rootcause::Result<()> {
     ino_tracing::init_tracing_subscriber();
-    let mut args = <interface::Main as clap::Parser>::parse();
 
-    color_eyre::config::HookBuilder::default()
-        .display_location_section(true)
-        .panic_section(
-            "Please report the bug at https://github.com/nix-community/nh/issues",
-        )
-        .display_env_section(false)
-        .install().into_rootcause()?;
+    // Panic diagnostics: point users at the issue tracker for bug reports.
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("{info}");
+        eprintln!(
+            "Please report the bug at https://github.com/nix-community/nh/issues"
+        );
+    }));
+
+    let mut args = <interface::Main as clap::Parser>::parse();
 
     // Capture environment-derived configuration once, after clap has handled
     // early exits such as --help and --version.

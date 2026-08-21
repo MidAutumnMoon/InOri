@@ -52,7 +52,7 @@ impl EnvInstallableSource {
         }
     }
 
-    fn into_installable(self) -> color_eyre::Result<Installable> {
+    fn into_installable(self) -> rootcause::Result<Installable> {
         match self {
             Self::SpecificFlake { env_var, value } => {
                 debug!("Using {env_var}: {value}");
@@ -63,7 +63,7 @@ impl EnvInstallableSource {
                 Ok(Installable::File {
                     path: PathBuf::from(path),
                     attribute: parse_attribute(&attribute).map_err(
-                        |err| color_eyre::eyre::eyre!("NH_ATTRP {err}"),
+                        |err| rootcause::report!("NH_ATTRP {err}"),
                     )?,
                 })
             }
@@ -353,7 +353,7 @@ impl InstallableArgs {
     ///
     /// Returns an error when a configured flake environment variable is
     /// malformed.
-    fn resolve(self, config: &FlakeConfig) -> color_eyre::Result<Option<Installable>> {
+    fn resolve(self, config: &FlakeConfig) -> rootcause::Result<Option<Installable>> {
         match self {
             Self::Unspecified => env_installable_source(config)
                 .map(EnvInstallableSource::into_installable)
@@ -374,7 +374,7 @@ impl InstallableArgs {
     /// Returns an error when environment resolution fails, when a local flake
     /// reference does not point at a flake directory, or when no default
     /// installable can be found.
-    pub fn resolve_or_default(self, config: &FlakeConfig) -> color_eyre::Result<Installable> {
+    pub fn resolve_or_default(self, config: &FlakeConfig) -> rootcause::Result<Installable> {
         let Some(installable) = self.resolve(config)? else {
             return default_installable_for();
         };
@@ -406,16 +406,16 @@ fn env_installable_source(config: &FlakeConfig) -> Option<EnvInstallableSource> 
     None
 }
 
-fn default_installable_for() -> color_eyre::Result<Installable> {
+fn default_installable_for() -> rootcause::Result<Installable> {
     try_find_default_for_os()
 }
 
 fn flake_from_env_var(
     name: &str,
     value: &str,
-) -> color_eyre::Result<Installable> {
+) -> rootcause::Result<Installable> {
     let (reference, attribute) = parse_flake_reference(value)
-        .map_err(|err| color_eyre::eyre::eyre!("{name} {err}"))?;
+        .map_err(|err| rootcause::report!("{name} {err}"))?;
     Ok(Installable::Flake {
         reference,
         attribute,
@@ -467,7 +467,7 @@ impl Installable {
         res
     }
 
-    fn validate_local_flake_ref(&self) -> color_eyre::Result<()> {
+    fn validate_local_flake_ref(&self) -> rootcause::Result<()> {
         let Self::Flake { reference, .. } = self else {
             return Ok(());
         };
@@ -480,7 +480,7 @@ impl Installable {
         // the bad configuration instead of Nix's parent-directory search.
         match resolve_fallback_flake_dir(&path) {
             Ok(_) => Ok(()),
-            Err(FallbackError::NotFound) => Err(color_eyre::eyre::eyre!(
+            Err(FallbackError::NotFound) => Err(rootcause::report!(
                 "Flake reference `{}` points to local path `{}`, but that path does \
            not exist or does not contain a flake.nix file.\nPass an existing \
            flake path or update NH_FLAKE/NH_OS_FLAKE if this value came from \
@@ -489,14 +489,14 @@ impl Installable {
                 path.display()
             )),
             Err(FallbackError::PermissionDenied(path)) => {
-                Err(color_eyre::eyre::eyre!(
+                Err(rootcause::report!(
                     "Permission denied accessing {} while checking flake reference `{}`.",
                     path.display(),
                     reference
                 ))
             }
             Err(FallbackError::Io(source)) => {
-                Err(color_eyre::eyre::eyre!(
+                Err(rootcause::report!(
                     "I/O error checking flake reference `{}` at {}: {}",
                     reference,
                     path.display(),
@@ -737,7 +737,7 @@ impl Installable {
 /// - No flake is found at `/etc/nixos/flake.nix`
 /// - Permission is denied accessing the path
 /// - The resolved path contains invalid UTF-8
-fn try_find_default_for_os() -> color_eyre::Result<Installable> {
+fn try_find_default_for_os() -> rootcause::Result<Installable> {
     use tracing::warn;
 
     let default_dir = std::path::Path::new("/etc/nixos");
@@ -752,7 +752,7 @@ fn try_find_default_for_os() -> color_eyre::Result<Installable> {
                 reference: resolved
                     .to_str()
                     .ok_or_else(|| {
-                        color_eyre::eyre::eyre!(
+                        rootcause::report!(
                             "Resolved path {} contains invalid UTF-8",
                             resolved.display()
                         )
@@ -762,7 +762,7 @@ fn try_find_default_for_os() -> color_eyre::Result<Installable> {
             })
         }
         Err(FallbackError::PermissionDenied(path)) => {
-            Err(color_eyre::eyre::eyre!(
+            Err(rootcause::report!(
                 "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
          as an argument (e.g., 'nh os switch .')\n- Set the NH_FLAKE \
          environment variable\n- Set the NH_OS_FLAKE environment \
@@ -771,13 +771,13 @@ fn try_find_default_for_os() -> color_eyre::Result<Installable> {
                 FALLBACK_HELP_HINT
             ))
         }
-        Err(FallbackError::Io(e)) => Err(color_eyre::eyre::eyre!(
+        Err(FallbackError::Io(e)) => Err(rootcause::report!(
             "I/O error accessing {}: {}\n\n{}",
             default_dir.display(),
             e,
             FALLBACK_HELP_HINT
         )),
-        Err(FallbackError::NotFound) => Err(color_eyre::eyre::eyre!(
+        Err(FallbackError::NotFound) => Err(rootcause::report!(
             "No installable specified and no flake found at {}/flake.nix.\nPlease \
          either:\n- Pass a flake path as an argument (e.g., 'nh os switch \
          .')\n- Set the NH_FLAKE environment variable\n- Set the NH_OS_FLAKE \

@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 clap.workspace       = true
-color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+rootcause.workspace = true
 tracing.workspace    = true
 yansi = "1.0.1"
 

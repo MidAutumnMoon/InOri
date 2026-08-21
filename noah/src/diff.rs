@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::remote::{RemoteHost, ResolvedRemoteStorePath, SshConfig};
-use crate::{EyreRootcauseBridge, args::DiffType, progress};
+use crate::{args::DiffType, external_report, progress};
 use rootcause::{Result, report};
 use tracing::{debug, info, warn};
 use yansi::Paint;
@@ -43,9 +43,8 @@ impl DiffEndpoint {
         ssh_config: &SshConfig,
     ) -> Result<dix::StoreSnapshot> {
         match self {
-            Self::Local(path) => {
-                dix::query_store_snapshot(path, true).into_rootcause()
-            }
+            Self::Local(path) => dix::query_store_snapshot(path, true)
+                .map_err(external_report),
             Self::Remote(root) => root.query_snapshot(ssh_config),
         }
     }
@@ -77,7 +76,7 @@ fn query_local_dix_diff(
 ) -> Result<QueriedDiff> {
     let report =
         dix::query_diff_report(old_generation, new_generation, true)
-            .into_rootcause()?;
+            .map_err(external_report)?;
 
     Ok(QueriedDiff {
         old_label: display_path(old_generation),

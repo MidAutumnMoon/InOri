@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::EyreRootcauseBridge;
+use crate::external_report;
 use rootcause::{Result, bail, report};
 
 use super::{
@@ -83,7 +83,7 @@ impl ResolvedRemoteStorePath {
             .store_url(self.host.nix_store_uri())
             .env("NIX_SSHOPTS", get_nix_sshopts_env(ssh_config));
         dix::query_store_snapshot_with_backend(&backend, self.path())
-            .into_rootcause()
+            .map_err(external_report)
     }
 
     fn new(
