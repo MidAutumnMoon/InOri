@@ -5,10 +5,10 @@ use std::{
     process,
 };
 
+use crate::command::{CommandKind, NixCommand};
 use clap::ValueEnum;
 use color_eyre::eyre::Result;
 use jiff::{Timestamp, tz::TimeZone};
-use crate::command::{CommandKind, NixCommand};
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]

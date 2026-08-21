@@ -12,7 +12,7 @@ use nix_command::{CommandKind, NixCommand};
 use tracing::debug;
 
 use crate::command::{
-    Command, ElevationStrategy, SudoConfig, SubprocessEnv,
+    Command, ElevationStrategy, SubprocessEnv, SudoConfig,
 };
 
 fn format_argv(argv: &[OsString]) -> String {
@@ -138,8 +138,9 @@ pub fn self_elevate(
     subprocess_env: &SubprocessEnv,
     sudo_config: &SudoConfig,
 ) -> ! {
-    let mut cmd = Command::self_elevate_cmd(strategy, subprocess_env, sudo_config)
-        .expect("Failed to create self-elevation command");
+    let mut cmd =
+        Command::self_elevate_cmd(strategy, subprocess_env, sudo_config)
+            .expect("Failed to create self-elevation command");
     debug!("{:?}", cmd);
 
     let err = cmd.exec();

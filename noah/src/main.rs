@@ -4,10 +4,10 @@ use color_eyre::Result;
 use ino_shell::{Shell, cmd};
 use nh::EyreRootcauseBridge;
 use nh::command::{
-    ElevationStrategy, ElevationStrategyArg, SudoConfig, SubprocessEnv,
+    ElevationStrategy, ElevationStrategyArg, SubprocessEnv, SudoConfig,
 };
-use nh_installable::FlakeConfig;
 use nh::remote::SshConfig;
+use nh_installable::FlakeConfig;
 use rootcause::prelude::ResultExt;
 use tracing::debug;
 
@@ -142,4 +142,3 @@ fn ensure_features_needed_are_set() -> rootcause::Result<()> {
         )
     }
 }
-

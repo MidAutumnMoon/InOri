@@ -209,9 +209,9 @@ impl NixCommand {
             return self.run_interactive();
         }
 
-        let stdout = io::stdout();
-        let stderr = io::stderr();
-        self.communicate_to(&mut stdout.lock(), &mut stderr.lock())
+        let mut stdout = io::stdout();
+        let mut stderr = io::stderr();
+        self.communicate_to(&mut stdout, &mut stderr)
     }
 
     /// Run the command and collect stdout and stderr.

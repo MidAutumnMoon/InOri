@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use clap::Args;
 use crate::args::{DiffType, NixBuildPassthroughArgs};
-use nh_installable::{FlakeConfig, InstallableArgs};
 use crate::remote::RemoteHost;
+use clap::Args;
+use nh_installable::{FlakeConfig, InstallableArgs};
 
 use crate::nixos::generations::Field;
 

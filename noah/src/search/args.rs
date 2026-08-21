@@ -1,43 +1,72 @@
 use clap::{Args, Subcommand, ValueEnum};
 
 const DEFAULT_LIMIT: u64 = 30;
-const DEFAULT_CHANNEL: &str = "nixos-unstable";
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
 /// Searches packages or NixOS options via search.nixos.org
 pub struct SearchArgs {
-    #[command(flatten)]
-    pub limit: LimitArg,
+    /// Number of search results to display
+    #[arg(
+        long,
+        short = 'l',
+        default_value_t = DEFAULT_LIMIT,
+        global = true
+    )]
+    pub limit: u64,
 
-    #[command(flatten)]
-    pub channel: ChannelArg,
+    /// Show supported platforms for each package
+    #[arg(
+        long,
+        short = 'P',
+        env = "NH_SEARCH_PLATFORM",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        global = true
+    )]
+    pub platforms: bool,
 
-    #[command(flatten)]
-    pub platforms: PlatformsArg,
+    /// Backend index version to query on search.nixos.org. Defaults to the
+    /// version bundled with nh
+    #[arg(
+        id = "backend-version",
+        long = "backend-version",
+        env = "NH_SEARCH_BACKEND_VERSION",
+        value_name = "VERSION",
+        global = true
+    )]
+    pub backend_version: Option<u32>,
 
-    #[command(flatten)]
-    pub backend: BackendArgs,
+    /// Number of newer index versions to try when the requested version is
+    /// outdated (missing on the backend)
+    #[arg(
+        id = "backend-version-fallbacks",
+        long = "backend-version-fallbacks",
+        env = "NH_SEARCH_BACKEND_FALLBACKS",
+        default_value_t = DEFAULT_BACKEND_FALLBACKS,
+        value_name = "COUNT",
+        global = true
+    )]
+    pub backend_fallbacks: u32,
 
     /// Output results as JSON
     #[arg(
-    long,
-    short = 'j',
-    env = "NH_SEARCH_JSON",
-    value_parser = clap::builder::BoolishValueParser::new(),
-    global = true
-  )]
+        long,
+        short = 'j',
+        env = "NH_SEARCH_JSON",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        global = true
+    )]
     pub json: bool,
 
     /// Default search mode used when no subcommand is given.
-    /// Accepts `packages` or `options` (scope defaults to `all`).
+    /// Accepts `packages` or `options`.
     #[arg(
         long,
         env = "NH_DEFAULT_SEARCH",
         default_value = "packages",
         value_name = "MODE"
     )]
-    pub default_search: SearchDefault,
+    pub default_search: SearchKind,
 
     #[command(subcommand)]
     pub mode: Option<SearchMode>,
@@ -57,18 +86,6 @@ pub enum SearchMode {
 
 #[derive(Args, Debug)]
 pub struct PackagesArgs {
-    #[command(flatten)]
-    pub limit: LimitArg,
-
-    #[command(flatten)]
-    pub channel: ChannelArg,
-
-    #[command(flatten)]
-    pub platforms: PlatformsArg,
-
-    #[command(flatten)]
-    pub backend: BackendArgs,
-
     /// Name of the package to search
     #[arg(required = true)]
     pub query: Vec<String>,
@@ -76,85 +93,13 @@ pub struct PackagesArgs {
 
 #[derive(Args, Debug)]
 pub struct OptionsArgs {
-    #[command(flatten)]
-    pub limit: LimitArg,
-
-    #[command(flatten)]
-    pub channel: ChannelArg,
-
-    #[command(flatten)]
-    pub backend: BackendArgs,
-
     /// Name of the option to search
     #[arg(required = true)]
     pub query: Vec<String>,
 }
 
-#[derive(Args, Debug, Clone, Copy)]
-pub struct LimitArg {
-    /// Number of search results to display
-    #[arg(
-    id = "limit",
-    long = "limit",
-    short = 'l',
-    default_value_t = DEFAULT_LIMIT
-  )]
-    pub value: u64,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct ChannelArg {
-    /// Name of the channel to query (e.g. nixos-unstable, nixos-26.05)
-    #[arg(
-    id = "channel",
-    long = "channel",
-    short = 'c',
-    env = "NH_SEARCH_CHANNEL",
-    default_value = DEFAULT_CHANNEL
-  )]
-    pub value: String,
-}
-
-#[derive(Args, Debug, Clone, Copy)]
-pub struct BackendArgs {
-    /// Backend index version to query on search.nixos.org. Defaults to the
-    /// version bundled with nh
-    #[arg(
-        id = "backend-version",
-        long = "backend-version",
-        env = "NH_SEARCH_BACKEND_VERSION",
-        value_name = "VERSION"
-    )]
-    pub version: Option<u32>,
-
-    /// Number of newer index versions to try when the requested version is
-    /// outdated (missing on the backend)
-    #[arg(
-    id = "backend-version-fallbacks",
-    long = "backend-version-fallbacks",
-    env = "NH_SEARCH_BACKEND_FALLBACKS",
-    default_value_t = DEFAULT_BACKEND_FALLBACKS,
-    value_name = "COUNT"
-  )]
-    pub fallbacks: u32,
-}
-
-#[derive(Args, Debug, Clone, Copy)]
-pub struct PlatformsArg {
-    /// Show supported platforms for each package
-    #[arg(
-    id = "platforms",
-    long = "platforms",
-    short = 'P',
-    env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
-    pub value: bool,
-}
-
-
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum SearchDefault {
+pub enum SearchKind {
     /// Search packages (default)
     #[default]
     Packages,
@@ -162,12 +107,11 @@ pub enum SearchDefault {
     Options,
 }
 
-
 #[cfg(test)]
 mod tests {
     use clap::{Parser, Subcommand, error::ErrorKind};
 
-    use super::{SearchArgs, SearchDefault, SearchMode};
+    use super::{SearchArgs, SearchKind, SearchMode};
 
     #[derive(Debug, Parser)]
     struct TestCli {
@@ -189,85 +133,30 @@ mod tests {
         }
     }
 
-    fn parse_search_error(
-        args: &[&str],
-    ) -> clap::error::Result<clap::Error> {
-        match parse_search(args) {
-            Ok(args) => Err(clap::Error::raw(
-                ErrorKind::InvalidValue,
-                format!("expected parse error, got {args:?}"),
-            )),
-            Err(err) => Ok(err),
-        }
-    }
-
     #[test]
-    fn online_root_flags_parse_before_subcommand()
+    fn global_flags_work_on_both_sides_of_subcommand()
     -> clap::error::Result<()> {
         let args = parse_search(&[
             "search",
+            "--limit",
+            "5",
+            "--backend-version",
+            "51",
             "packages",
-            "--channel",
-            "nixos-unstable",
             "hello",
             "--platforms",
+            "--backend-version-fallbacks",
+            "3",
+            "--json",
         ])?;
 
-        match args.mode {
-            Some(SearchMode::Packages(packages)) => {
-                assert_eq!(packages.channel.value, "nixos-unstable");
-                assert!(packages.platforms.value);
-                assert_eq!(packages.query, ["hello"]);
-            }
-            other => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidValue,
-                    format!("expected packages mode, got {other:?}"),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn online_root_flags_parse_after_subcommand() -> clap::error::Result<()>
-    {
-        let args = parse_search(&[
-            "search",
-            "packages",
-            "--channel",
-            "nixos-unstable",
-            "--platforms",
-            "hello",
-        ])?;
-
-        match args.mode {
-            Some(SearchMode::Packages(packages)) => {
-                assert_eq!(packages.channel.value, "nixos-unstable");
-                assert!(packages.platforms.value);
-                assert_eq!(packages.query, ["hello"]);
-            }
-            other => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidValue,
-                    format!("expected packages mode, got {other:?}"),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn global_limit_and_json_parse_after_subcommand()
-    -> clap::error::Result<()> {
-        let args = parse_search(&[
-            "search", "packages", "--limit", "5", "--json", "hello",
-        ])?;
-
+        assert_eq!(args.limit, 5);
+        assert!(args.platforms);
         assert!(args.json);
+        assert_eq!(args.backend_version, Some(51));
+        assert_eq!(args.backend_fallbacks, 3);
         match args.mode {
             Some(SearchMode::Packages(packages)) => {
-                assert_eq!(packages.limit.value, 5);
                 assert_eq!(packages.query, ["hello"]);
             }
             other => {
@@ -287,17 +176,14 @@ mod tests {
             "hello",
             "--limit",
             "5",
-            "--channel",
-            "nixos-unstable",
             "--platforms",
             "--default-search",
             "packages",
         ])?;
 
-        assert_eq!(args.limit.value, 5);
-        assert_eq!(args.channel.value, "nixos-unstable");
-        assert!(args.platforms.value);
-        assert!(matches!(args.default_search, SearchDefault::Packages));
+        assert_eq!(args.limit, 5);
+        assert!(args.platforms);
+        assert!(matches!(args.default_search, SearchKind::Packages));
         assert_eq!(args.query, ["hello"]);
         assert!(args.mode.is_none());
         Ok(())
@@ -313,64 +199,44 @@ mod tests {
             "options",
         ])?;
 
-        assert!(matches!(args.default_search, SearchDefault::Options));
+        assert!(matches!(args.default_search, SearchKind::Options));
         assert_eq!(args.query, ["hello"]);
         assert!(args.mode.is_none());
         Ok(())
     }
 
     #[test]
-    fn backend_version_flags_parse_and_default() -> clap::error::Result<()>
-    {
-        let args = parse_search(&[
-            "search",
-            "packages",
-            "hello",
-            "--backend-version",
-            "51",
-            "--backend-version-fallbacks",
-            "3",
-        ])?;
-
-        match args.mode {
-            Some(SearchMode::Packages(packages)) => {
-                assert_eq!(packages.backend.version, Some(51));
-                assert_eq!(packages.backend.fallbacks, 3);
-            }
-            other => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidValue,
-                    format!("expected packages mode, got {other:?}"),
-                ));
-            }
-        }
-
-        let defaults = parse_search(&["search", "options", "hello"])?;
-        match defaults.mode {
-            Some(SearchMode::Options(options)) => {
-                assert_eq!(options.backend.version, None);
-                assert_eq!(options.backend.fallbacks, 1);
-            }
-            other => {
-                return Err(clap::Error::raw(
-                    ErrorKind::InvalidValue,
-                    format!("expected options mode, got {other:?}"),
-                ));
-            }
-        }
+    fn backend_flags_have_shared_defaults() -> clap::error::Result<()> {
+        let args = parse_search(&["search", "options", "hello"])?;
+        assert_eq!(args.backend_version, None);
+        assert_eq!(args.backend_fallbacks, 1);
         Ok(())
     }
 
     #[test]
-    fn options_reject_platforms() -> clap::error::Result<()> {
-        let err = parse_search_error(&[
-            "search",
-            "options",
-            "hello",
-            "--platforms",
-        ])?;
-
-        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    fn options_preserve_platform_flag_for_runtime_validation()
+    -> clap::error::Result<()> {
+        let args =
+            parse_search(&["search", "options", "hello", "--platforms"])?;
+        assert!(args.platforms);
+        assert!(matches!(args.mode, Some(SearchMode::Options(_))));
         Ok(())
+    }
+
+    #[test]
+    fn subcommand_requires_query() -> clap::error::Result<()> {
+        match parse_search(&["search", "packages"]) {
+            Ok(args) => Err(clap::Error::raw(
+                ErrorKind::InvalidValue,
+                format!("expected missing-query error, got {args:?}"),
+            )),
+            Err(error) => {
+                assert_eq!(
+                    error.kind(),
+                    ErrorKind::MissingRequiredArgument
+                );
+                Ok(())
+            }
+        }
     }
 }

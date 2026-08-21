@@ -4,9 +4,9 @@ use std::{
     thread,
 };
 
-use color_eyre::eyre::{Result, eyre};
-use crate::{args::DiffType, progress};
 use crate::remote::{RemoteHost, ResolvedRemoteStorePath, SshConfig};
+use crate::{args::DiffType, progress};
+use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
@@ -38,7 +38,10 @@ impl DiffEndpoint {
         }
     }
 
-    fn query_snapshot(&self, ssh_config: &SshConfig) -> Result<dix::StoreSnapshot> {
+    fn query_snapshot(
+        &self,
+        ssh_config: &SshConfig,
+    ) -> Result<dix::StoreSnapshot> {
         match self {
             Self::Local(path) => dix::query_store_snapshot(path, true),
             Self::Remote(root) => root.query_snapshot(ssh_config),
@@ -192,8 +195,12 @@ fn query_remote_nixos_diff(
 
     let new = remote_profile
         .map(|path| {
-            ResolvedRemoteStorePath::resolve(target_host, &path, ssh_config)
-                .map(DiffEndpoint::Remote)
+            ResolvedRemoteStorePath::resolve(
+                target_host,
+                &path,
+                ssh_config,
+            )
+            .map(DiffEndpoint::Remote)
         })
         .transpose()?
         .unwrap_or_else(|| {

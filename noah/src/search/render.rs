@@ -4,7 +4,10 @@ use regex::Regex;
 use tracing::trace;
 use yansi::{Color, Paint};
 
-use crate::search::types::{OptionSearchResult, PackageSearchResult};
+use crate::search::{
+    CHANNEL,
+    types::{OptionSearchResult, PackageSearchResult},
+};
 
 static HYPERLINKS_SUPPORTED: LazyLock<bool> =
     LazyLock::new(supports_hyperlinks::supports_hyperlinks);
@@ -17,11 +20,7 @@ static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| {
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 
-pub fn print_packages(
-    channel: &str,
-    platforms: bool,
-    documents: &[PackageSearchResult],
-) {
+pub fn print_packages(platforms: bool, documents: &[PackageSearchResult]) {
     for elem in documents.iter().rev() {
         println!();
         trace!("{elem:#?}");
@@ -51,14 +50,15 @@ pub fn print_packages(
 
         if let Some(position) = &elem.package_position {
             let filepath = position.split(':').next().unwrap_or(position);
-            let url =
-                format!("https://github.com/NixOS/nixpkgs/blob/{channel}/{filepath}");
+            let url = format!(
+                "https://github.com/NixOS/nixpkgs/blob/{CHANNEL}/{filepath}"
+            );
             print_field_link("GitHub link", &url);
         }
     }
 }
 
-pub fn print_options(channel: &str, documents: &[OptionSearchResult]) {
+pub fn print_options(documents: &[OptionSearchResult]) {
     for elem in documents.iter().rev() {
         println!();
         trace!("{elem:#?}");
@@ -90,8 +90,9 @@ pub fn print_options(channel: &str, documents: &[OptionSearchResult]) {
 
         if let Some(source) = &elem.option_source {
             let filepath = source.split(':').next().unwrap_or(source);
-            let url =
-                format!("https://github.com/NixOS/nixpkgs/blob/{channel}/{filepath}");
+            let url = format!(
+                "https://github.com/NixOS/nixpkgs/blob/{CHANNEL}/{filepath}"
+            );
             print_field_link("Source", &url);
         }
     }

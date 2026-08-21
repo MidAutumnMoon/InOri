@@ -4,12 +4,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{Context, Result, bail, eyre};
+use crate::diff::{handle_nixos_diff, print_dix_diff};
+use crate::remote::{RemoteBuildConfig, RemoteHost, SshConfig};
 use crate::{
     args::DiffType,
     command::{
         self, Command, CommandKind, ElevationStrategy, NixCommand,
-        SudoConfig, SubprocessEnv,
+        SubprocessEnv, SudoConfig,
     },
     update::update,
     util::{
@@ -17,15 +18,14 @@ use crate::{
         get_build_image_variants_flake, get_hostname,
     },
 };
-use crate::diff::{handle_nixos_diff, print_dix_diff};
+use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_installable::{FlakeConfig, Installable};
-use crate::remote::{RemoteBuildConfig, RemoteHost, SshConfig};
 use tracing::{debug, info, warn};
 
 use crate::nixos::{
     args::{
-        BuildImageArgs, GenerationsArgs, RebuildActivateArgs,
-        ReplArgs, RollbackArgs, RebuildArgs, RebuildVmArgs,
+        BuildImageArgs, GenerationsArgs, RebuildActivateArgs, RebuildArgs,
+        RebuildVmArgs, ReplArgs, RollbackArgs,
     },
     generations,
 };
@@ -116,9 +116,11 @@ impl RebuildVmArgs {
 
         // Show warning if no hostname was explicitly provided for VM builds
         if self.common.hostname.is_none() {
-            let (_, target_hostname) = self
-                .common
-                .setup_build_context(elevation, subprocess_env, sudo_config)?;
+            let (_, target_hostname) = self.common.setup_build_context(
+                elevation,
+                subprocess_env,
+                sudo_config,
+            )?;
             tracing::warn!(
                 "Guessing system is {target_hostname} for a VM image. If this isn't \
          intended, use --hostname to change."
@@ -158,9 +160,12 @@ impl RebuildActivateArgs {
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (local_elevate, target_hostname) = self
-            .rebuild
-            .setup_build_context(&elevation, subprocess_env, sudo_config)?;
+        let (local_elevate, target_hostname) =
+            self.rebuild.setup_build_context(
+                &elevation,
+                subprocess_env,
+                sudo_config,
+            )?;
 
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
@@ -193,13 +198,20 @@ impl RebuildActivateArgs {
             // authenticated socket rather than opening a fresh connection where
             // SSH option ordering may differ.
             if let Some(build_host) = &self.rebuild.build_host {
-                crate::remote::open_ssh_control_master(build_host, ssh_config).context(
+                crate::remote::open_ssh_control_master(
+                    build_host, ssh_config,
+                )
+                .context(
                     "Failed to establish SSH connection to build host",
                 )?;
             }
 
             if let Some(target_host) = &self.rebuild.target_host {
-                crate::remote::open_ssh_control_master(target_host, ssh_config).context(
+                crate::remote::open_ssh_control_master(
+                    target_host,
+                    ssh_config,
+                )
+                .context(
                     "Failed to establish SSH connection to target host",
                 )?;
             }
@@ -211,7 +223,8 @@ impl RebuildActivateArgs {
 
         // Now that the ControlMaster is up, probe the remote uid for elevation.
         let elevate = if self.rebuild.target_host.is_some() {
-            self.rebuild.determine_remote_elevation(&elevation, ssh_config)?
+            self.rebuild
+                .determine_remote_elevation(&elevation, ssh_config)?
         } else {
             local_elevate
         };
@@ -449,7 +462,9 @@ impl RebuildActivateArgs {
     ) -> Result<()> {
         if let Some(target_host) = &self.rebuild.target_host {
             let activation_type = match action {
-                ActivationAction::Test => crate::remote::ActivationType::Test,
+                ActivationAction::Test => {
+                    crate::remote::ActivationType::Test
+                }
                 ActivationAction::Switch => {
                     crate::remote::ActivationType::Switch
                 }
@@ -480,18 +495,19 @@ impl RebuildActivateArgs {
                 activation_type.as_str()
             ))?;
         } else {
-            Command::new(switch_to_configuration, subprocess_env, sudo_config)
-                .arg("test")
-                .message("Activating configuration")
-                .elevate(elevate.then_some(elevation.clone()))
-                .preserve_envs([
-                    "NIXOS_INSTALL_BOOTLOADER",
-                    "NIXOS_NO_CHECK",
-                ])
-                .with_env()
-                .show_output(self.show_activation_logs)
-                .run()
-                .wrap_err("Activation (test) failed")?;
+            Command::new(
+                switch_to_configuration,
+                subprocess_env,
+                sudo_config,
+            )
+            .arg("test")
+            .message("Activating configuration")
+            .elevate(elevate.then_some(elevation.clone()))
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+            .with_env()
+            .show_output(self.show_activation_logs)
+            .run()
+            .wrap_err("Activation (test) failed")?;
         }
 
         Ok(())
@@ -549,10 +565,7 @@ impl RebuildActivateArgs {
             .arg("boot")
             .elevate(elevate.then_some(elevation))
             .message("Adding configuration to bootloader")
-            .preserve_envs([
-                "NIXOS_INSTALL_BOOTLOADER",
-                "NIXOS_NO_CHECK",
-            ]);
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
             if self.rebuild.install_bootloader {
                 cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
@@ -637,7 +650,8 @@ impl RebuildArgs {
         if matches!(elevation, ElevationStrategy::None) {
             return Ok(false);
         }
-        let uid = crate::remote::probe_remote_uid(target_host, ssh_config)?;
+        let uid =
+            crate::remote::probe_remote_uid(target_host, ssh_config)?;
         Ok(uid != 0)
     }
 
@@ -813,8 +827,11 @@ impl RebuildArgs {
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (_, target_hostname) = self
-            .setup_build_context(elevation, subprocess_env, sudo_config)?;
+        let (_, target_hostname) = self.setup_build_context(
+            elevation,
+            subprocess_env,
+            sudo_config,
+        )?;
 
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
@@ -1050,9 +1067,11 @@ impl BuildImageArgs {
         flake_config: &FlakeConfig,
         ssh_config: &SshConfig,
     ) -> Result<()> {
-        let (_, target_hostname) = self
-            .common
-            .setup_build_context(elevation, subprocess_env, sudo_config)?;
+        let (_, target_hostname) = self.common.setup_build_context(
+            elevation,
+            subprocess_env,
+            sudo_config,
+        )?;
 
         // Show warning if no hostname was explicitly provided for image builds
         if self.common.hostname.is_none() {

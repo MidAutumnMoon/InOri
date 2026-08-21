@@ -3,7 +3,7 @@ use std::{
     convert::Infallible,
     env,
     ffi::{OsStr, OsString},
-    io::{BufRead, Write},
+    io::{self, Write},
     path::PathBuf,
     str::FromStr,
     sync::{Mutex, OnceLock},
@@ -89,23 +89,18 @@ impl SubprocessEnv {
     }
 
     fn lookup(&self, key: &str) -> Option<&str> {
-        self.nix_preserve
-            .iter()
-            .chain(&self.nh_vars)
-            .find_map(|(candidate, value)| {
+        self.nix_preserve.iter().chain(&self.nh_vars).find_map(
+            |(candidate, value)| {
                 (candidate == key).then_some(value.as_str())
-            })
+            },
+        )
     }
 
     pub(crate) fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
         self.user
             .iter()
             .map(|value| ("USER", value.as_str()))
-            .chain(
-                self.home
-                    .iter()
-                    .map(|value| ("HOME", value.as_str())),
-            )
+            .chain(self.home.iter().map(|value| ("HOME", value.as_str())))
             .chain(
                 self.nix_preserve
                     .iter()
@@ -179,120 +174,79 @@ pub fn get_sudo_opts(config: &SudoConfig) -> Vec<String> {
     config.opts.clone()
 }
 
-/// Execute a command, streaming output to stdout/stderr while optionally
-/// capturing it for error reporting.
-///
-/// # Arguments
-///
-/// * `capture_output` - When `true`, stdout and stderr are accumulated and
-///   returned as strings. When `false`, output is streamed but not captured.
-///
-/// # Returns
-///
-/// Returns the exit status and captured stdout/stderr (or empty strings if
-/// `capture_output` is `false`), or an error.
+struct CaptureWriter<W> {
+    stream: W,
+    captured: Vec<u8>,
+}
+
+impl<W> CaptureWriter<W> {
+    fn new(stream: W) -> Self {
+        Self {
+            stream,
+            captured: Vec::new(),
+        }
+    }
+
+    fn into_string(self) -> String {
+        String::from_utf8_lossy(&self.captured).into_owned()
+    }
+}
+
+impl<W: Write> Write for CaptureWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stream.write_all(buf)?;
+        self.captured.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+/// Run an [`Exec`], draining stdout and stderr concurrently into the supplied
+/// writers.
 ///
 /// # Errors
 ///
-/// Returns an error if:
-///
-/// - The command fails to start
-/// - stdout or stderr cannot be captured
-/// - The command fails to complete
-/// - Either output thread panics
-pub fn exec_with_streaming(
+/// Returns an error if the command cannot start, communication fails, or the
+/// process cannot be reaped.
+pub(crate) fn exec_with_writers(
     cmd: Exec,
-    capture_output: bool,
-) -> Result<(subprocess::ExitStatus, String, String)> {
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<subprocess::ExitStatus> {
     let mut job = cmd
         .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
         .start()
         .wrap_err("Failed to start command")?;
 
-    let stdout_pipe = job
-        .stdout
-        .take()
-        .ok_or_else(|| eyre::eyre!("Failed to capture stdout"))?;
+    let communication = job
+        .communicate()
+        .wrap_err("Failed to open command pipes")?
+        .read_to(stdout, stderr);
+    if let Err(error) = communication {
+        let _ = job.kill();
+        let _ = job.wait();
+        return Err(error).wrap_err("Failed to stream command output");
+    }
 
-    let stdout_thread = std::thread::spawn(move || {
-        let mut stdout_reader = std::io::BufReader::new(stdout_pipe);
-        let mut stdout_bytes = Vec::new();
+    job.wait().wrap_err("Failed to wait for command completion")
+}
 
-        loop {
-            let buf = match stdout_reader.fill_buf() {
-                Ok(buf) => buf,
-                Err(e) => {
-                    debug!("stdout read error: {e}");
-                    break;
-                }
-            };
-            if buf.is_empty() {
-                break;
-            }
-            let _ = std::io::stdout().write_all(buf);
-            let _ = std::io::stdout().flush();
-            if capture_output {
-                stdout_bytes.extend_from_slice(buf);
-            }
-            let len = buf.len();
-            stdout_reader.consume(len);
-        }
-
-        if capture_output {
-            String::from_utf8_lossy(&stdout_bytes).into_owned()
-        } else {
-            String::new()
-        }
-    });
-
-    let stderr_thread = job.stderr.take().map(|stderr_pipe| {
-        std::thread::spawn(move || {
-            let mut stderr_reader = std::io::BufReader::new(stderr_pipe);
-            let mut stderr_bytes = Vec::new();
-
-            loop {
-                let buf = match stderr_reader.fill_buf() {
-                    Ok(buf) => buf,
-                    Err(e) => {
-                        debug!("stderr read error: {e}");
-                        break;
-                    }
-                };
-                if buf.is_empty() {
-                    break;
-                }
-                let _ = std::io::stderr().write_all(buf);
-                let _ = std::io::stderr().flush();
-                if capture_output {
-                    stderr_bytes.extend_from_slice(buf);
-                }
-                let len = buf.len();
-                stderr_reader.consume(len);
-            }
-
-            if capture_output {
-                String::from_utf8_lossy(&stderr_bytes).into_owned()
-            } else {
-                String::new()
-            }
-        })
-    });
-
-    let exit_status = job
-        .wait()
-        .wrap_err("Failed to wait for command completion")?;
-
-    let stdout_output = stdout_thread
-        .join()
-        .map_err(|_| eyre::eyre!("Stdout thread panicked"))?;
-    let stderr_output = stderr_thread
-        .map(|t| {
-            t.join().map_err(|_| eyre::eyre!("Stderr thread panicked"))
-        })
-        .transpose()?
-        .unwrap_or_default();
-
-    Ok((exit_status, stdout_output, stderr_output))
+/// Run a command while forwarding and retaining both output streams.
+///
+/// # Errors
+///
+/// Returns an error if command execution or output streaming fails.
+pub(crate) fn exec_with_streaming(
+    cmd: Exec,
+) -> Result<(subprocess::ExitStatus, String, String)> {
+    let mut stdout = CaptureWriter::new(io::stdout());
+    let mut stderr = CaptureWriter::new(io::stderr());
+    let status = exec_with_writers(cmd, &mut stdout, &mut stderr)?;
+    Ok((status, stdout.into_string(), stderr.into_string()))
 }
 
 static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
@@ -807,9 +761,7 @@ impl Command {
             .ok_or_else(|| {
                 eyre::eyre!("Failed to determine elevation program name")
             })?;
-        if program_name == "sudo"
-            && self.sudo_config.askpass.is_some()
-        {
+        if program_name == "sudo" && self.sudo_config.askpass.is_some() {
             parts.push("-A".to_string());
         }
         // Request allocation of a pseudo TTY for the run0 session. Without this,
@@ -863,9 +815,10 @@ impl Command {
             .context("Failed to get current executable path")?;
 
         // Self-elevation with proper environment handling
-        let cmd_builder = Self::new(&current_exe, subprocess_env, sudo_config)
-            .elevate(Some(strategy))
-            .with_env();
+        let cmd_builder =
+            Self::new(&current_exe, subprocess_env, sudo_config)
+                .elevate(Some(strategy))
+                .with_env();
 
         let mut sudo_parts = cmd_builder.build_sudo_parts()?;
 
@@ -885,9 +838,7 @@ impl Command {
         std_cmd.args(parts_iter);
 
         // check if using SUDO_ASKPASS
-        if uses_askpass
-            && let Some(askpass) = &sudo_config.askpass
-        {
+        if uses_askpass && let Some(askpass) = &sudo_config.askpass {
             std_cmd.env("SUDO_ASKPASS", askpass);
         }
         Ok(std_cmd)
@@ -974,9 +925,13 @@ impl Command {
                             elev_cmd.arg(format!("{key}={quoted_value}"));
                     }
                     EnvAction::Preserve => {
-                        if let Some(value) = self.subprocess_env.lookup(key) {
+                        if let Some(value) =
+                            self.subprocess_env.lookup(key)
+                        {
                             let quoted_value = shlex::try_quote(value)
-                                .unwrap_or_else(|_| value.to_string().into());
+                                .unwrap_or_else(|_| {
+                                    value.to_string().into()
+                                });
                             elev_cmd = elev_cmd
                                 .arg(format!("{key}={quoted_value}"));
                         }
@@ -1237,7 +1192,11 @@ mod tests {
         SubprocessEnv::from_pairs(user, home, nix_preserve, nh_vars)
     }
 
-    fn sudo_with(opts: Vec<&str>, askpass: Option<&str>, preserve_env: bool) -> SudoConfig {
+    fn sudo_with(
+        opts: Vec<&str>,
+        askpass: Option<&str>,
+        preserve_env: bool,
+    ) -> SudoConfig {
         SudoConfig {
             opts: opts.into_iter().map(String::from).collect(),
             askpass: askpass.map(String::from),
@@ -1291,7 +1250,8 @@ mod tests {
 
     #[test]
     fn test_command_new() {
-        let cmd = Command::new("test-command", &env_default(), &sudo_default());
+        let cmd =
+            Command::new("test-command", &env_default(), &sudo_default());
 
         assert_eq!(cmd.command, OsString::from("test-command"));
         assert!(!cmd.dry);
@@ -1351,12 +1311,8 @@ mod tests {
 
     #[test]
     fn test_with_env_home_user() {
-        let env = env_with(
-            Some("/test/home"),
-            Some("testuser"),
-            vec![],
-            vec![],
-        );
+        let env =
+            env_with(Some("/test/home"), Some("testuser"), vec![], vec![]);
         let cmd = Command::new("test", &env, &sudo_default()).with_env();
 
         assert!(
@@ -1450,7 +1406,8 @@ mod tests {
 
     #[test]
     fn test_env_vars_override_behavior() {
-        let mut cmd = Command::new("test", &env_default(), &sudo_default());
+        let mut cmd =
+            Command::new("test", &env_default(), &sudo_default());
 
         cmd.env_vars
             .insert("TEST_VAR".to_string(), EnvAction::Preserve);
@@ -1546,8 +1503,9 @@ mod tests {
 
     #[test]
     fn test_build_sudo_cmd_with_set_vars() {
-        let mut cmd = Command::new("test", &env_default(), &sudo_default())
-            .elevate(Some(ElevationStrategy::Force("sudo")));
+        let mut cmd =
+            Command::new("test", &env_default(), &sudo_default())
+                .elevate(Some(ElevationStrategy::Force("sudo")));
         cmd.env_vars.insert(
             "TEST_VAR".to_string(),
             EnvAction::Set("test_value".to_string()),

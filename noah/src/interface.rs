@@ -2,8 +2,8 @@ use anstyle::Style;
 use clap::{Parser, Subcommand, builder::Styles};
 use nh::command::ElevationStrategy;
 
-use crate::RuntimeEnv;
 use crate::Result;
+use crate::RuntimeEnv;
 
 const fn make_style() -> Styles {
     Styles::plain().header(Style::new().bold()).literal(
@@ -130,14 +130,10 @@ impl NHCommand {
                     &env.ssh,
                 )
             }
-            Self::Repl(args) => args.run(
-                &env.subprocess,
-                &env.sudo,
-                &env.flake,
-            ),
-            Self::Info(args) => {
-                args.info(&env.subprocess, &env.sudo)
+            Self::Repl(args) => {
+                args.run(&env.subprocess, &env.sudo, &env.flake)
             }
+            Self::Info(args) => args.info(&env.subprocess, &env.sudo),
             Self::Rollback(args) => args.rollback(
                 elevation,
                 &env.subprocess,
@@ -159,11 +155,9 @@ impl NHCommand {
                 &env.ssh,
             ),
             Self::Search(args) => args.run(),
-            Self::Clean(proxy) => proxy.command.run(
-                elevation,
-                &env.subprocess,
-                &env.sudo,
-            ),
+            Self::Clean(proxy) => {
+                proxy.command.run(elevation, &env.subprocess, &env.sudo)
+            }
         }
     }
 }

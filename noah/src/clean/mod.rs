@@ -8,12 +8,12 @@ use std::{
     time::SystemTime,
 };
 
+use crate::command::{Command, ElevationStrategy};
 use color_eyre::{
     Result,
     eyre::{Context, ContextCompat, bail, eyre},
 };
 use inquire::Confirm;
-use crate::command::{Command, ElevationStrategy};
 use nix::{
     errno::Errno,
     fcntl::AtFlags,
@@ -117,7 +117,11 @@ impl args::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    crate::util::self_elevate(elevate, subprocess_env, sudo_config);
+                    crate::util::self_elevate(
+                        elevate,
+                        subprocess_env,
+                        sudo_config,
+                    );
                 }
 
                 let paths_to_check = [
@@ -808,9 +812,7 @@ mod tests {
 
     #[test]
     fn build_result_link_rejects_current_system() {
-        assert!(!is_build_result_link(Path::new(
-            "/run/current-system"
-        )));
+        assert!(!is_build_result_link(Path::new("/run/current-system")));
         assert!(!is_build_result_link(Path::new(
             "/nix/store/abc123zzz-foo-1.0"
         )));

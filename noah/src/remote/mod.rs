@@ -10,13 +10,13 @@ use std::{
     time::Duration,
 };
 
-use color_eyre::{
-    Report, Result,
-    eyre::{Context, bail, eyre},
-};
 use crate::command::{
     CommandKind, ElevationStrategy, NixCommand, cache_password,
     get_cached_password, get_sudo_opts,
+};
+use color_eyre::{
+    Report, Result,
+    eyre::{Context, bail, eyre},
 };
 use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
@@ -128,11 +128,17 @@ fn build_remote_command(
         match (program_name, strategy) {
             // sudo passwordless: use --non-interactive to fail if password required
             ("sudo", ElevationStrategy::Passwordless) => {
-                Ok(remote_sudo_command("--non-interactive", base_cmd, sudo_config))
+                Ok(remote_sudo_command(
+                    "--non-interactive",
+                    base_cmd,
+                    sudo_config,
+                ))
             }
-            ("sudo", _) => {
-                Ok(remote_sudo_command("--prompt= --stdin", base_cmd, sudo_config))
-            }
+            ("sudo", _) => Ok(remote_sudo_command(
+                "--prompt= --stdin",
+                base_cmd,
+                sudo_config,
+            )),
             // doas passwordless: use -n flag (non-interactive)
             ("doas", ElevationStrategy::Passwordless) => {
                 Ok(format!("doas -n {base_cmd}"))
@@ -188,7 +194,11 @@ fn build_remote_command(
     }
 }
 
-fn remote_sudo_command(prefix: &str, base_cmd: &str, sudo_config: &crate::command::SudoConfig) -> String {
+fn remote_sudo_command(
+    prefix: &str,
+    base_cmd: &str,
+    sudo_config: &crate::command::SudoConfig,
+) -> String {
     let sudo_opts = get_sudo_opts(sudo_config)
         .iter()
         .map(|opt| shell_quote(opt))
@@ -751,7 +761,11 @@ fn get_nix_sshopts_env(config: &SshConfig) -> String {
     if config.user_opts.is_empty() {
         default_opts.join(" ")
     } else {
-        format!("{} {}", config.user_opts.join(" "), default_opts.join(" "))
+        format!(
+            "{} {}",
+            config.user_opts.join(" "),
+            default_opts.join(" ")
+        )
     }
 }
 
@@ -774,7 +788,11 @@ fn should_cleanup_remote(config: &SshConfig) -> bool {
 /// * `host` - The remote host where the process is running
 /// * `remote_cmd` - The original command that was run remotely, used for pkill
 ///   matching
-fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str, ssh_config: &SshConfig) {
+fn attempt_remote_cleanup(
+    host: &RemoteHost,
+    remote_cmd: &str,
+    ssh_config: &SshConfig,
+) {
     if !should_cleanup_remote(ssh_config) {
         return;
     }
@@ -1151,9 +1169,13 @@ pub fn activate_remote(
     sudo_config: &crate::command::SudoConfig,
 ) -> Result<()> {
     match config.platform {
-        Platform::NixOS => {
-            activate_nixos_remote(host, system_profile, config, ssh_config, sudo_config)
-        }
+        Platform::NixOS => activate_nixos_remote(
+            host,
+            system_profile,
+            config,
+            ssh_config,
+            sudo_config,
+        ),
     }
 }
 
@@ -1514,7 +1536,8 @@ pub fn build_remote(
     copy_to_remote(build_host, &drv_path, use_substitutes, ssh_config)?;
 
     // Step 3: Build on remote
-    let out_path = build_on_remote(build_host, &drv_path, config, ssh_config)?;
+    let out_path =
+        build_on_remote(build_host, &drv_path, config, ssh_config)?;
 
     // Step 4: Copy result to destination
     //
@@ -1620,7 +1643,12 @@ fn build_on_remote(
             "nom (nix-output-monitor) is required but not found in PATH",
         )?;
 
-        build_on_remote_with_nom(host, &drv_with_outputs, config, ssh_config)
+        build_on_remote_with_nom(
+            host,
+            &drv_with_outputs,
+            config,
+            ssh_config,
+        )
     } else {
         build_on_remote_simple(host, &drv_with_outputs, config, ssh_config)
     }
@@ -1848,7 +1876,6 @@ fn build_on_remote_with_nom(
     let query_refs: Vec<&str> =
         query_args.iter().map(std::string::String::as_str).collect();
 
-
     let result = run_remote_command(host, &query_refs, true, ssh_config);
     if get_interrupt_flag().load(Ordering::Relaxed) {
         debug!("Interrupt detected during output path query");
@@ -1919,7 +1946,6 @@ mod tests {
         }
     }
     */
-
 
     use super::*;
 

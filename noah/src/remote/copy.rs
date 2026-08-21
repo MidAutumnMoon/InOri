@@ -1,18 +1,13 @@
-use std::{
-    ffi::OsString,
-    io::{BufRead, Read},
-    path::Path,
-};
+use std::{ffi::OsString, io::Write, path::Path};
 
-use color_eyre::{
-    Result,
-    eyre::{Context, eyre},
-};
 use crate::{
-    command::{CommandKind, NixCommand, exec_with_streaming},
+    command::{
+        CommandKind, NixCommand, exec_with_streaming, exec_with_writers,
+    },
     progress::{self, Spinner},
 };
-use subprocess::{Exec, Redirection};
+use color_eyre::{Result, eyre::Context};
+use subprocess::Exec;
 use tracing::{debug, error, info};
 
 use super::{RemoteHost, SshConfig, get_flake_flags, get_nix_sshopts_env};
@@ -98,13 +93,21 @@ fn build_nix_copy_command<P: Into<OsString>>(
         .into_exec()
 }
 
-pub fn copy_closure_from(host: &RemoteHost, path: &str, ssh_config: &SshConfig) -> Result<()> {
+pub fn copy_closure_from(
+    host: &RemoteHost,
+    path: &str,
+    ssh_config: &SshConfig,
+) -> Result<()> {
     info!("Copying result from build host '{host}'");
 
-    let cmd = build_nix_copy_command(CopyDirection::FromRemote(host), path, ssh_config);
+    let cmd = build_nix_copy_command(
+        CopyDirection::FromRemote(host),
+        path,
+        ssh_config,
+    );
     debug!(?cmd, "nix copy --from");
 
-    let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
+    let (exit_status, _stdout, stderr) = exec_with_streaming(cmd)
         .wrap_err("Failed to copy closure from remote host")?;
 
     if !exit_status.success() {
@@ -118,39 +121,60 @@ pub fn copy_closure_from(host: &RemoteHost, path: &str, ssh_config: &SshConfig) 
     Ok(())
 }
 
-fn spawn_spinner_stream_thread<R>(
-    pipe: R,
+struct SpinnerWriter {
     spinner: Spinner,
-    stream_name: &'static str,
-) -> std::thread::JoinHandle<Result<String>>
-where
-    R: Read + Send + 'static,
-{
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(pipe);
-        let mut line = Vec::new();
-        let mut output = String::new();
+    pending: Vec<u8>,
+    captured: Vec<u8>,
+}
 
-        loop {
-            line.clear();
-            let bytes_read =
-                reader.read_until(b'\n', &mut line).wrap_err_with(
-                    || format!("Failed to read {stream_name}"),
-                )?;
-
-            if bytes_read == 0 {
-                break;
-            }
-
-            let message = String::from_utf8_lossy(&line)
-                .trim_end_matches(['\r', '\n'])
-                .to_string();
-            spinner.println(message);
-            output.push_str(&String::from_utf8_lossy(&line));
+impl SpinnerWriter {
+    fn new(spinner: &Spinner) -> Self {
+        Self {
+            spinner: spinner.clone(),
+            pending: Vec::new(),
+            captured: Vec::new(),
         }
+    }
 
-        Ok(output)
-    })
+    fn print_complete_lines(&mut self) {
+        let mut consumed = 0;
+        while let Some(remaining) = self.pending.get(consumed..) {
+            let Some(newline) =
+                remaining.iter().position(|byte| *byte == b'\n')
+            else {
+                break;
+            };
+            let end = consumed + newline + 1;
+            let Some(line) = self.pending.get(consumed..end) else {
+                break;
+            };
+            let message = String::from_utf8_lossy(line);
+            self.spinner.println(message.trim_end_matches(['\r', '\n']));
+            consumed = end;
+        }
+        self.pending.drain(..consumed);
+    }
+
+    fn into_string(self) -> String {
+        if !self.pending.is_empty() {
+            let message = String::from_utf8_lossy(&self.pending);
+            self.spinner.println(message.trim_end_matches(['\r', '\n']));
+        }
+        String::from_utf8_lossy(&self.captured).into_owned()
+    }
+}
+
+impl Write for SpinnerWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.captured.extend_from_slice(buf);
+        self.pending.extend_from_slice(buf);
+        self.print_complete_lines();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn format_copy_failure(
@@ -173,44 +197,10 @@ fn exec_with_spinner_streaming(
     cmd: Exec,
     spinner: &Spinner,
 ) -> Result<(subprocess::ExitStatus, String, String)> {
-    let mut job = cmd
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .start()
-        .wrap_err("Failed to start command")?;
-
-    let stdout_pipe = job
-        .stdout
-        .take()
-        .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-    let stderr_pipe = job
-        .stderr
-        .take()
-        .ok_or_else(|| eyre!("Failed to capture stderr"))?;
-
-    let stdout_thread = spawn_spinner_stream_thread(
-        stdout_pipe,
-        spinner.clone(),
-        "stdout",
-    );
-    let stderr_thread = spawn_spinner_stream_thread(
-        stderr_pipe,
-        spinner.clone(),
-        "stderr",
-    );
-
-    let exit_status = job
-        .wait()
-        .wrap_err("Failed to wait for command completion")?;
-
-    let stdout = stdout_thread
-        .join()
-        .map_err(|_| eyre!("Stdout thread panicked"))??;
-    let stderr = stderr_thread
-        .join()
-        .map_err(|_| eyre!("Stderr thread panicked"))??;
-
-    Ok((exit_status, stdout, stderr))
+    let mut stdout = SpinnerWriter::new(spinner);
+    let mut stderr = SpinnerWriter::new(spinner);
+    let status = exec_with_writers(cmd, &mut stdout, &mut stderr)?;
+    Ok((status, stdout.into_string(), stderr.into_string()))
 }
 
 /// Copy a Nix closure from localhost to a remote host.
@@ -307,7 +297,7 @@ pub fn copy_closure_between_remotes(
     );
     debug!(?cmd, "nix copy between remotes");
 
-    let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
+    let (exit_status, _stdout, stderr) = exec_with_streaming(cmd)
         .wrap_err("Failed to copy closure between remote hosts")?;
 
     if !exit_status.success() {
@@ -329,7 +319,6 @@ mod tests {
         clippy::panic,
         reason = "Fine in tests"
     )]
-    use std::io::Read;
 
     use super::*;
 
@@ -418,19 +407,6 @@ mod tests {
         );
     }
 
-    /// A reader that always returns an I/O error, used to test error
-    /// propagation through `spawn_spinner_stream_thread`.
-    struct FaultyReader;
-
-    impl Read for FaultyReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "simulated pipe failure",
-            ))
-        }
-    }
-
     #[test]
     fn test_exec_with_spinner_streaming_mixed_output_no_deadlock() {
         let spinner = Spinner::hidden();
@@ -451,23 +427,6 @@ done
         let (_status, stdout, stderr) = result.unwrap();
         assert!(stdout.contains("stdout 10"));
         assert!(stderr.contains("stderr 10"));
-    }
-
-    #[test]
-    fn test_spawn_spinner_stream_thread_error_propagation() {
-        let spinner = Spinner::hidden();
-        let handle = spawn_spinner_stream_thread(
-            FaultyReader,
-            spinner,
-            "faulty-stream",
-        );
-        let result = handle
-            .join()
-            .expect("spawn_spinner_stream_thread should not panic");
-        assert!(
-            result.is_err(),
-            "spawn_spinner_stream_thread must propagate read errors"
-        );
     }
 
     #[test]
