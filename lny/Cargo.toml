@@ -12,7 +12,6 @@ anyhow.workspace = true
 clap.workspace = true
 etcetera = "0.11.0"
 ino_path.workspace = true
-ino_tap.workspace = true
 ino_tracing.workspace = true
 itertools.workspace = true
 rand = "0.10.0"

@@ -4,10 +4,11 @@ use std::str::FromStr;
 use anyhow::Context;
 use anyhow::Result as AnyResult;
 use anyhow::ensure;
-use ino_tap::TapExt;
 use itertools::Itertools;
 use serdev::Deserialize;
+use tap::Tap;
 use tracing::debug;
+use tracing::trace;
 
 use crate::template::RenderedPath;
 
@@ -78,7 +79,7 @@ impl FromStr for Blueprint {
         debug!("try parse the input as json");
         Ok(serde_json::from_str::<Self>(raw)
             .context("Blueprint contains invalid JSON")?
-            .tap_trace())
+            .tap(|blueprint| trace!(?blueprint)))
     }
 }
 

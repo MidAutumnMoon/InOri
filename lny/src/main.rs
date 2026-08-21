@@ -7,11 +7,11 @@ use crate::step::StepQueue;
 
 use anyhow::Context;
 use anyhow::Result as AnyResult;
+use tap::Tap;
 use tracing::debug;
 use tracing::info;
+use tracing::trace;
 use tracing::warn;
-
-use ino_tap::TapExt;
 
 use std::path::PathBuf;
 
@@ -41,17 +41,17 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
 
     let new_blueprint = cliopts
         .new_blueprint
-        .map(|it| Blueprint::from_file(&it))
+        .map(|path| Blueprint::from_file(&path))
         .transpose()
         .context("Failed to load the new blueprint")?
-        .tap_trace();
+        .tap(|blueprint| trace!(?blueprint));
 
     let old_blueprint = cliopts
         .old_blueprint
-        .map(|it| Blueprint::from_file(&it))
+        .map(|path| Blueprint::from_file(&path))
         .transpose()
         .context("Failed to load the old blueprint")?
-        .tap_trace();
+        .tap(|blueprint| trace!(?blueprint));
 
     if new_blueprint.is_none() && old_blueprint.is_none() {
         warn!("No new nor old blueprint given, nothing to do");
@@ -89,7 +89,7 @@ fn main() -> AnyResult<()> {
 
     let cliopt = {
         debug!("Parse cliopts");
-        CliOpts::parse().tap_trace()
+        CliOpts::parse().tap(|cliopts| trace!(?cliopts))
     };
 
     run(cliopt).context("Error occurred when running app")

@@ -7,9 +7,9 @@ use anyhow::Context;
 use anyhow::Result as AnyResult;
 use anyhow::ensure;
 use ino_path::PathExt;
-use ino_tap::TapExt;
 use minijinja::Environment;
 use serde::Deserialize;
+use tap::Tap;
 
 use tracing::debug;
 use tracing::trace;
@@ -29,7 +29,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
     environ.set_undefined_behavior(UndefinedBehavior::Strict);
     environ.set_recursion_limit(0);
 
-    Engine { environ, context }.tap_trace()
+    Engine { environ, context }.tap(|engine| trace!(?engine))
 });
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ impl Engine {
             .with_context(|| {
                 format!(r#"Failed to render template "{tmpl}""#)
             })?
-            .tap_trace())
+            .tap(|rendered| trace!(?rendered)))
     }
 }
 
@@ -96,7 +96,7 @@ impl ContextOfTemplate {
             cache,
             state,
         }
-        .tap_trace();
+        .tap(|context| trace!(?context));
         Ok(me)
     }
 }

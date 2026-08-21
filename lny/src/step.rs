@@ -13,9 +13,9 @@ use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
 use ino_path::PathExt;
-use ino_tap::TapExt;
 use itertools::Itertools;
 use rand::RngExt;
+use tap::Tap;
 use tracing::debug;
 use tracing::info;
 use tracing::trace;
@@ -39,8 +39,8 @@ impl StepQueue {
 
         let (mut new_blueprint_symlinks, mut old_blueprint_symlinks) =
             [new_blueprint.symlinks, old_blueprint.symlinks]
-                .map(|it| it.into_iter().map(Some))
-                .map(|it| it.collect_vec().tap_trace())
+                .map(|symlinks| symlinks.into_iter().map(Some))
+                .map(|iter| iter.collect_vec().tap(|symlinks| trace!(?symlinks)))
                 .into();
 
         let mut steps = VecDeque::with_capacity(

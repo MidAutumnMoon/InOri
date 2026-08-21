@@ -44,7 +44,6 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 | `ino_iter` | Iterator extension traits |
 | `ino_path` | Path utilities (executable detection, etc.) |
 | `ino_shell` | Shell-style command execution for scripting (macros in `ino_shell-macros`) |
-| `ino_tap` | `tap` extension traits with `tracing` integration |
 | `ino_tracing` | Opinionated `tracing-subscriber` initialization |
 
 ## Fitting New Code
