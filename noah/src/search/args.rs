@@ -110,6 +110,7 @@ pub enum SearchKind {
 #[cfg(test)]
 mod tests {
     use clap::{Parser, Subcommand, error::ErrorKind};
+    use std::assert_matches;
 
     use super::{SearchArgs, SearchKind, SearchMode};
 
@@ -183,7 +184,7 @@ mod tests {
 
         assert_eq!(args.limit, 5);
         assert!(args.platforms);
-        assert!(matches!(args.default_search, SearchKind::Packages));
+        assert_matches!(args.default_search, SearchKind::Packages);
         assert_eq!(args.query, ["hello"]);
         assert!(args.mode.is_none());
         Ok(())
@@ -199,7 +200,7 @@ mod tests {
             "options",
         ])?;
 
-        assert!(matches!(args.default_search, SearchKind::Options));
+        assert_matches!(args.default_search, SearchKind::Options);
         assert_eq!(args.query, ["hello"]);
         assert!(args.mode.is_none());
         Ok(())
@@ -219,7 +220,7 @@ mod tests {
         let args =
             parse_search(&["search", "options", "hello", "--platforms"])?;
         assert!(args.platforms);
-        assert!(matches!(args.mode, Some(SearchMode::Options(_))));
+        assert_matches!(args.mode, Some(SearchMode::Options(_)));
         Ok(())
     }
 

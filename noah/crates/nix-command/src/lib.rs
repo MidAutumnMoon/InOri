@@ -351,6 +351,7 @@ fn kill_and_wait(job: &Job) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use super::*;
 
     #[test]
@@ -442,7 +443,7 @@ mod tests {
                 duration,
             }),
         );
-        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert_matches!(result, Err(Error::Timeout { .. }));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
     #[cfg(unix)]
@@ -458,7 +459,7 @@ mod tests {
             Exec::cmd("sh").args(["-c", "exec sleep 5"]),
             Some(&timeout),
         );
-        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert_matches!(result, Err(Error::Timeout { .. }));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

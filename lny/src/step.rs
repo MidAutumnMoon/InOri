@@ -529,6 +529,7 @@ impl DstFact {
 #[cfg(test)]
 mod test {
 
+    use std::assert_matches;
     use super::*;
     use crate::template::RenderedPath;
 
@@ -707,9 +708,9 @@ mod test {
 
         let mut q = StepQueue::new(new_bp, old_bp).unwrap();
 
-        assert!(matches!(q.next(), Some(Step::Create { .. })));
-        assert!(matches!(q.next(), Some(Step::Create { .. })));
-        assert!(matches!(q.next(), Some(Step::Remove { .. })));
+        assert_matches!(q.next(), Some(Step::Create { .. }));
+        assert_matches!(q.next(), Some(Step::Create { .. }));
+        assert_matches!(q.next(), Some(Step::Remove { .. }));
         assert!(q.next().is_none());
     }
 
@@ -721,41 +722,21 @@ mod test {
 
         // 1. collide
         dst.touch().unwrap();
-        assert! {
-            matches!(
-                DstFact::check( src.path(), dst.path() ).unwrap(),
-                DstFact::Exist
-            )
-        };
+        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::Exist);
         remove_file(dst.path()).unwrap();
 
         // 2. symlink collide
         symlink("/yeebie", dst.path()).unwrap();
-        assert! {
-            matches!(
-                DstFact::check( src.path(), dst.path() ).unwrap(),
-                DstFact::SymlinkNotSrc
-            )
-        };
+        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::SymlinkNotSrc);
         remove_file(dst.path()).unwrap();
 
         // 3. our symlink
         symlink(src.path(), dst.path()).unwrap();
-        assert! {
-            matches!(
-                DstFact::check( src.path(), dst.path() ).unwrap(),
-                DstFact::SymlinkToSrc
-            )
-        };
+        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::SymlinkToSrc);
         remove_file(dst.path()).unwrap();
 
         // 4. coast is clear
-        assert! {
-            matches!(
-                DstFact::check( src.path(), dst.path() ).unwrap(),
-                DstFact::NotExist
-            )
-        };
+        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::NotExist);
     }
 
     #[test]

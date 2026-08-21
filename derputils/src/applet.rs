@@ -128,6 +128,7 @@ pub fn select<'a>(
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod test {
+    use std::assert_matches;
     use super::*;
 
     fn args(items: &[&str]) -> Vec<OsString> {
@@ -163,32 +164,32 @@ mod test {
     #[test]
     fn dispatcher_without_args_is_no_applet() {
         let arg0 = args(&[]);
-        assert!(matches!(
+        assert_matches!(
             select(OsStr::new("derputils"), &arg0),
             Selection::NoApplet
-        ));
+        );
     }
 
     #[test]
     fn dispatcher_help_and_version() {
         let help = args(&["--help"]);
-        assert!(matches!(
+        assert_matches!(
             select(OsStr::new("derputils"), &help),
             Selection::Help
-        ));
+        );
         let version = args(&["version"]);
-        assert!(matches!(
+        assert_matches!(
             select(OsStr::new("derputils"), &version),
             Selection::Version
-        ));
+        );
     }
 
     #[test]
     fn dispatcher_unknown_applet() {
         let arg0 = args(&["nope"]);
-        assert!(matches!(
+        assert_matches!(
             select(OsStr::new("derputils"), &arg0),
             Selection::UnknownApplet { name } if name == "nope"
-        ));
+        );
     }
 }

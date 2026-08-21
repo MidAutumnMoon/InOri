@@ -130,6 +130,7 @@ fn open_viewer(svg_path: &Path) -> rootcause::Result<()> {
 
 #[cfg(test)]
 mod test {
+    use std::assert_matches;
     use super::*;
 
     fn parse(args: &[&str]) -> Result<Source, bpaf::ParseFailure> {
@@ -138,16 +139,16 @@ mod test {
 
     #[test]
     fn each_source_parses() {
-        assert!(matches!(parse(&["--clipboard"]), Ok(Source::Clipboard)));
-        assert!(matches!(parse(&["-s"]), Ok(Source::Stdin)));
+        assert_matches!(parse(&["--clipboard"]), Ok(Source::Clipboard));
+        assert_matches!(parse(&["-s"]), Ok(Source::Stdin));
     }
 
     #[test]
     fn sources_are_exclusive() {
-        assert!(matches!(parse(&[]), Err(bpaf::ParseFailure::Stderr(_))));
-        assert!(matches!(
+        assert_matches!(parse(&[]), Err(bpaf::ParseFailure::Stderr(_)));
+        assert_matches!(
             parse(&["-c", "-s"]),
             Err(bpaf::ParseFailure::Stderr(_))
-        ));
+        );
     }
 }

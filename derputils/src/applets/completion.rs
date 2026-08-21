@@ -145,6 +145,7 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod test {
+    use std::assert_matches;
     use super::*;
 
     fn parse(args: &[&str]) -> Result<CompletionArgs, bpaf::ParseFailure> {
@@ -167,18 +168,18 @@ mod test {
 
     #[test]
     fn unknown_shell_rejected() {
-        assert!(matches!(
+        assert_matches!(
             parse(&["tcsh"]),
             Err(bpaf::ParseFailure::Stderr(_))
-        ));
+        );
     }
 
     #[test]
     fn stray_argument_after_two_positionals_rejected() {
-        assert!(matches!(
+        assert_matches!(
             parse(&["bash", "uuid7", "extra"]),
             Err(bpaf::ParseFailure::Stderr(_))
-        ));
+        );
     }
 
     #[test]
