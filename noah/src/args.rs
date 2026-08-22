@@ -174,7 +174,7 @@ impl NixBuildPassthroughArgs {
             args.push("--cores".into());
             args.push(cores.to_string());
         }
-        if let Some(ref format) = self.log_format {
+        if let Some(format) = &self.log_format {
             args.push("--log-format".into());
             args.push(format.clone());
         }
@@ -190,7 +190,7 @@ impl NixBuildPassthroughArgs {
         if self.repair {
             args.push("--repair".into());
         }
-        if let Some(ref builders) = self.builders {
+        if let Some(builders) = &self.builders {
             args.push("--builders".into());
             args.push(builders.clone());
         }

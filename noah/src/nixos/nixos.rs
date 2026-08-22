@@ -1216,8 +1216,8 @@ impl GenerationsArgs {
         reason = "errors are contextualized `rootcause::Report`s at each `?` site"
     )]
     pub fn info(&self) -> Result<()> {
-        let profile = match self.profile {
-            Some(ref path) => PathBuf::from(path),
+        let profile = match &self.profile {
+            Some(path) => PathBuf::from(path),
             None => bail!("Profile path is required"),
         };
 

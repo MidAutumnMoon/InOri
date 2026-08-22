@@ -1176,7 +1176,7 @@ fn activate_nixos_remote(
     // Prompt for password if elevation is needed
     // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
     // configured)
-    let sudo_password = if let Some(ref strategy) = config.elevation {
+    let sudo_password = if let Some(strategy) = &config.elevation {
         if matches!(
             strategy,
             ElevationStrategy::None | ElevationStrategy::Passwordless
@@ -1244,7 +1244,7 @@ fn activate_nixos_remote(
             ssh_cmd = ssh_cmd.arg(remote_cmd);
 
             // Pass password via stdin if elevation is needed
-            if let Some(ref password) = sudo_password {
+            if let Some(password) = &sudo_password {
                 ssh_cmd = ssh_cmd.stdin(
                     format!("{}\n", password.expose_secret()).into_bytes(),
                 );
@@ -1295,7 +1295,7 @@ fn activate_nixos_remote(
             profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
 
             // Pass password via stdin if elevation is needed
-            if let Some(ref password) = sudo_password {
+            if let Some(password) = &sudo_password {
                 profile_ssh_cmd = profile_ssh_cmd.stdin(
                     format!("{}\n", password.expose_secret()).into_bytes(),
                 );
@@ -1340,7 +1340,7 @@ fn activate_nixos_remote(
             boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
 
             // Pass password via stdin if elevation is needed
-            if let Some(ref password) = sudo_password {
+            if let Some(password) = &sudo_password {
                 boot_ssh_cmd = boot_ssh_cmd.stdin(
                     format!("{}\n", password.expose_secret()).into_bytes(),
                 );

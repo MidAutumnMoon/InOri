@@ -517,7 +517,7 @@ impl args::CleanMode {
 
         if !args.no_gc {
             let mut gc_args = vec!["store", "gc"];
-            if let Some(ref max) = args.max {
+            if let Some(max) = &args.max {
                 gc_args.push("--max");
                 gc_args.push(max.as_str());
             }
