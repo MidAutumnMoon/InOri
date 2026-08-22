@@ -1,3 +1,5 @@
+#![expect(clippy::exhaustive_structs, reason = "App only, not published")]
+
 pub mod img;
 pub use img::*;
 

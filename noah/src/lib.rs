@@ -1,3 +1,5 @@
+#![expect(clippy::exhaustive_structs, reason = "App only, not published")]
+
 pub mod args;
 pub mod clean;
 pub mod command;

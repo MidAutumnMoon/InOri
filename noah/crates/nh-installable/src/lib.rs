@@ -1,3 +1,8 @@
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "noah support crate, not published"
+)]
+
 use std::{
     fs,
     path::{Path, PathBuf},

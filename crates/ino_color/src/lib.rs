@@ -108,21 +108,29 @@ macro_rules! lets_colors {
         /// Named 16 foreground colors.
         pub mod fg {
             $(
-            pub struct $name;
-            impl crate::AnsiSgr for $name {
-                const ATTR: u8 = $fg;
-            }
-            impl crate::FG for $name {}
+                #[expect(
+                    clippy::exhaustive_structs,
+                    reason = "ANSI colors are fixed"
+                )]
+                pub struct $name;
+                impl crate::AnsiSgr for $name {
+                    const ATTR: u8 = $fg;
+                }
+                impl crate::FG for $name {}
             )*
         }
         /// Named 16 background colors.
         pub mod bg {
             $(
-            pub struct $name;
-            impl crate::AnsiSgr for $name {
-                const ATTR: u8 = $bg;
-            }
-            impl crate::BG for $name {}
+                #[expect(
+                    clippy::exhaustive_structs,
+                    reason = "ANSI colors are fixed"
+                )]
+                pub struct $name;
+                impl crate::AnsiSgr for $name {
+                    const ATTR: u8 = $bg;
+                }
+                impl crate::BG for $name {}
             )*
         }
     };
@@ -153,11 +161,15 @@ macro_rules! lets_styles {
         /// Commonly used style attributes.
         pub mod style {
             $(
-            pub struct $name;
-            impl crate::AnsiSgr for $name {
-                const ATTR: u8 = $attr;
-            }
-            impl crate::Style for $name {}
+                #[expect(
+                    clippy::exhaustive_structs,
+                    reason = "ANSI styles are fixed"
+                )]
+                pub struct $name;
+                impl crate::AnsiSgr for $name {
+                    const ATTR: u8 = $attr;
+                }
+                impl crate::Style for $name {}
             )*
         }
     };
