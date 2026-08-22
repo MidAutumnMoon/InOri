@@ -40,7 +40,9 @@ impl StepQueue {
         let (mut new_blueprint_symlinks, mut old_blueprint_symlinks) =
             [new_blueprint.symlinks, old_blueprint.symlinks]
                 .map(|symlinks| symlinks.into_iter().map(Some))
-                .map(|iter| iter.collect_vec().tap(|symlinks| trace!(?symlinks)))
+                .map(|iter| {
+                    iter.collect_vec().tap(|symlinks| trace!(?symlinks))
+                })
                 .into();
 
         let mut steps = VecDeque::with_capacity(
@@ -525,17 +527,16 @@ impl DstFact {
     }
 }
 
-#[expect(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
 #[cfg(test)]
 mod test {
 
-    use std::assert_matches;
     use super::*;
     use crate::template::RenderedPath;
+    use std::assert_matches;
 
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
-    use tap::Tap as _;
 
     use std::fs::remove_file;
     use std::os::unix::fs::symlink;
@@ -578,8 +579,8 @@ mod test {
         {
             let new_bp = Blueprint::empty();
             let old_bp = Blueprint::empty();
-            let q = StepQueue::new(new_bp, old_bp);
-            assert!(q.is_ok_and(|it| it.steps.is_empty()));
+            let queue = StepQueue::new(new_bp, old_bp);
+            assert!(queue.is_ok_and(|it| it.steps.is_empty()));
         }
         // create
         {
@@ -587,9 +588,9 @@ mod test {
             let new_bp = Blueprint::empty()
                 .tap_mut(|it| it.symlinks = vec![sym.clone()]);
             let old_bp = Blueprint::empty();
-            let q = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(new_bp, old_bp);
             assert! {
-                q.is_ok_and( |mut it| {
+                queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
                     && it.steps.pop_back().unwrap()
                         == Step::Create { new_symlink: sym }
@@ -602,9 +603,9 @@ mod test {
             let new_bp = Blueprint::empty();
             let old_bp = Blueprint::empty()
                 .tap_mut(|it| it.symlinks = vec![sym.clone()]);
-            let q = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(new_bp, old_bp);
             assert! {
-                q.is_ok_and( |mut it| {
+                queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
                     && it.steps.pop_back().unwrap()
                         == Step::Remove { old_symlink: sym }
@@ -620,9 +621,9 @@ mod test {
                 .tap_mut(|it| it.symlinks = vec![new_symlink.clone()]);
             let old_bp = Blueprint::empty()
                 .tap_mut(|it| it.symlinks = vec![old_symlink.clone()]);
-            let q = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(new_bp, old_bp);
             assert! {
-                q.is_ok_and( |mut it| {
+                queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
                     && it.steps.pop_back().unwrap()
                         == Step::Replace { new_symlink, old_symlink }
@@ -638,9 +639,9 @@ mod test {
                 .tap_mut(|it| it.symlinks = vec![new_symlink.clone()]);
             let old_bp = Blueprint::empty()
                 .tap_mut(|it| it.symlinks = vec![old_symlink.clone()]);
-            let q = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(new_bp, old_bp);
             assert! {
-                q.is_ok_and( |mut it| {
+                queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
                     && it.steps.pop_back().unwrap() == Step::Nothing
                 } )
@@ -672,16 +673,20 @@ mod test {
                 ];
             });
 
-            let q = StepQueue::new(new_bp, old_bp);
-            assert!(q.is_ok());
-            let q = q.unwrap();
-            assert_eq!(q.steps.len(), 4);
+            let queue = StepQueue::new(new_bp, old_bp);
+            assert!(queue.is_ok());
+            let queue = queue.unwrap();
+            assert_eq!(queue.steps.len(), 4);
             assert! {
-                q.steps.into_iter()
+                queue.steps.into_iter()
                     .all( |it|
                         it == Step::Nothing
-                        || it == Step::Create { new_symlink: new_symlink.clone() }
-                        || it == Step::Remove { old_symlink: del_symlink.clone() }
+                        || it == Step::Create {
+                            new_symlink: new_symlink.clone()
+                        }
+                        || it == Step::Remove {
+                            old_symlink: del_symlink.clone()
+                        }
                         || it == Step::Replace {
                             new_symlink: rep_symlink_new.clone(),
                             old_symlink: rep_symlink_old.clone()
@@ -706,12 +711,12 @@ mod test {
             it.symlinks = vec![make_symlink!("/c", "/dst_c")];
         });
 
-        let mut q = StepQueue::new(new_bp, old_bp).unwrap();
+        let mut queue = StepQueue::new(new_bp, old_bp).unwrap();
 
-        assert_matches!(q.next(), Some(Step::Create { .. }));
-        assert_matches!(q.next(), Some(Step::Create { .. }));
-        assert_matches!(q.next(), Some(Step::Remove { .. }));
-        assert!(q.next().is_none());
+        assert_matches!(queue.next(), Some(Step::Create { .. }));
+        assert_matches!(queue.next(), Some(Step::Create { .. }));
+        assert_matches!(queue.next(), Some(Step::Remove { .. }));
+        assert!(queue.next().is_none());
     }
 
     #[test]
@@ -722,21 +727,33 @@ mod test {
 
         // 1. collide
         dst.touch().unwrap();
-        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::Exist);
+        assert_matches!(
+            DstFact::check(src.path(), dst.path()).unwrap(),
+            DstFact::Exist
+        );
         remove_file(dst.path()).unwrap();
 
         // 2. symlink collide
         symlink("/yeebie", dst.path()).unwrap();
-        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::SymlinkNotSrc);
+        assert_matches!(
+            DstFact::check(src.path(), dst.path()).unwrap(),
+            DstFact::SymlinkNotSrc
+        );
         remove_file(dst.path()).unwrap();
 
         // 3. our symlink
         symlink(src.path(), dst.path()).unwrap();
-        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::SymlinkToSrc);
+        assert_matches!(
+            DstFact::check(src.path(), dst.path()).unwrap(),
+            DstFact::SymlinkToSrc
+        );
         remove_file(dst.path()).unwrap();
 
         // 4. coast is clear
-        assert_matches!(DstFact::check(src.path(), dst.path()).unwrap(), DstFact::NotExist);
+        assert_matches!(
+            DstFact::check(src.path(), dst.path()).unwrap(),
+            DstFact::NotExist
+        );
     }
 
     #[test]
@@ -881,13 +898,13 @@ mod test {
                 .child(make_random_str!())
                 .tap(|it| it.symlink_to_file(&src).unwrap());
 
-            let s = make_symlink!(
+            let symlink = make_symlink!(
                 src.to_str().unwrap(),
                 dst.to_str().unwrap()
             );
-            let s = Step::Remove { old_symlink: s };
+            let step = Step::Remove { old_symlink: symlink };
 
-            s.execute().unwrap();
+            step.execute().unwrap();
 
             // Dir and dir_dir shouldn't be touched because
             // they are not empty
@@ -938,12 +955,12 @@ mod test {
                 &old_src.to_str().unwrap(),
                 &dst.to_str().unwrap()
             );
-            let s = Step::Replace {
+            let step = Step::Replace {
                 new_symlink,
                 old_symlink,
             };
 
-            s.execute().unwrap();
+            step.execute().unwrap();
             assert_eq!(dst.read_link().unwrap().as_path(), new_src.path());
         }
         // 2. not ours
@@ -999,12 +1016,12 @@ mod test {
                 &old_src.to_str().unwrap(),
                 &dst.to_str().unwrap()
             );
-            let s = Step::Replace {
+            let step = Step::Replace {
                 new_symlink,
                 old_symlink,
             };
 
-            s.execute().unwrap();
+            step.execute().unwrap();
             assert!(dir.symlink_metadata().unwrap().is_dir());
         }
         // 4. parent dir doesn't exist (regression for BUGS.md #1)
@@ -1027,12 +1044,12 @@ mod test {
                 old_src.to_str().unwrap(),
                 dst.to_str().unwrap()
             );
-            let s = Step::Replace {
+            let step = Step::Replace {
                 new_symlink,
                 old_symlink,
             };
 
-            s.execute().unwrap();
+            step.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
             assert!(

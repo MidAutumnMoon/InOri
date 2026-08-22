@@ -1,3 +1,5 @@
+#![expect(clippy::use_debug, reason = "Example code")]
+
 use std::time::Duration;
 
 use anyhow::Result;

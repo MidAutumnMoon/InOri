@@ -108,14 +108,15 @@ impl Symlink {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
+#[expect(clippy::expect_used, reason = "Tests")]
+#[expect(clippy::use_debug, reason = "Tests")]
 mod test {
 
     use super::*;
     use serde::de::IntoDeserializer as _;
-    use tap::Tap as _;
 
     #[test]
-    #[expect(clippy::unwrap_used)]
     fn symlinks_are_unique() {
         let json = serde_json::json! { {
             "version": CURRENT_BLUEPRINT_VERSION,
@@ -149,7 +150,6 @@ mod test {
     }
 
     #[test]
-    #[expect(clippy::expect_used)]
     fn reject_self_referential_symlink() {
         let json = serde_json::json! {
             {

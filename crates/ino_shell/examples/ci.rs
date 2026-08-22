@@ -1,6 +1,7 @@
 #![expect(
     clippy::unwrap_used,
     clippy::or_fun_call,
+    clippy::use_debug,
     reason = "example code"
 )]
 //! This CI script for `xshell`.

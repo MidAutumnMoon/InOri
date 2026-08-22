@@ -3,6 +3,7 @@
     clippy::expect_used,
     clippy::panic,
     clippy::needless_pass_by_value,
+    clippy::use_debug,
     reason = "test code"
 )]
 
