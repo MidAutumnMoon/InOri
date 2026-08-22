@@ -1,5 +1,6 @@
 #![expect(
     clippy::exhaustive_structs,
+    clippy::exhaustive_enums,
     reason = "noah support crate, not published"
 )]
 

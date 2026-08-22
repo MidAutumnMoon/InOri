@@ -9,6 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum PathExtError {
     #[error(r#"Path "{0}" is not absolute"#)]
     NotAbsolute(PathBuf),

@@ -1,3 +1,5 @@
+#![expect(clippy::exhaustive_enums, reason = "App only, not published")]
+
 use ino_shell::{Shell, cmd};
 use nh::{
     command::{ElevationStrategy, ElevationStrategyArg, SudoConfig},

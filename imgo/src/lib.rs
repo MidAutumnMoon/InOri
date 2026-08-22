@@ -1,4 +1,8 @@
-#![expect(clippy::exhaustive_structs, reason = "App only, not published")]
+#![expect(
+    clippy::exhaustive_structs,
+    clippy::exhaustive_enums,
+    reason = "App only, not published"
+)]
 
 pub mod img;
 pub use img::*;

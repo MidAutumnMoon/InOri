@@ -1,3 +1,8 @@
+#![expect(
+    clippy::exhaustive_enums,
+    reason = "App only, not published"
+)]
+
 use std::{
     ffi::{OsStr, OsString},
     io::{self, Write},
