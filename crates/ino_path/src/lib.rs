@@ -1,5 +1,4 @@
-mod is_executable;
-pub use is_executable::IsExecutable;
+pub mod is_executable;
 use tap::Pipe as _;
 
 use std::io;

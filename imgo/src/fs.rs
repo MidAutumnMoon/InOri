@@ -14,8 +14,8 @@ use tracing::instrument;
 use walkdir::DirEntry;
 use walkdir::WalkDir;
 
-use crate::Image;
-use crate::ImageFormat;
+use crate::img::Image;
+use crate::img::ImageFormat;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BaseSeqExt {

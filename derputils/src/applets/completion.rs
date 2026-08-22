@@ -20,7 +20,7 @@ use bpaf::positional;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-use crate::APPLETS;
+use crate::applet::APPLETS;
 use crate::applet::RunFailure;
 
 pub const NAME: &str = "completion";

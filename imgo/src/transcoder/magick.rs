@@ -5,9 +5,9 @@ use std::thread::available_parallelism;
 
 use tap::Pipe as _;
 
-use crate::External;
-use crate::ImageFormat;
-use crate::Meta;
+use crate::img::ImageFormat;
+use crate::transcoder::External;
+use crate::transcoder::Meta;
 
 pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 

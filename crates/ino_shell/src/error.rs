@@ -1,3 +1,5 @@
+//! Error types returned by shell and command operations.
+
 use std::{
     env,
     ffi::OsString,
@@ -10,10 +12,14 @@ use std::{
 
 use crate::{Cmd, STREAM_SUFFIX_SIZE};
 
-/// `Result` from std, with the error type defaulting to xshell's [`Error`].
+/// `Result` from std, with the error type defaulting to [`InoError`].
 pub type Result<T, E = InoError> = std::result::Result<T, E>;
 
-/// An error returned by an `xshell` operation.
+/// An error returned by an `ino_shell` operation.
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "the `Ino` prefix distinguishes this from `std::error::Error`"
+)]
 pub struct InoError {
     kind: Box<ErrorKind>,
 }
@@ -75,10 +81,17 @@ struct CmdError {
     stderr: Vec<u8>,
 }
 
+/// The reason a command execution failed.
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum CmdErrorKind {
+    /// An I/O error occurred while spawning or waiting for the command.
     Io(io::Error),
+    /// The command's output was not valid UTF-8.
     Utf8(FromUtf8Error),
+    /// The command exited with a non-zero status.
     Status(ExitStatus),
+    /// The command did not finish within the allotted duration.
     Timeout,
 }
 

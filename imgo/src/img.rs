@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::BaseSeqExt;
-use crate::RelAbs;
+use crate::fs::BaseSeqExt;
+use crate::fs::RelAbs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(strum::EnumIter)]

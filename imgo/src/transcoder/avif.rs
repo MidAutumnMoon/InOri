@@ -1,8 +1,8 @@
 use tap::Pipe as _;
 
-use crate::External;
-use crate::ImageFormat;
-use crate::Meta;
+use crate::img::ImageFormat;
+use crate::transcoder::External;
+use crate::transcoder::Meta;
 
 use std::num::NonZeroU64;
 use std::path::Path;

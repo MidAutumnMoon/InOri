@@ -627,10 +627,8 @@ mod test {
             let new_symlink = make_symlink!("/src_x", "/dst");
             let old_symlink = make_symlink!("/src_x", "/dst");
 
-            let queue = StepQueue::new(
-                vec![new_symlink],
-                vec![old_symlink],
-            );
+            let queue =
+                StepQueue::new(vec![new_symlink], vec![old_symlink]);
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
@@ -694,7 +692,8 @@ mod test {
         ];
         let old_symlinks = vec![make_symlink!("/c", "/dst_c")];
 
-        let mut queue = StepQueue::new(new_symlinks, old_symlinks).unwrap();
+        let mut queue =
+            StepQueue::new(new_symlinks, old_symlinks).unwrap();
 
         assert_matches!(queue.next(), Some(Step::Create { .. }));
         assert_matches!(queue.next(), Some(Step::Create { .. }));

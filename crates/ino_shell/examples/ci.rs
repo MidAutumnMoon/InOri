@@ -9,7 +9,7 @@
 //! It also serves as a real-world example, yay bootstrap!
 use std::{env, process, time::Instant};
 
-use ino_shell::{Result, Shell, cmd};
+use ino_shell::{Shell, cmd, error::Result};
 
 fn main() {
     if let Err(err) = try_main() {

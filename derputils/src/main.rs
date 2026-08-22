@@ -4,10 +4,10 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 use derputils::BIN_NAME;
-use derputils::RunFailure;
-use derputils::Selection;
-use derputils::select;
-use derputils::usage;
+use derputils::applet::RunFailure;
+use derputils::applet::Selection;
+use derputils::applet::select;
+use derputils::applet::usage;
 
 fn main() -> ExitCode {
     ino_tracing::init_tracing_subscriber();

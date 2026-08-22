@@ -2,9 +2,9 @@ use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::Command;
 
-use crate::External;
-use crate::ImageFormat;
-use crate::Meta;
+use crate::img::ImageFormat;
+use crate::transcoder::External;
+use crate::transcoder::Meta;
 
 const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
 

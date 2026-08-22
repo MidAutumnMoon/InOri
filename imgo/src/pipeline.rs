@@ -27,13 +27,13 @@ use tracing::debug;
 use tracing::debug_span;
 
 use crate::BACKUP_DIR_NAME;
-use crate::BaseSeqExt;
-use crate::External;
-use crate::Image;
-use crate::ImageFormat;
-use crate::Pixel;
-use crate::RelAbs;
-use crate::collect_images;
+use crate::fs::BaseSeqExt;
+use crate::fs::RelAbs;
+use crate::fs::collect_images;
+use crate::img::Image;
+use crate::img::ImageFormat;
+use crate::transcoder::External;
+use crate::transcoder::Pixel;
 
 /// Type alias for the transcoder work closure passed through the pipeline.
 type Work<'data> =

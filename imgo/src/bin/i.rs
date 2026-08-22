@@ -1,13 +1,13 @@
 use rlimit::Resource;
 
-use imgo::SharedOpts;
-use imgo::Tomato;
-use imgo::avif::Avif;
-use imgo::jxl::Jxl;
-use imgo::magick::CleanScan;
-use imgo::magick::Denoise;
-use imgo::run_pipeline_external;
-use imgo::run_pipeline_pixel;
+use imgo::pipeline::SharedOpts;
+use imgo::pipeline::run_pipeline_external;
+use imgo::pipeline::run_pipeline_pixel;
+use imgo::transcoder::avif::Avif;
+use imgo::transcoder::jxl::Jxl;
+use imgo::transcoder::magick::CleanScan;
+use imgo::transcoder::magick::Denoise;
+use imgo::transcoder::tomato::Tomato;
 
 use tracing::{debug, warn};
 

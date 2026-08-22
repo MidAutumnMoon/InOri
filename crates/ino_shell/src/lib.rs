@@ -13,7 +13,7 @@
 //! let sh = Shell::new()?;
 //! let branch = "main";
 //! let commit_hash = cmd!(sh, "git rev-parse {branch}").read()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! **Goals:**
@@ -57,7 +57,7 @@
 //! ```no_run
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git").run_echo()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! The [`cmd!`] macro provides a convenient syntax for creating a command -- the [`Cmd`] struct.
@@ -85,7 +85,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git")
 //!     .run()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! To make the code more general, let's use command interpolation to extract the username and the
@@ -96,7 +96,7 @@
 //! let user = "matklad";
 //! let repo = "xshell";
 //! cmd!(sh, "git clone https://github.com/{user}/{repo}.git").run_echo()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! Note that the `cmd!` macro parses the command string at compile time, so you don't have to worry
@@ -107,7 +107,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let file = "contains a space";
 //! cmd!(sh, "touch {file}").run()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! Next, `cd` into the folder you have just cloned:
@@ -127,7 +127,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let test_args = ["-Zunstable-options", "--report-time"];
 //! cmd!(sh, "cargo test -- {test_args...}").run_echo()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! Note how the so-called splat syntax (`...`) is used to interpolate an iterable of arguments.
@@ -137,7 +137,7 @@
 //! ```no_run
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let manifest = sh.read_file("Cargo.toml")?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! [`Shell::read_file`] works like [`std::fs::read_to_string`], but paths are relative to the
@@ -175,7 +175,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let dry_run = if sh.var("CI").is_ok() { None } else { Some("--dry-run") };
 //! cmd!(sh, "cargo publish {dry_run...}").run_echo()?;
-//! # Ok::<(), ino_shell::InoError>(())
+//! # Ok::<(), ino_shell::error::InoError>(())
 //! ```
 //!
 //! Putting everything altogether, here's the whole script:
@@ -265,7 +265,7 @@
     reason = "vendored: upstream API docs are complete without pedantic section requirements"
 )]
 
-mod error;
+pub mod error;
 mod exec;
 
 use std::{
@@ -285,9 +285,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use crate::error::{InoError, Result};
-use error::CmdErrorKind;
+use crate::error::{CmdErrorKind, InoError, Result};
+
 #[doc(hidden)]
+#[expect(
+    clippy::pub_use,
+    reason = "proc-macro facade: `cmd!` expands to `$crate::__cmd!`"
+)]
+#[expect(
+    clippy::allow_attributes,
+    reason = "`clippy::useless_attribute` (correctness) only accepts `allow`"
+)]
+#[allow(
+    clippy::useless_attribute,
+    reason = "fires on any non-whitelisted lint attribute on a `use` item"
+)]
 pub use ino_shell_macros::__cmd;
 
 const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
@@ -302,7 +314,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// # use ino_shell::{cmd, Shell};
 /// let sh = Shell::new()?;
 /// cmd!(sh, "echo hello world").run()?;
-/// # Ok::<(), ino_shell::InoError>(())
+/// # Ok::<(), ino_shell::error::InoError>(())
 /// ```
 ///
 /// Interpolation:
@@ -323,7 +335,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let c = cmd!(sh, "echo 'spaces '{greeting}' around {greeting}'");
 /// assert_eq!(c.to_string(), r#"echo "spaces hello world around {greeting}""#);
 ///
-/// # Ok::<(), ino_shell::InoError>(())
+/// # Ok::<(), ino_shell::error::InoError>(())
 /// ```
 ///
 /// Splat interpolation:
@@ -338,7 +350,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let arg2: Option<&str> = None;
 /// let c = cmd!(sh, "echo {arg1...} {arg2...}");
 /// assert_eq!(c.to_string(), r#"echo hello"#);
-/// # Ok::<(), ino_shell::InoError>(())
+/// # Ok::<(), ino_shell::error::InoError>(())
 /// ```
 #[macro_export]
 macro_rules! cmd {
@@ -373,7 +385,7 @@ macro_rules! cmd {
 ///
 /// let process_cwd = std::env::current_dir().unwrap();
 /// assert_eq!(cwd, process_cwd.join("./target"));
-/// # Ok::<(), ino_shell::InoError>(())
+/// # Ok::<(), ino_shell::error::InoError>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Shell {
@@ -741,7 +753,7 @@ impl Shell {
 ///
 /// let branch = "main";
 /// let cmd = cmd!(sh, "git switch {branch}").run()?;
-/// # Ok::<(), ino_shell::InoError>(())
+/// # Ok::<(), ino_shell::error::InoError>(())
 /// ```
 ///
 /// Use:

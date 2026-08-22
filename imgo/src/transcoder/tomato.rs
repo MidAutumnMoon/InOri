@@ -4,10 +4,10 @@ use image::RgbaImage;
 
 use anyhow::bail;
 
-use crate::ImageFormat;
-use crate::Meta;
-use crate::Pixel;
+use crate::img::ImageFormat;
 use crate::tomato::scramble_image;
+use crate::transcoder::Meta;
+use crate::transcoder::Pixel;
 
 /// 番茄图: scramble/descramble images via a Gilbert-curve pixel
 /// permutation. Output is always PNG (lossless).
