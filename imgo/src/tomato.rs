@@ -1,14 +1,10 @@
 //! 番茄图 (TomatoScramble): pixel-permutation obfuscation based on a
-//! 2D Gilbert curve traversal.
+//! 2D Gilbert curve traversal. Lossless — output must be written to a
+//! lossless format (PNG).
 //!
-//! Ported from the reference Java implementation in `TomatoScramble.java`.
-//! Lossless — output must be written to a lossless format (PNG).
-//!
-//! All integer arithmetic is checked (`checked_*`, `rem_euclid`) and
-//! surfaces as `Err` instead of wrapping;
-//! `clippy::arithmetic_side_effects` stays enabled as a tripwire. The
-//! only silent numeric conversion left is the integral `f64 → usize`
-//! cast in `offset()`, expected locally with its justification.
+//! All arithmetic is checked and surfaces as `Err` instead of
+//! wrapping; `clippy::arithmetic_side_effects` stays enabled as a
+//! tripwire.
 
 #![warn(clippy::arithmetic_side_effects)]
 
@@ -25,12 +21,8 @@ enum Axis {
     Vertical,
 }
 
-/// An axis-aligned traversal side: `len` steps along `axis` in a fixed
-/// direction.
-///
-/// The Java reference models sides as general 2D vectors, but every
-/// side it produces is axis-aligned; length + direction + axis carries
-/// the same information without signed coordinate arithmetic.
+/// An axis-aligned traversal side: `len` steps along `axis` in a
+/// fixed direction.
 #[derive(Clone, Copy)]
 struct Side {
     axis: Axis,
@@ -108,20 +100,19 @@ impl Cursor {
     }
 }
 
-/// The golden-ratio-based offset used by the algorithm, given a pixel
-/// count and key. Matches Java's
-/// `round(((sqrt(5) - 1) / 2) * pixelCount * key)`.
+/// The offset along the curve for a given pixel count and key:
+/// `round((√5 − 1)/2 · N · key)`.
 ///
-/// `key` must be finite and non-negative; [`scramble_rgba`] validates
-/// at its boundary. Absurdly large products saturate at `usize::MAX`
-/// (defined behavior), which is harmless: encrypt and decrypt derive
-/// the same offset either way.
+/// `key` must be finite and non-negative ([`scramble_rgba`] validates).
+/// Oversized products saturate at `usize::MAX`, which is harmless:
+/// both directions derive the same offset, and the caller takes it
+/// modulo the pixel count.
 #[expect(
     clippy::as_conversions,
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "pixel_count is memory-bound far below 2^53 and key is validated non-negative, so both casts are exact"
+    reason = "pixel_count fits f64 exactly (< 2^53); key ≥ 0, and an oversized product saturates to `usize::MAX` harmlessly"
 )]
 fn offset(pixel_count: usize, key: f64) -> usize {
     let raw = ((5.0_f64.sqrt() - 1.0) / 2.0) * pixel_count as f64 * key;
@@ -228,6 +219,13 @@ fn gilbert2d_usize(
     Ok(curve)
 }
 
+/// Emits the cells of the `side_a` × `side_b` rectangle from `origin`
+/// in Gilbert-curve order, pushing each cell's linear index to
+/// `curve`.
+///
+/// The rectangle is recursively split into two or three
+/// sub-rectangles by side ratio; 1-cell-wide strips are emitted
+/// directly.
 fn generate2d(
     curve: &mut Vec<usize>,
     width: usize,
@@ -236,6 +234,8 @@ fn generate2d(
     side_b: Side,
 ) -> Option<()> {
     if side_b.len == 1 {
+        // `origin` is the strip's first cell; advancing only between
+        // pushes keeps the cursor on visited cells.
         for visited in 0..side_a.len {
             if visited > 0 {
                 origin.advance(side_a.unit())?;
@@ -303,21 +303,13 @@ fn generate2d(
 /// arithmetic overflows (the latter cannot happen for dimensions whose
 /// pixel buffer fits in memory).
 ///
-/// # Offset and Java interop
+/// # Key semantics
 ///
-/// The offset is `round((√5 − 1)/2 · N · key) = round(N · key / φ)`,
-/// then taken **modulo `pixel_count`**. The Java reference does *not*
-/// take the modulo, so it throws `ArrayIndexOutOfBoundsException` once
-/// `offset > pixel_count`, i.e. once `key > φ ≈ 1.618`. This
-/// implementation is more robust and round-trips correctly for any
-/// non-negative finite key, but for byte-identical interop with the
-/// Java tool keep `key < φ`.
-///
-/// Two keys that are congruent modulo `φ` produce the same scramble
-/// (e.g. `key = 2.0` ≡ `key ≈ 0.382` on the same image). In particular,
-/// `key = n · φ` (for any positive integer `n`) yields `offset = N`,
-/// which modulo `N` is `0` — i.e. the **identity**. A user who picks
-/// `key = 1.618` gets no scrambling with no indication.
+/// The offset along the curve is `round((√5 − 1)/2 · N · key) mod N`.
+/// Keys congruent modulo `φ` produce the same scramble; in particular
+/// `key = n · φ` (any positive integer `n`) yields offset `0` — the
+/// identity. A user who picks `key = 1.618` gets no scrambling with
+/// no indication.
 pub fn scramble_rgba(
     pixels: &mut [u8],
     width: u32,
@@ -399,8 +391,6 @@ pub fn scramble_rgba(
                 .get(next_curve)
                 .copied()
                 .context("curve shorter than pixel count")?;
-            // Read next into a temp before writing cur: `cur` and `next`
-            // never coincide within a cycle, but Rust can't prove it.
             let next = pixel_at(pixels, next_px)?;
             set_pixel(pixels, cur_px, next)?;
             cur_curve = next_curve;
@@ -454,7 +444,6 @@ mod tests {
                 (width as usize) * (height as usize),
                 "{width}x{height}"
             );
-            // Use a HashSet to verify permutation without indexing.
             let mut seen = std::collections::HashSet::new();
             for &idx in &points {
                 assert!(
@@ -472,8 +461,8 @@ mod tests {
     }
 
     #[test]
-    fn offset_matches_java_formula() {
-        // sqrt(5) ≈ 2.2360679; (sqrt(5)-1)/2 ≈ 0.6180339887
+    fn offset_follows_golden_ratio() {
+        // (√5 − 1)/2 ≈ 0.618, so N = 1000 with key 1.0 rounds to 618.
         let n = 1000_usize;
         assert_eq!(offset(n, 1.0), 618);
         assert_eq!(offset(n, 0.0), 0);
@@ -523,6 +512,7 @@ mod tests {
             for &key in &keys {
                 let mut buf = original.clone();
                 scramble_rgba(&mut buf, width, height, key, true).unwrap();
+                // a 1×1 image is a fixed point of any permutation
                 if key != 0.0 && count > 1 {
                     assert_ne!(
                         buf, original,
