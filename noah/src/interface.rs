@@ -1,5 +1,7 @@
 use anstyle::Style;
-use clap::{Parser, Subcommand, builder::Styles};
+use clap::Parser;
+use clap::Subcommand;
+use clap::builder::Styles;
 use nh::command::ElevationStrategy;
 
 use crate::Result;
@@ -81,7 +83,10 @@ impl NHCommand {
         env: &RuntimeConfig,
         elevation: ElevationStrategy,
     ) -> Result<()> {
-        use nh::nixos::nixos::ActivationAction::{Boot, Switch, Test};
+        use nh::nixos::ActivationAction::Boot;
+        use nh::nixos::ActivationAction::Switch;
+        use nh::nixos::ActivationAction::Test;
+
         match self {
             Self::Switch(args) => args.build_and_activate(
                 Switch,
