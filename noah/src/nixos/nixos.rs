@@ -151,7 +151,10 @@ impl RebuildActivateArgs {
         Ok(())
     }
 
-    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "activation needs the full rebuild context"
+    )]
     fn activate_rebuilt_config(
         &self,
         action: ActivationAction,
@@ -328,7 +331,10 @@ impl RebuildActivateArgs {
 
     /// Runs the test phase. For remote switches this runs the full `switch`
     /// action instead of `test`.
-    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "activation needs the full rebuild context"
+    )]
     fn activate_test_phase(
         &self,
         resolved_profile: &Path,
@@ -394,7 +400,10 @@ impl RebuildActivateArgs {
     }
 
     /// Sets the system profile and installs the bootloader entry.
-    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "activation needs the full rebuild context"
+    )]
     fn activate_boot_phase(
         &self,
         out_path: &Path,
@@ -521,7 +530,7 @@ impl RebuildArgs {
         elevation: &ElevationStrategy,
         ssh_config: &SshConfig,
     ) -> Result<bool> {
-        let Some(target_host) = &self.target_host else {
+        let Some(target_host) = self.target_host.as_ref() else {
             return Ok(false);
         };
         if matches!(elevation, ElevationStrategy::None) {
@@ -954,9 +963,12 @@ impl RollbackArgs {
                         .context("NixOS: Failed to restore previous system profile after failed activation")?;
                 }
 
-                return Err(report!("Activation (switch) failed: {}", err)
-                    .context("Failed to activate configuration")
-                    .into());
+                return Err(report!(
+                    "Activation (switch) failed: {}",
+                    err
+                )
+                .context("Failed to activate configuration")
+                .into());
             }
         }
 
@@ -1128,13 +1140,17 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
         let entry = match entry {
             Ok(dir_entry) => dir_entry,
             Err(err) => {
-                warn!("Failed to read entry in profile directory: {}", err);
+                warn!(
+                    "Failed to read entry in profile directory: {}",
+                    err
+                );
                 continue;
             }
         };
 
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|os_str| os_str.to_str())
+        if let Some(name) =
+            path.file_name().and_then(|os_str| os_str.to_str())
             && name.starts_with("system-")
             && name.ends_with("-link")
             && let Some(gen_info) = generations::describe(&path, None)

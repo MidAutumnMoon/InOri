@@ -135,3 +135,6 @@ impl_trait_in_params = "allow"
 # Too annoying for normal Rust apps, seletively enable for specific module,
 # see tomato.rs for an example.
 arithmetic_side_effects = "allow"
+
+# Prefer match ergonomics or explicit ownership like as_ref().
+pattern_type_mismatch = "allow"
