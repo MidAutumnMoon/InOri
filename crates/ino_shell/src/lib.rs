@@ -675,7 +675,7 @@ impl Shell {
         self.create_dir(&base)?;
 
         // TODO: once std gets random numbers, start with random u128 here.
-        let mut try_count = 0u32;
+        let mut try_count = 0_u32;
         loop {
             let cnt = CNT.fetch_add(1, Ordering::Relaxed);
             let path = base.join(format!("xshell-tmp-dir-{cnt}"));

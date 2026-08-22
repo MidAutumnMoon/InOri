@@ -109,7 +109,7 @@ pub fn exec(
         }
         scope.spawn(|| {
             out_error = (|| {
-                let mut buffer = [0u8; 4096];
+                let mut buffer = [0_u8; 4096];
                 loop {
                     let n = stdout.read(&mut buffer)?;
                     if n == 0 {
@@ -127,7 +127,7 @@ pub fn exec(
         });
         scope.spawn(|| {
             err_error = (|| {
-                let mut buffer = [0u8; 4096];
+                let mut buffer = [0_u8; 4096];
                 loop {
                     let n = stderr.read(&mut buffer)?;
                     if n == 0 {

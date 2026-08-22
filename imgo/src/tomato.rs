@@ -220,7 +220,7 @@ pub fn scramble_rgba(
 
     for start_curve in 0..num_cycles {
         let start_slot4 = positions[start_curve] as usize * 4;
-        let mut leader = [0u8; 4];
+        let mut leader = [0_u8; 4];
         leader.copy_from_slice(&pixels[start_slot4..start_slot4 + 4]);
 
         let mut cur_curve = start_curve;
@@ -239,7 +239,7 @@ pub fn scramble_rgba(
             let next_slot4 = positions[next_curve] as usize * 4;
             // Read next into a temp before writing cur: `cur` and `next`
             // never coincide within a cycle, but Rust can't prove it.
-            let mut next_px = [0u8; 4];
+            let mut next_px = [0_u8; 4];
             next_px.copy_from_slice(&pixels[next_slot4..next_slot4 + 4]);
             pixels[cur_slot4..cur_slot4 + 4].copy_from_slice(&next_px);
             cur_curve = next_curve;
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn offset_matches_java_formula() {
         // sqrt(5) ≈ 2.2360679; (sqrt(5)-1)/2 ≈ 0.6180339887
-        let n = 1000usize;
+        let n = 1000_usize;
         assert_eq!(offset(n, 1.0), 618);
         assert_eq!(offset(n, 0.0), 0);
         // Negative and NaN clamp to 0.
@@ -301,7 +301,7 @@ mod tests {
         use image::Rgba;
 
         let sizes = [
-            (1u32, 1u32),
+            (1_u32, 1_u32),
             (2, 2),
             (3, 5),
             (5, 3),
