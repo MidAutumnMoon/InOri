@@ -316,8 +316,8 @@ pub struct Command<'env> {
 }
 
 impl<'env> Command<'env> {
-    pub fn new<S: AsRef<OsStr>>(
-        command: S,
+    pub fn new(
+        command: impl AsRef<OsStr>,
         runtime_env: &'env RuntimeEnv,
         sudo_config: &'env SudoConfig,
     ) -> Self {
@@ -358,7 +358,7 @@ impl<'env> Command<'env> {
 
     /// Add a single argument to the command.
     #[must_use]
-    pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
+    pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
         self.args.push(arg.as_ref().to_os_string());
         self
     }
@@ -378,7 +378,7 @@ impl<'env> Command<'env> {
 
     /// Set a message to display before running the command.
     #[must_use]
-    pub fn message<S: AsRef<str>>(mut self, message: S) -> Self {
+    pub fn message(mut self, message: impl AsRef<str>) -> Self {
         self.message = Some(message.as_ref().to_string());
         self
     }
@@ -626,13 +626,13 @@ impl Build {
     }
 
     #[must_use]
-    pub fn message<S: AsRef<str>>(mut self, message: S) -> Self {
+    pub fn message(mut self, message: impl AsRef<str>) -> Self {
         self.message = Some(message.as_ref().to_string());
         self
     }
 
     #[must_use]
-    pub fn extra_arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
+    pub fn extra_arg(mut self, arg: impl AsRef<OsStr>) -> Self {
         self.extra_args.push(arg.as_ref().to_os_string());
         self
     }

@@ -541,7 +541,10 @@ impl args::CleanMode {
 }
 
 #[instrument(ret, level = "debug")]
-fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
+fn profiles_in_dir<P>(dir: P) -> Vec<PathBuf>
+where
+    P: AsRef<Path> + fmt::Debug,
+{
     let mut res = Vec::new();
     let dir = dir.as_ref();
 

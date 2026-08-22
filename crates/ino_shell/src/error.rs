@@ -308,6 +308,10 @@ impl InoError {
 
 #[test]
 fn error_send_sync() {
-    fn f<T: Send + Sync>() {}
+    fn f<T>()
+    where
+        T: Send + Sync,
+    {
+    }
     f::<InoError>();
 }

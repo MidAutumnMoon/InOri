@@ -74,7 +74,7 @@ impl NixCommand {
     }
 
     #[must_use]
-    pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
+    pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
         self.args.push(arg.as_ref().to_os_string());
         self
     }
@@ -104,10 +104,10 @@ impl NixCommand {
     }
 
     #[must_use]
-    pub fn env<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    pub fn env(
         mut self,
-        key: K,
-        value: V,
+        key: impl AsRef<OsStr>,
+        value: impl AsRef<OsStr>,
     ) -> Self {
         self.env.push((
             key.as_ref().to_os_string(),

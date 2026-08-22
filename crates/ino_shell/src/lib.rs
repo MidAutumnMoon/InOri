@@ -649,7 +649,7 @@ impl Shell {
     ///
     /// All intermediate directories will also be created as needed.
     #[doc(alias("mkdir_p", "mkdir"))]
-    pub fn create_dir<P: AsRef<Path>>(&self, path: P) -> Result<PathBuf> {
+    pub fn create_dir(&self, path: impl AsRef<Path>) -> Result<PathBuf> {
         fn inner(sh: &Shell, path: &Path) -> Result<PathBuf> {
             let path = sh.path(path);
             match fs::create_dir_all(&path) {
@@ -714,7 +714,7 @@ impl Shell {
     /// given operation and handle an error if a path doesn't exist, instead of trying to check
     /// beforehand.
     #[doc(alias("stat"))]
-    pub fn path_exists<P: AsRef<Path>>(&self, path: P) -> bool {
+    pub fn path_exists(&self, path: impl AsRef<Path>) -> bool {
         self.path(path.as_ref()).exists()
     }
 

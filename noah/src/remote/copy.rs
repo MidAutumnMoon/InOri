@@ -80,9 +80,9 @@ fn store_uri(host: &RemoteHost) -> String {
     host.nix_store_uri()
 }
 
-fn build_nix_copy_command<P: Into<OsString>>(
+fn build_nix_copy_command(
     direction: CopyDirection<'_>,
-    path: P,
+    path: impl Into<OsString>,
     ssh_config: &SshConfig,
 ) -> Exec {
     NixCommand::new(CommandKind::Copy)
