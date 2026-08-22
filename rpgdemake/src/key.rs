@@ -1,12 +1,13 @@
 use anyhow::Context as _;
 use anyhow::ensure;
-
 use tracing::debug;
+
+use crate::lore::ENCRYPTED_PART_LEN;
 
 /// Length of encryption key.
 /// Since the encryption method is a naive XOR,
 /// the key length should equal to the length of the encrypted part.
-pub const KEY_LEN: usize = crate::lore::ENCRYPTED_PART_LEN;
+pub const KEY_LEN: usize = ENCRYPTED_PART_LEN;
 
 /// The per-project key used to encrypt assets.
 #[derive(Debug, Clone)]

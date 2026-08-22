@@ -142,6 +142,8 @@ impl<'de> Deserialize<'de> for RenderedPath {
     where
         D: serde::Deserializer<'de>,
     {
+        use serde::de::Error as DeError;
+
         debug!("Deserialize into RenderedPath");
 
         #[inline]
@@ -156,7 +158,7 @@ impl<'de> Deserialize<'de> for RenderedPath {
             Ok(path)
         }
         let raw = String::deserialize(deserializer)?;
-        let inner = ren(&raw).map_err(serde::de::Error::custom)?;
+        let inner = ren(&raw).map_err(DeError::custom)?;
         trace!(?inner);
         Ok(Self { inner })
     }

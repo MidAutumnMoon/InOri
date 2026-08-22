@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
-use crate::args::{DiffType, NixBuildPassthrough};
-use crate::remote::Host;
 use clap::Args;
 use nh_installable::InstallableArgs;
 
+use crate::args::DiffType;
+use crate::args::NixBuildPassthrough;
 use crate::nixos::generations::Field;
+use crate::remote::Host;
+use crate::update::Update;
 
 #[derive(Debug, Args)]
 pub struct Rebuild {
@@ -13,7 +15,7 @@ pub struct Rebuild {
     pub common: CommonRebuild,
 
     #[command(flatten)]
-    pub update_args: crate::update::Update,
+    pub update_args: Update,
 
     /// When using a flake installable, select this hostname from
     /// nixosConfigurations.

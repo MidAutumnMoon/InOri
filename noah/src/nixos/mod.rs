@@ -30,9 +30,19 @@ use crate::nixos::args::Rebuild;
 use crate::nixos::args::RebuildActivate;
 use crate::nixos::args::Repl;
 use crate::nixos::args::Rollback;
+use crate::remote::ActivateRemoteConfig;
+use crate::remote::ActivationType;
 use crate::remote::BuildConfig;
 use crate::remote::Host;
+use crate::remote::Platform;
 use crate::remote::SshConfig;
+use crate::remote::activate_remote;
+use crate::remote::build_remote;
+use crate::remote::copy::copy_to_remote;
+use crate::remote::init_ssh_control;
+use crate::remote::open_ssh_control_master;
+use crate::remote::probe_remote_uid;
+use crate::remote::validate_remote_closure;
 use crate::runtime::RuntimeEnv;
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
@@ -96,27 +106,20 @@ impl RebuildActivate {
         let _ssh_guard = if self.rebuild.build_host.is_some()
             || self.rebuild.target_host.is_some()
         {
-            let guard = crate::remote::init_ssh_control(ssh_config)?;
+            let guard = init_ssh_control(ssh_config)?;
 
             // Pre-establish ControlMaster connections so that delegated SSH
             // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
             // authenticated socket rather than opening a fresh connection where
             // SSH option ordering may differ.
             if let Some(build_host) = &self.rebuild.build_host {
-                crate::remote::open_ssh_control_master(
-                    build_host, ssh_config,
-                )
-                .context(
+                open_ssh_control_master(build_host, ssh_config).context(
                     "Failed to establish SSH connection to build host",
                 )?;
             }
 
             if let Some(target_host) = &self.rebuild.target_host {
-                crate::remote::open_ssh_control_master(
-                    target_host,
-                    ssh_config,
-                )
-                .context(
+                open_ssh_control_master(target_host, ssh_config).context(
                     "Failed to establish SSH connection to target host",
                 )?;
             }
@@ -192,7 +195,7 @@ impl RebuildActivate {
         if let Some(target_host) = &self.rebuild.target_host
             && out_path.exists()
         {
-            crate::remote::copy::copy_to_remote(
+            copy_to_remote(
                 target_host,
                 target_profile,
                 self.rebuild.common.passthrough.use_substitutes,
@@ -358,12 +361,8 @@ impl RebuildActivate {
     ) -> Result<()> {
         if let Some(target_host) = &self.rebuild.target_host {
             let activation_type = match action {
-                ActivationAction::Test => {
-                    crate::remote::ActivationType::Test
-                }
-                ActivationAction::Switch => {
-                    crate::remote::ActivationType::Switch
-                }
+                ActivationAction::Test => ActivationType::Test,
+                ActivationAction::Switch => ActivationType::Switch,
                 #[expect(
                     clippy::unreachable,
                     reason = "the boot action has no test phase"
@@ -373,11 +372,11 @@ impl RebuildActivate {
                 }
             };
 
-            crate::remote::activate_remote(
+            activate_remote(
                 target_host,
                 resolved_profile,
-                &crate::remote::ActivateRemoteConfig {
-                    platform: crate::remote::Platform::NixOS,
+                &ActivateRemoteConfig {
+                    platform: Platform::NixOS,
                     activation_type,
                     install_bootloader: false,
                     show_logs: self.show_activation_logs,
@@ -426,12 +425,12 @@ impl RebuildActivate {
         ssh_config: &SshConfig,
     ) -> Result<()> {
         if let Some(target_host) = &self.rebuild.target_host {
-            crate::remote::activate_remote(
+            activate_remote(
                 target_host,
                 resolved_profile,
-                &crate::remote::ActivateRemoteConfig {
-                    platform: crate::remote::Platform::NixOS,
-                    activation_type: crate::remote::ActivationType::Boot,
+                &ActivateRemoteConfig {
+                    platform: Platform::NixOS,
+                    activation_type: ActivationType::Boot,
                     install_bootloader: self.rebuild.install_bootloader,
                     show_logs: false,
                     elevation: elevate.then_some(elevation),
@@ -544,8 +543,7 @@ impl Rebuild {
         if matches!(elevation, ElevationStrategy::None) {
             return Ok(false);
         }
-        let uid =
-            crate::remote::probe_remote_uid(target_host, ssh_config)?;
+        let uid = probe_remote_uid(target_host, ssh_config)?;
         Ok(uid != 0)
     }
 
@@ -671,7 +669,7 @@ impl Rebuild {
                     .collect(),
             };
 
-            let actual_store_path = crate::remote::build_remote(
+            let actual_store_path = build_remote(
                 &toplevel,
                 &config,
                 Some(out_path),
@@ -1043,7 +1041,7 @@ fn validate_system_closure_remote(
     });
 
     // Delegate to the generic remote validation function
-    crate::remote::validate_remote_closure(
+    validate_remote_closure(
         target_host,
         system_path,
         ESSENTIAL_FILES,
@@ -1084,12 +1082,14 @@ fn has_elevation_status(
     bypass_root_check: bool,
     elevation: &command::ElevationStrategy,
 ) -> Result<bool> {
+    use nix::unistd::Uid;
+
     // If elevation strategy is None, never elevate
     if matches!(elevation, command::ElevationStrategy::None) {
         return Ok(false);
     }
 
-    let is_root = nix::unistd::Uid::effective().is_root();
+    let is_root = Uid::effective().is_root();
 
     if is_root && !bypass_root_check {
         bail!(

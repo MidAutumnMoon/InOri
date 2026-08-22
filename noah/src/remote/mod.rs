@@ -1156,7 +1156,7 @@ pub fn activate_remote(
     config: &ActivateRemoteConfig,
     runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
-    sudo_config: &crate::command::SudoConfig,
+    sudo_config: &SudoConfig,
 ) -> Result<()> {
     match config.platform {
         Platform::NixOS => activate_nixos_remote(
@@ -1189,7 +1189,7 @@ fn activate_nixos_remote(
     config: &ActivateRemoteConfig,
     runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
-    sudo_config: &crate::command::SudoConfig,
+    sudo_config: &SudoConfig,
 ) -> Result<()> {
     let ssh_opts = get_ssh_opts(ssh_config);
 

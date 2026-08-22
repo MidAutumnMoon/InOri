@@ -1,31 +1,43 @@
 pub mod args;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt,
-    path::{Path, PathBuf},
-    sync::LazyLock,
-    time::SystemTime,
-};
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::fmt;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::LazyLock;
+use std::time::SystemTime;
 
-use crate::{
-    command::{Command, ElevationStrategy, SudoConfig},
-    runtime::RuntimeEnv,
-};
 use inquire::Confirm;
-use nix::{
-    errno::Errno,
-    fcntl::AtFlags,
-    unistd::{AccessFlags, faccessat},
-};
+use nix::errno::Errno;
+use nix::fcntl;
+use nix::fcntl::AtFlags;
+use nix::sys::stat;
+use nix::unistd::AccessFlags;
+use nix::unistd::Uid;
+use nix::unistd::User;
+use nix::unistd::faccessat;
 use regex::Regex;
-use rootcause::{
-    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _,
-    report,
-};
-use tracing::{Level, debug, info, instrument, span, warn};
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
+use tracing::Level;
+use tracing::debug;
+use tracing::info;
+use tracing::instrument;
+use tracing::span;
+use tracing::warn;
 use walkdir::WalkDir;
-use yansi::{Color, Paint};
+use yansi::Color;
+use yansi::Paint;
+
+use crate::command::Command;
+use crate::command::ElevationStrategy;
+use crate::command::SudoConfig;
+use crate::runtime::RuntimeEnv;
+use crate::util::self_elevate;
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -120,7 +132,7 @@ impl args::CleanMode {
         let mut is_profile_clean = false;
 
         // What profiles to clean depending on the call mode
-        let uid = nix::unistd::Uid::effective();
+        let uid = Uid::effective();
         let args = match self {
             Self::Profile(args) => {
                 profiles.push(args.profile.clone());
@@ -129,11 +141,7 @@ impl args::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    crate::util::self_elevate(
-                        elevate,
-                        runtime_env,
-                        sudo_config,
-                    );
+                    self_elevate(elevate, runtime_env, sudo_config);
                 }
 
                 let paths_to_check = [
@@ -174,9 +182,7 @@ impl args::CleanMode {
                 );
 
                 // Check root user (uid 0)
-                if let Some(user) = nix::unistd::User::from_uid(
-                    nix::unistd::Uid::from_raw(0),
-                )? {
+                if let Some(user) = User::from_uid(Uid::from_raw(0))? {
                     debug!(?user, "Adding XDG profiles for root user");
                     let user_profiles_path =
                         user.dir.join(".local/state/nix/profiles");
@@ -188,9 +194,9 @@ impl args::CleanMode {
 
                 // Check regular users in the expected range
                 for candidate_uid in uid_min..uid_max {
-                    if let Some(user) = nix::unistd::User::from_uid(
-                        nix::unistd::Uid::from_raw(candidate_uid),
-                    )? {
+                    if let Some(user) =
+                        User::from_uid(Uid::from_raw(candidate_uid))?
+                    {
                         debug!(?user, "Adding XDG profiles for user");
                         let user_profiles_path =
                             user.dir.join(".local/state/nix/profiles");
@@ -207,9 +213,9 @@ impl args::CleanMode {
                 if uid.is_root() {
                     bail!("nh clean user: don't run me as root!");
                 }
-                let user = nix::unistd::User::from_uid(uid)?.ok_or_else(
-                    || report!("User not found for uid {}", uid),
-                )?;
+                let user = User::from_uid(uid)?.ok_or_else(|| {
+                    report!("User not found for uid {}", uid)
+                })?;
                 let home_dir = user.dir;
 
                 let paths_to_check = [
@@ -252,10 +258,10 @@ impl args::CleanMode {
         let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
         if !is_profile_clean && !args.no_gcroots {
-            let dirfd = nix::fcntl::open(
+            let dirfd = fcntl::open(
                 ".",
-                nix::fcntl::OFlag::O_DIRECTORY,
-                nix::sys::stat::Mode::empty(),
+                fcntl::OFlag::O_DIRECTORY,
+                stat::Mode::empty(),
             )?;
 
             for entry in WalkDir::new("/nix/var/nix/gcroots")

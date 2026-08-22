@@ -2,7 +2,15 @@ use anstyle::Style;
 use clap::Parser;
 use clap::Subcommand;
 use clap::builder::Styles;
+use nh::clean::args::CleanProxy;
 use nh::command::ElevationStrategy;
+use nh::command::ElevationStrategyArg;
+use nh::nixos::args::Generations;
+use nh::nixos::args::Rebuild;
+use nh::nixos::args::RebuildActivate;
+use nh::nixos::args::Repl;
+use nh::nixos::args::Rollback;
+use nh::search::args::Search;
 
 use crate::Result;
 use crate::RuntimeConfig;
@@ -47,7 +55,7 @@ pub struct Main {
     /// 'passwordless' (use elevation without password prompt for remote hosts
     /// with NOPASSWD configured), or 'auto' (automatically detect available
     /// elevation programs in order: doas, sudo, run0, pkexec).
-    pub elevation_strategy: Option<nh::command::ElevationStrategyArg>,
+    pub elevation_strategy: Option<ElevationStrategyArg>,
 
     #[command(subcommand)]
     pub command: NHCommand,
@@ -57,23 +65,23 @@ pub struct Main {
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
     /// Build and activate the new configuration, and make it the boot default.
-    Switch(nh::nixos::args::RebuildActivate),
+    Switch(RebuildActivate),
     /// Build the new configuration and make it the boot default.
-    Boot(nh::nixos::args::RebuildActivate),
+    Boot(RebuildActivate),
     /// Build and activate the new configuration.
-    Test(nh::nixos::args::RebuildActivate),
+    Test(RebuildActivate),
     /// Build the new configuration.
-    Build(nh::nixos::args::Rebuild),
+    Build(Rebuild),
     /// Load system in a repl.
-    Repl(nh::nixos::args::Repl),
+    Repl(Repl),
     /// List available generations from profile path.
-    Info(nh::nixos::args::Generations),
+    Info(Generations),
     /// Rollback to a previous generation.
-    Rollback(nh::nixos::args::Rollback),
+    Rollback(Rollback),
     /// Searches packages or NixOS options via search.nixos.org.
-    Search(nh::search::args::Search),
+    Search(Search),
     /// Enhanced nix cleanup.
-    Clean(nh::clean::args::CleanProxy),
+    Clean(CleanProxy),
 }
 
 impl NHCommand {

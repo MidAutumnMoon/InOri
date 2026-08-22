@@ -1,4 +1,6 @@
-use clap::{Args, Subcommand, ValueEnum};
+use clap::Args;
+use clap::Subcommand;
+use clap::ValueEnum;
 
 const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
@@ -110,7 +112,10 @@ pub enum SearchKind {
 #[cfg(test)]
 #[expect(clippy::panic_in_result_fn, reason = "Tests")]
 mod tests {
-    use clap::{Parser, Subcommand, error::ErrorKind};
+    use clap::Parser;
+    use clap::Subcommand;
+    use clap::error::ErrorKind;
+    use clap::error::Result as ClapResult;
     use std::assert_matches;
 
     use super::{Search, SearchKind, SearchMode};
@@ -126,7 +131,7 @@ mod tests {
         Search(Search),
     }
 
-    fn parse_search(args: &[&str]) -> clap::error::Result<Search> {
+    fn parse_search(args: &[&str]) -> ClapResult<Search> {
         let cli = TestCli::try_parse_from(
             std::iter::once("nh").chain(args.iter().copied()),
         )?;
@@ -136,8 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn global_flags_work_on_both_sides_of_subcommand()
-    -> clap::error::Result<()> {
+    fn global_flags_work_on_both_sides_of_subcommand() -> ClapResult<()> {
         let args = parse_search(&[
             "search",
             "--limit",
@@ -172,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn shorthand_flags_parse_after_query() -> clap::error::Result<()> {
+    fn shorthand_flags_parse_after_query() -> ClapResult<()> {
         let args = parse_search(&[
             "search",
             "hello",
@@ -192,8 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn default_search_parses_after_shorthand_query()
-    -> clap::error::Result<()> {
+    fn default_search_parses_after_shorthand_query() -> ClapResult<()> {
         let args = parse_search(&[
             "search",
             "hello",
@@ -208,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_flags_have_shared_defaults() -> clap::error::Result<()> {
+    fn backend_flags_have_shared_defaults() -> ClapResult<()> {
         let args = parse_search(&["search", "options", "hello"])?;
         assert_eq!(args.backend_version, None);
         assert_eq!(args.backend_fallbacks, 1);
@@ -217,7 +220,7 @@ mod tests {
 
     #[test]
     fn options_preserve_platform_flag_for_runtime_validation()
-    -> clap::error::Result<()> {
+    -> ClapResult<()> {
         let args =
             parse_search(&["search", "options", "hello", "--platforms"])?;
         assert!(args.platforms);
@@ -226,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn subcommand_requires_query() -> clap::error::Result<()> {
+    fn subcommand_requires_query() -> ClapResult<()> {
         match parse_search(&["search", "packages"]) {
             Ok(args) => Err(clap::Error::raw(
                 ErrorKind::InvalidValue,

@@ -1,16 +1,18 @@
-use std::{
-    os::unix::process::CommandExt as _,
-    process::{Command as StdCommand, Stdio},
-};
+use std::os::unix::process::CommandExt as _;
+use std::process::Command as StdCommand;
+use std::process::Stdio;
 
-use rootcause::{Result, prelude::ResultExt as _, report};
+use nix::unistd::gethostname;
+use rootcause::Result;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
 use tracing::debug;
 
-use crate::{
-    command::{Command, ElevationStrategy, SudoConfig},
-    remote::SshConfig,
-    runtime::RuntimeEnv,
-};
+use crate::command::Command;
+use crate::command::ElevationStrategy;
+use crate::command::SudoConfig;
+use crate::remote::SshConfig;
+use crate::runtime::RuntimeEnv;
 
 /// Prompts the user for ssh key login if needed.
 ///
@@ -74,7 +76,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
         return Ok(hostname);
     }
 
-    nix::unistd::gethostname()
+    gethostname()
         .context("Failed to get hostname, and no hostname supplied")?
         .into_string()
         .map_err(|host| {
