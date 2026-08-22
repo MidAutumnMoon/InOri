@@ -4,55 +4,107 @@
 //! Ported from the reference Java implementation in `TomatoScramble.java`.
 //! Lossless — output must be written to a lossless format (PNG).
 //!
-//! The integer casts below mirror the Java reference's `int`-based
-//! arithmetic (`width as i32`, `i32 as u32`, `usize as f64`). These are
-//! inherent to the algorithm's geometry and silenced module-wide. All
-//! other clippy lints (indexing, too-many-args) are kept active and
-//! handled at the source.
+//! All integer arithmetic is checked (`checked_*`, `rem_euclid`) and
+//! surfaces as `Err` instead of wrapping;
+//! `clippy::arithmetic_side_effects` stays enabled as a tripwire. The
+//! only silent numeric conversion left is the integral `f64 → usize`
+//! cast in `offset()`, expected locally with its justification.
 
-#![expect(clippy::cast_possible_wrap)]
-#![expect(clippy::cast_possible_truncation)]
-#![expect(clippy::cast_sign_loss)]
-#![expect(clippy::cast_precision_loss)]
+#![warn(clippy::arithmetic_side_effects)]
 
+use anyhow::Context as _;
+use anyhow::ensure;
 use image::RgbaImage;
 
-/// A 2D integer point/vector, used by the Gilbert curve generator.
-#[derive(Clone, Copy, Debug)]
-struct Pt(i32, i32);
+/// One axis of the traversal grid.
+#[derive(Clone, Copy)]
+enum Axis {
+    /// Horizontal (`x`) axis.
+    Horizontal,
+    /// Vertical (`y`) axis.
+    Vertical,
+}
 
-impl Pt {
-    const fn signum(self) -> Self {
-        Self(self.0.signum(), self.1.signum())
+/// An axis-aligned traversal side: `len` steps along `axis` in a fixed
+/// direction.
+///
+/// The Java reference models sides as general 2D vectors, but every
+/// side it produces is axis-aligned; length + direction + axis carries
+/// the same information without signed coordinate arithmetic.
+#[derive(Clone, Copy)]
+struct Side {
+    axis: Axis,
+    /// Number of cells along the side; ≥ 1.
+    len: usize,
+    /// Whether travel along `axis` goes toward increasing coordinates.
+    positive: bool,
+}
+
+impl Side {
+    /// A one-cell step in this side's direction.
+    fn unit(self) -> Self {
+        Self { len: 1, ..self }
     }
 
-    const fn abs_sum(self) -> i32 {
-        (self.0 + self.1).abs()
+    /// The half-length side in the same direction (rounding down).
+    fn half(self) -> Self {
+        Self {
+            len: self.len.div_euclid(2),
+            ..self
+        }
     }
 
-    const fn div_euclid(self, n: i32) -> Self {
-        Self(self.0.div_euclid(n), self.1.div_euclid(n))
+    /// The part remaining after `head` has been split off.
+    fn remainder(self, head: Self) -> Option<Self> {
+        Some(Self {
+            len: self.len.checked_sub(head.len)?,
+            ..self
+        })
+    }
+
+    /// The same side shortened by one cell.
+    fn shortened(self) -> Option<Self> {
+        Some(Self {
+            len: self.len.checked_sub(1)?,
+            ..self
+        })
+    }
+
+    /// The same side with the opposite direction.
+    fn reversed(self) -> Self {
+        Self {
+            positive: !self.positive,
+            ..self
+        }
     }
 }
 
-impl std::ops::Add for Pt {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0, self.1 + rhs.1)
-    }
+/// A traversal position in pixel coordinates, always inside the
+/// `width` × `height` grid.
+#[derive(Clone, Copy)]
+struct Cursor {
+    x: usize,
+    y: usize,
 }
 
-impl std::ops::Sub for Pt {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0, self.1 - rhs.1)
+impl Cursor {
+    /// Linear pixel index `x + y * width`.
+    fn linear(self, width: usize) -> Option<usize> {
+        self.y.checked_mul(width)?.checked_add(self.x)
     }
-}
 
-impl std::ops::Neg for Pt {
-    type Output = Self;
-    fn neg(self) -> Self {
-        Self(-self.0, -self.1)
+    /// Moves `side.len` cells along `side`.
+    fn advance(&mut self, side: Side) -> Option<()> {
+        let coordinate = match side.axis {
+            Axis::Horizontal => &mut self.x,
+            Axis::Vertical => &mut self.y,
+        };
+        *coordinate = if side.positive {
+            coordinate.checked_add(side.len)?
+        } else {
+            coordinate.checked_sub(side.len)?
+        };
+        Some(())
     }
 }
 
@@ -60,22 +112,72 @@ impl std::ops::Neg for Pt {
 /// count and key. Matches Java's
 /// `round(((sqrt(5) - 1) / 2) * pixelCount * key)`.
 ///
-/// Clamped to `>= 0`: a negative or NaN key yields `0` instead of
-/// wrapping to `usize::MAX`. The caller should still validate the key.
-#[must_use]
+/// `key` must be finite and non-negative; [`scramble_rgba`] validates
+/// at its boundary. Absurdly large products saturate at `usize::MAX`
+/// (defined behavior), which is harmless: encrypt and decrypt derive
+/// the same offset either way.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "pixel_count is memory-bound far below 2^53 and key is validated non-negative, so both casts are exact"
+)]
 fn offset(pixel_count: usize, key: f64) -> usize {
     let raw = ((5.0_f64.sqrt() - 1.0) / 2.0) * pixel_count as f64 * key;
-    raw.round().max(0.0) as usize
+    raw.round() as usize
+}
+
+/// Converts a dimension to `usize` as the traversal's index type.
+fn to_index(dimension: u32, name: &str) -> anyhow::Result<usize> {
+    usize::try_from(dimension)
+        .with_context(|| format!("{name} does not fit in `usize`"))
 }
 
 /// Greatest common divisor (Euclidean algorithm).
 fn gcd(mut left: usize, mut right: usize) -> usize {
     while right != 0 {
-        let temp = right;
-        right = left % right;
-        left = temp;
+        let remainder = left.rem_euclid(right);
+        left = right;
+        right = remainder;
     }
     left
+}
+
+/// Reads the 4-byte pixel at pixel `index`.
+fn pixel_at(pixels: &[u8], index: usize) -> anyhow::Result<[u8; 4]> {
+    let start = index
+        .checked_mul(4)
+        .context("pixel byte offset overflows `usize`")?;
+    let range = start
+        ..start
+            .checked_add(4)
+            .context("pixel byte offset overflows `usize`")?;
+    let mut pixel = [0_u8; 4];
+    pixel.copy_from_slice(
+        pixels.get(range).context("pixel index out of buffer")?,
+    );
+    Ok(pixel)
+}
+
+/// Writes the 4-byte pixel at pixel `index`.
+fn set_pixel(
+    pixels: &mut [u8],
+    index: usize,
+    pixel: [u8; 4],
+) -> anyhow::Result<()> {
+    let start = index
+        .checked_mul(4)
+        .context("pixel byte offset overflows `usize`")?;
+    let range = start
+        ..start
+            .checked_add(4)
+            .context("pixel byte offset overflows `usize`")?;
+    pixels
+        .get_mut(range)
+        .context("pixel index out of buffer")?
+        .copy_from_slice(&pixel);
+    Ok(())
 }
 
 /// Builds the Gilbert curve permutation of all pixel indices over a
@@ -83,72 +185,107 @@ fn gcd(mut left: usize, mut right: usize) -> usize {
 ///
 /// `positions[i]` is the linear index (`x + y * width`) of the i-th
 /// cell visited by the curve.
-#[must_use]
-pub fn gilbert2d(width: u32, height: u32) -> Vec<u32> {
-    let mut curve = Vec::with_capacity(width as usize * height as usize);
-    let (width_i, height_i) = (width as i32, height as i32);
+///
+/// # Errors
+///
+/// Returns an error if either dimension is zero or if the traversal's
+/// index arithmetic overflows (the latter cannot happen for dimensions
+/// whose pixel buffer fits in memory).
+pub fn gilbert2d(width: u32, height: u32) -> anyhow::Result<Vec<usize>> {
+    ensure!(width > 0 && height > 0, "dimensions must be non-zero");
+    let (width, height) =
+        (to_index(width, "width")?, to_index(height, "height")?);
+    gilbert2d_usize(width, height)
+}
 
-    if width_i >= height_i {
-        generate2d(&mut curve, width, Pt(0, 0), Pt(width_i, 0), Pt(0, height_i));
+/// [`gilbert2d`] over dimensions already converted to `usize`.
+fn gilbert2d_usize(
+    width: usize,
+    height: usize,
+) -> anyhow::Result<Vec<usize>> {
+    let pixel_count = width
+        .checked_mul(height)
+        .context("pixel count overflows `usize`")?;
+
+    let mut curve = Vec::with_capacity(pixel_count);
+    let origin = Cursor { x: 0, y: 0 };
+    let x_side = Side {
+        axis: Axis::Horizontal,
+        len: width,
+        positive: true,
+    };
+    let y_side = Side {
+        axis: Axis::Vertical,
+        len: height,
+        positive: true,
+    };
+    let traversal = if width >= height {
+        generate2d(&mut curve, width, origin, x_side, y_side)
     } else {
-        generate2d(&mut curve, width, Pt(0, 0), Pt(0, height_i), Pt(width_i, 0));
-    }
-    curve
+        generate2d(&mut curve, width, origin, y_side, x_side)
+    };
+    traversal.context("traversal exceeded the index space")?;
+    Ok(curve)
 }
 
 fn generate2d(
-    curve: &mut Vec<u32>,
-    width: u32,
-    mut origin: Pt,
-    side_a: Pt,
-    side_b: Pt,
-) {
-    let a_len = side_a.abs_sum();
-    let b_len = side_b.abs_sum();
-    let a_dir = side_a.signum();
-    let b_dir = side_b.signum();
-
-    if b_len == 1 {
-        for _ in 0..a_len {
-            curve.push((origin.0 + origin.1 * width as i32) as u32);
-            origin = origin + a_dir;
+    curve: &mut Vec<usize>,
+    width: usize,
+    mut origin: Cursor,
+    side_a: Side,
+    side_b: Side,
+) -> Option<()> {
+    if side_b.len == 1 {
+        for visited in 0..side_a.len {
+            if visited > 0 {
+                origin.advance(side_a.unit())?;
+            }
+            curve.push(origin.linear(width)?);
         }
-        return;
+        return Some(());
     }
 
-    if a_len == 1 {
-        for _ in 0..b_len {
-            curve.push((origin.0 + origin.1 * width as i32) as u32);
-            origin = origin + b_dir;
+    if side_a.len == 1 {
+        for visited in 0..side_b.len {
+            if visited > 0 {
+                origin.advance(side_b.unit())?;
+            }
+            curve.push(origin.linear(width)?);
         }
-        return;
+        return Some(());
     }
 
-    let mut a_half = side_a.div_euclid(2);
-    let mut b_half = side_b.div_euclid(2);
-    let a_half_len = a_half.abs_sum();
-    let b_half_len = b_half.abs_sum();
+    let mut a_half = side_a.half();
+    let mut b_half = side_b.half();
 
-    if 2 * a_len > 3 * b_len {
-        if (a_half_len & 1) == 1 && a_len > 2 {
-            a_half = a_half + a_dir;
+    if side_a.len.checked_mul(2)? > side_b.len.checked_mul(3)? {
+        if a_half.len & 1 == 1 && side_a.len > 2 {
+            a_half.len = a_half.len.checked_add(1)?;
         }
-        generate2d(curve, width, origin, a_half, side_b);
-        generate2d(curve, width, origin + a_half, side_a - a_half, side_b);
+        generate2d(curve, width, origin, a_half, side_b)?;
+        let mut rest = origin;
+        rest.advance(a_half)?;
+        generate2d(curve, width, rest, side_a.remainder(a_half)?, side_b)?;
     } else {
-        if (b_half_len & 1) == 1 && b_len > 2 {
-            b_half = b_half + b_dir;
+        if b_half.len & 1 == 1 && side_b.len > 2 {
+            b_half.len = b_half.len.checked_add(1)?;
         }
-        generate2d(curve, width, origin, b_half, a_half);
-        generate2d(curve, width, origin + b_half, side_a, side_b - b_half);
+        generate2d(curve, width, origin, b_half, a_half)?;
+        let mut mid = origin;
+        mid.advance(b_half)?;
+        generate2d(curve, width, mid, side_a, side_b.remainder(b_half)?)?;
+        let mut corner = origin;
+        corner.advance(side_a.shortened()?)?;
+        corner.advance(b_half.shortened()?)?;
         generate2d(
             curve,
             width,
-            origin + (side_a - a_dir) + (b_half - b_dir),
-            -b_half,
-            -(side_a - a_half),
-        );
+            corner,
+            b_half.reversed(),
+            side_a.remainder(a_half)?.reversed(),
+        )?;
     }
+    Some(())
 }
 
 /// Scrambles or descrambles a 32-bit-per-pixel image (RGBA8) in place.
@@ -157,15 +294,14 @@ fn generate2d(
 /// `key` controls the offset along the Gilbert curve; the same key is
 /// required for a successful round-trip.
 ///
-/// `pixels` must be `width * height * 4` bytes long, RGBA8. This is
-/// checked via `debug_assert`; in release builds a mismatched length
-/// panics at the first pixel copy with an opaque message.
+/// `pixels` must be exactly `width * height * 4` bytes long, RGBA8.
 ///
-/// # Key preconditions
+/// # Errors
 ///
-/// `key` must be finite and non-negative. The caller is responsible
-/// for validation; this function does not check. Negative, NaN, or
-/// infinite keys produce silent no-ops or nonsensical offsets.
+/// Returns an error if `key` is negative, NaN, or infinite; if
+/// `pixels.len() != width * height * 4`; or if the traversal's index
+/// arithmetic overflows (the latter cannot happen for dimensions whose
+/// pixel buffer fits in memory).
 ///
 /// # Offset and Java interop
 ///
@@ -182,33 +318,43 @@ fn generate2d(
 /// `key = n · φ` (for any positive integer `n`) yields `offset = N`,
 /// which modulo `N` is `0` — i.e. the **identity**. A user who picks
 /// `key = 1.618` gets no scrambling with no indication.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "curve positions and RGBA offsets are bounded by the pixel count"
-)]
 pub fn scramble_rgba(
     pixels: &mut [u8],
     width: u32,
     height: u32,
     key: f64,
     encrypt: bool,
-) {
-    let pixel_count = width as usize * height as usize;
-    debug_assert_eq!(
-        pixels.len(),
-        pixel_count * 4,
-        "RGBA dimensions must match the pixel buffer length"
+) -> anyhow::Result<()> {
+    ensure!(
+        key.is_finite() && key >= 0.0,
+        "key must be finite and non-negative (got {key})"
+    );
+
+    let (width, height) =
+        (to_index(width, "width")?, to_index(height, "height")?);
+    let pixel_count = width
+        .checked_mul(height)
+        .context("pixel count overflows `usize`")?;
+    let byte_count = pixel_count
+        .checked_mul(4)
+        .context("byte count overflows `usize`")?;
+    ensure!(
+        pixels.len() == byte_count,
+        "expected exactly {byte_count} bytes for {width}×{height} RGBA8, got {}",
+        pixels.len()
     );
     if pixel_count == 0 {
-        return;
+        return Ok(());
     }
 
-    let positions = gilbert2d(width, height);
-    let off = offset(pixel_count, key) % pixel_count;
+    let positions = gilbert2d_usize(width, height)?;
+    let off = offset(pixel_count, key).rem_euclid(pixel_count);
     if off == 0 {
-        return; // identity, no work needed
+        return Ok(()); // identity, no work needed
     }
-    let loop_position = pixel_count - off;
+    let loop_position = pixel_count
+        .checked_sub(off)
+        .context("offset exceeds pixel count")?;
 
     // The scramble is a cyclic shift by `off` along the Gilbert curve.
     // In pixel-index space, the inverse permutation σ (where
@@ -226,44 +372,67 @@ pub fn scramble_rgba(
     let num_cycles = gcd(pixel_count, step);
 
     for start_curve in 0..num_cycles {
-        let start_slot4 = positions[start_curve] as usize * 4;
-        let mut leader = [0_u8; 4];
-        leader.copy_from_slice(&pixels[start_slot4..start_slot4 + 4]);
+        let start_px = positions
+            .get(start_curve)
+            .copied()
+            .context("curve shorter than cycle count")?;
+        let leader = pixel_at(pixels, start_px)?;
 
         let mut cur_curve = start_curve;
-        let mut cur_slot4 = start_slot4;
+        let mut cur_px = start_px;
         loop {
-            let next_curve = cur_curve + step;
+            let next_curve = cur_curve
+                .checked_add(step)
+                .context("curve index overflows `usize`")?;
             let next_curve = if next_curve < pixel_count {
                 next_curve
             } else {
-                next_curve - pixel_count
+                next_curve
+                    .checked_sub(pixel_count)
+                    .context("curve index underflows")?
             };
             if next_curve == start_curve {
-                pixels[cur_slot4..cur_slot4 + 4].copy_from_slice(&leader);
+                set_pixel(pixels, cur_px, leader)?;
                 break;
             }
-            let next_slot4 = positions[next_curve] as usize * 4;
+            let next_px = positions
+                .get(next_curve)
+                .copied()
+                .context("curve shorter than pixel count")?;
             // Read next into a temp before writing cur: `cur` and `next`
             // never coincide within a cycle, but Rust can't prove it.
-            let mut next_px = [0_u8; 4];
-            next_px.copy_from_slice(&pixels[next_slot4..next_slot4 + 4]);
-            pixels[cur_slot4..cur_slot4 + 4].copy_from_slice(&next_px);
+            let next = pixel_at(pixels, next_px)?;
+            set_pixel(pixels, cur_px, next)?;
             cur_curve = next_curve;
-            cur_slot4 = next_slot4;
+            cur_px = next_px;
         }
     }
+    Ok(())
 }
 
 /// Convenience wrapper over [`scramble_rgba`] that takes an
 /// `image::RgbaImage` directly.
-pub fn scramble_image(img: &mut RgbaImage, key: f64, encrypt: bool) {
+///
+/// # Errors
+///
+/// Propagates errors from [`scramble_rgba`].
+pub fn scramble_image(
+    img: &mut RgbaImage,
+    key: f64,
+    encrypt: bool,
+) -> anyhow::Result<()> {
     let (width, height) = img.dimensions();
-    scramble_rgba(img.as_mut(), width, height, key, encrypt);
+    scramble_rgba(img.as_mut(), width, height, key, encrypt)
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "test assertions may panic")]
+#[expect(
+    clippy::as_conversions,
+    clippy::integer_division_remainder_used,
+    clippy::cast_possible_truncation,
+    reason = "test pixel patterns are exact modular byte patterns"
+)]
 mod tests {
     use super::*;
 
@@ -279,15 +448,26 @@ mod tests {
             (9, 16),
             (64, 32),
         ] {
-            let points = gilbert2d(width, height);
-            assert_eq!(points.len(), (width as usize) * (height as usize), "{width}x{height}");
+            let points = gilbert2d(width, height).unwrap();
+            assert_eq!(
+                points.len(),
+                (width as usize) * (height as usize),
+                "{width}x{height}"
+            );
             // Use a HashSet to verify permutation without indexing.
             let mut seen = std::collections::HashSet::new();
             for &idx in &points {
-                assert!(idx < points.len() as u32, "{width}x{height}: idx {idx} OOB");
+                assert!(
+                    idx < points.len(),
+                    "{width}x{height}: idx {idx} OOB"
+                );
                 assert!(seen.insert(idx), "{width}x{height}: dup {idx}");
             }
-            assert_eq!(seen.len(), points.len(), "{width}x{height}: missing indices");
+            assert_eq!(
+                seen.len(),
+                points.len(),
+                "{width}x{height}: missing indices"
+            );
         }
     }
 
@@ -297,9 +477,18 @@ mod tests {
         let n = 1000_usize;
         assert_eq!(offset(n, 1.0), 618);
         assert_eq!(offset(n, 0.0), 0);
-        // Negative and NaN clamp to 0.
-        assert_eq!(offset(n, -1.0), 0);
-        assert_eq!(offset(n, f64::NAN), 0);
+    }
+
+    #[test]
+    fn rejects_invalid_input() {
+        let mut buf = vec![0_u8; 16]; // 4x1 RGBA
+        scramble_rgba(&mut buf, 4, 1, -1.0, true).unwrap_err();
+        scramble_rgba(&mut buf, 4, 1, f64::NAN, true).unwrap_err();
+        scramble_rgba(&mut buf, 4, 1, f64::INFINITY, true).unwrap_err();
+        // Wrong buffer length.
+        let (short, _rest) = buf.split_at_mut(15);
+        scramble_rgba(short, 4, 1, 1.0, true).unwrap_err();
+        gilbert2d(0, 4).unwrap_err();
     }
 
     #[test]
@@ -328,18 +517,20 @@ mod tests {
             let count = (width as usize) * (height as usize);
 
             // ── Raw buffer round-trip ───────────────────────────────
-            let original: Vec<u8> =
-                (0..(count * 4) as u32).map(|byte| byte as u8).collect();
+            let original: Vec<u8> = (0..count * 4)
+                .map(|byte| u8::try_from(byte % 256).unwrap())
+                .collect();
             for &key in &keys {
                 let mut buf = original.clone();
-                scramble_rgba(&mut buf, width, height, key, true);
+                scramble_rgba(&mut buf, width, height, key, true).unwrap();
                 if key != 0.0 && count > 1 {
                     assert_ne!(
                         buf, original,
                         "{width}x{height} key={key} did not change"
                     );
                 }
-                scramble_rgba(&mut buf, width, height, key, false);
+                scramble_rgba(&mut buf, width, height, key, false)
+                    .unwrap();
                 assert_eq!(
                     buf, original,
                     "{width}x{height} key={key} round-trip failed",
@@ -350,8 +541,8 @@ mod tests {
             let orig_img: ImageBuffer<Rgba<u8>, Vec<u8>> =
                 ImageBuffer::from_fn(width, height, |x, y| {
                     Rgba([
-                        (x * 7) as u8,
-                        (y * 11) as u8,
+                        (x * 7 % 256) as u8,
+                        (y * 11 % 256) as u8,
                         (x ^ y) as u8,
                         255,
                     ])
@@ -361,7 +552,7 @@ mod tests {
                     continue; // identity, skip PNG test
                 }
                 let mut scrambled = orig_img.clone();
-                scramble_image(&mut scrambled, key, true);
+                scramble_image(&mut scrambled, key, true).unwrap();
                 let mut png_bytes = std::io::Cursor::new(Vec::new());
                 scrambled
                     .write_to(&mut png_bytes, image::ImageFormat::Png)
@@ -374,7 +565,7 @@ mod tests {
                 .to_rgba8();
 
                 let mut restored = reloaded;
-                scramble_image(&mut restored, key, false);
+                scramble_image(&mut restored, key, false).unwrap();
                 assert_eq!(
                     restored.as_raw(),
                     orig_img.as_raw(),

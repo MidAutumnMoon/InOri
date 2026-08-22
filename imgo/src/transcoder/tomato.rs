@@ -3,7 +3,6 @@ use std::num::NonZeroU64;
 use image::RgbaImage;
 
 use anyhow::bail;
-use anyhow::ensure;
 
 use crate::ImageFormat;
 use crate::Meta;
@@ -73,21 +72,19 @@ impl Meta for Tomato {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        let n = std::thread::available_parallelism()
-            .map_or(1, |n| n.get() as u64);
-        #[expect(clippy::unwrap_used)]
-        NonZeroU64::new(n).unwrap()
+        let count = std::thread::available_parallelism()
+            .map_or(1_usize, usize::from);
+        #[expect(
+            clippy::unwrap_used,
+            reason = "`count` is clamped to >= 1 before `NonZeroU64::new`"
+        )]
+        u64::try_from(count).ok().and_then(NonZeroU64::new).unwrap()
     }
 }
 
 impl Pixel for Tomato {
     fn transform(&self, img: &mut RgbaImage) -> anyhow::Result<()> {
-        ensure!(
-            self.key.is_finite() && self.key >= 0.0,
-            "--key must be finite and non-negative (got {})",
-            self.key
-        );
-        scramble_image(img, self.key, self.mode()?);
-        Ok(())
+        let encrypt = self.mode()?;
+        scramble_image(img, self.key, encrypt)
     }
 }
