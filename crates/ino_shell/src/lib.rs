@@ -13,7 +13,7 @@
 //! let sh = Shell::new()?;
 //! let branch = "main";
 //! let commit_hash = cmd!(sh, "git rev-parse {branch}").read()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! **Goals:**
@@ -57,7 +57,7 @@
 //! ```no_run
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git").run_echo()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! The [`cmd!`] macro provides a convenient syntax for creating a command -- the [`Cmd`] struct.
@@ -85,7 +85,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! cmd!(sh, "git clone https://github.com/matklad/xshell.git")
 //!     .run()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! To make the code more general, let's use command interpolation to extract the username and the
@@ -96,7 +96,7 @@
 //! let user = "matklad";
 //! let repo = "xshell";
 //! cmd!(sh, "git clone https://github.com/{user}/{repo}.git").run_echo()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! Note that the `cmd!` macro parses the command string at compile time, so you don't have to worry
@@ -107,7 +107,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let file = "contains a space";
 //! cmd!(sh, "touch {file}").run()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! Next, `cd` into the folder you have just cloned:
@@ -127,7 +127,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let test_args = ["-Zunstable-options", "--report-time"];
 //! cmd!(sh, "cargo test -- {test_args...}").run_echo()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! Note how the so-called splat syntax (`...`) is used to interpolate an iterable of arguments.
@@ -137,7 +137,7 @@
 //! ```no_run
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let manifest = sh.read_file("Cargo.toml")?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! [`Shell::read_file`] works like [`std::fs::read_to_string`], but paths are relative to the
@@ -175,7 +175,7 @@
 //! # use ino_shell::{Shell, cmd}; let sh = Shell::new().unwrap();
 //! let dry_run = if sh.var("CI").is_ok() { None } else { Some("--dry-run") };
 //! cmd!(sh, "cargo publish {dry_run...}").run_echo()?;
-//! # Ok::<(), ino_shell::Error>(())
+//! # Ok::<(), ino_shell::InoError>(())
 //! ```
 //!
 //! Putting everything altogether, here's the whole script:
@@ -302,7 +302,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// # use ino_shell::{cmd, Shell};
 /// let sh = Shell::new()?;
 /// cmd!(sh, "echo hello world").run()?;
-/// # Ok::<(), ino_shell::Error>(())
+/// # Ok::<(), ino_shell::InoError>(())
 /// ```
 ///
 /// Interpolation:
@@ -323,7 +323,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let c = cmd!(sh, "echo 'spaces '{greeting}' around {greeting}'");
 /// assert_eq!(c.to_string(), r#"echo "spaces hello world around {greeting}""#);
 ///
-/// # Ok::<(), ino_shell::Error>(())
+/// # Ok::<(), ino_shell::InoError>(())
 /// ```
 ///
 /// Splat interpolation:
@@ -338,7 +338,7 @@ const STREAM_SUFFIX_SIZE: usize = 128 * 1024; // 128KiB
 /// let arg2: Option<&str> = None;
 /// let c = cmd!(sh, "echo {arg1...} {arg2...}");
 /// assert_eq!(c.to_string(), r#"echo hello"#);
-/// # Ok::<(), ino_shell::Error>(())
+/// # Ok::<(), ino_shell::InoError>(())
 /// ```
 #[macro_export]
 macro_rules! cmd {
@@ -373,7 +373,7 @@ macro_rules! cmd {
 ///
 /// let process_cwd = std::env::current_dir().unwrap();
 /// assert_eq!(cwd, process_cwd.join("./target"));
-/// # Ok::<(), ino_shell::Error>(())
+/// # Ok::<(), ino_shell::InoError>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Shell {
@@ -438,10 +438,10 @@ impl Shell {
     /// shell.
     pub fn var(&self, key: impl AsRef<OsStr>) -> Result<String> {
         fn inner(sh: &Shell, key: &OsStr) -> Result<String> {
-            let env_os = sh
-                .var_os(key)
-                .ok_or(VarError::NotPresent)
-                .map_err(|err| InoError::new_var(err, key.to_os_string()))?;
+            let env_os =
+                sh.var_os(key).ok_or(VarError::NotPresent).map_err(
+                    |err| InoError::new_var(err, key.to_os_string()),
+                )?;
             env_os.into_string().map_err(|value| {
                 InoError::new_var(
                     VarError::NotUnicode(value),
@@ -536,7 +536,8 @@ impl Shell {
     ) -> Result<Vec<u8>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<u8>> {
             let path = sh.path(path);
-            fs::read(&path).map_err(|err| InoError::new_read_file(err, path))
+            fs::read(&path)
+                .map_err(|err| InoError::new_read_file(err, path))
         }
         inner(self, path.as_ref())
     }
@@ -629,8 +630,9 @@ impl Shell {
     ) -> Result<Vec<PathBuf>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<PathBuf>> {
             let path = sh.path(path);
-            let dir = fs::read_dir(&path)
-                .map_err(|err| InoError::new_read_dir(err, path.clone()))?;
+            let dir = fs::read_dir(&path).map_err(|err| {
+                InoError::new_read_dir(err, path.clone())
+            })?;
             let mut res: Vec<PathBuf> = dir
                 .map(|entry| entry.map(|e| e.path()))
                 .collect::<Result<_, _>>()
@@ -741,7 +743,7 @@ impl Shell {
 ///
 /// let branch = "main";
 /// let cmd = cmd!(sh, "git switch {branch}").run()?;
-/// # Ok::<(), ino_shell::Error>(())
+/// # Ok::<(), ino_shell::InoError>(())
 /// ```
 ///
 /// Use:
