@@ -76,10 +76,6 @@ pub enum NHCommand {
 
 impl NHCommand {
     /// Run the selected subcommand.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if required Nix features are unavailable or if the
     pub fn run(
         self,
         env: &RuntimeConfig,

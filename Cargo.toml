@@ -83,6 +83,8 @@ cognitive_complexity = "allow"
 missing_const_for_fn = "allow" # has bug
 too_many_lines = "allow"
 
+missing_errors_doc = "warn"
+
 # Noah allows
 struct_excessive_bools = "allow"
 
@@ -94,3 +96,7 @@ shadow_same = "allow"
 shadow_reuse = "allow"
 print_stderr = "allow"
 print_stdout = "allow"
+arbitrary_source_item_ordering = "allow"
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
+missing_trait_methods = "allow"
