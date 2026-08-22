@@ -167,7 +167,6 @@ mod test {
     use super::*;
 
     #[test]
-    #[expect(clippy::unwrap_used)]
     fn rendered_path() {
         let tmpls_to_ok = [
             // absolute path

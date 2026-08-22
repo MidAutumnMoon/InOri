@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::BaseSeqExt;
 use crate::RelAbs;
 
-#[expect(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(strum::EnumIter)]
 #[derive(strum::VariantArray)]

@@ -192,7 +192,9 @@ struct Subject {
 
 impl Subject {
     fn new(path: AbsolutePath) -> Self {
-        #[expect(clippy::enum_glob_use)]
+        // N.B. #[expect] has subtle bugs with enum_glob_use :/
+        #![allow(clippy::enum_glob_use, reason = "Nicer to work with")]
+
         use SubjectKind::*;
 
         const CHECKLIST: &[(&str, SubjectKind)] = &[
@@ -211,8 +213,10 @@ impl Subject {
     }
 
     fn describe(&self) -> &'static str {
-        #[expect(clippy::enum_glob_use)]
+        #![allow(clippy::enum_glob_use, reason = "Nicer to work with")]
+
         use SubjectKind::*;
+
         match self.kind {
             BootedSystem => "The generation activated at boot time",
             CurrentSystem => "The current activated generation",
