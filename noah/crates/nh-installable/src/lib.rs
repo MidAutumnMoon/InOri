@@ -24,7 +24,6 @@ pub struct FlakeConfig {
     pub attrp: String,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum InstallableArgs {
     Specified(Installable),
@@ -353,7 +352,10 @@ impl InstallableArgs {
     ///
     /// Returns an error when a configured flake environment variable is
     /// malformed.
-    fn resolve(self, config: &FlakeConfig) -> rootcause::Result<Option<Installable>> {
+    fn resolve(
+        self,
+        config: &FlakeConfig,
+    ) -> rootcause::Result<Option<Installable>> {
         match self {
             Self::Unspecified => env_installable_source(config)
                 .map(EnvInstallableSource::into_installable)
@@ -374,7 +376,10 @@ impl InstallableArgs {
     /// Returns an error when environment resolution fails, when a local flake
     /// reference does not point at a flake directory, or when no default
     /// installable can be found.
-    pub fn resolve_or_default(self, config: &FlakeConfig) -> rootcause::Result<Installable> {
+    pub fn resolve_or_default(
+        self,
+        config: &FlakeConfig,
+    ) -> rootcause::Result<Installable> {
         let Some(installable) = self.resolve(config)? else {
             return default_installable_for();
         };
@@ -384,7 +389,9 @@ impl InstallableArgs {
     }
 }
 
-fn env_installable_source(config: &FlakeConfig) -> Option<EnvInstallableSource> {
+fn env_installable_source(
+    config: &FlakeConfig,
+) -> Option<EnvInstallableSource> {
     if let Some(value) = &config.os_flake {
         return Some(EnvInstallableSource::SpecificFlake {
             env_var: "NH_OS_FLAKE",
@@ -495,14 +502,22 @@ impl Installable {
                     reference
                 ))
             }
-            Err(FallbackError::Io(source)) => {
-                Err(rootcause::report!(
-                    "I/O error checking flake reference `{}` at {}: {}",
-                    reference,
-                    path.display(),
-                    source
-                ))
-            }
+            Err(FallbackError::Io(source)) => Err(rootcause::report!(
+                "I/O error checking flake reference `{}` at {}: {}",
+                reference,
+                path.display(),
+                source
+            )),
+        }
+    }
+
+    #[must_use]
+    pub const fn str_kind(&self) -> &str {
+        match self {
+            Self::Flake { .. } => "flake",
+            Self::File { .. } => "file",
+            Self::Store { .. } => "store path",
+            Self::Expression { .. } => "expression",
         }
     }
 }
@@ -710,18 +725,6 @@ fn resolve_fallback_flake_dir(
 }
 
 const FALLBACK_HELP_HINT: &str = "See 'man nh' or https://github.com/nix-community/nh for more details.";
-
-impl Installable {
-    #[must_use]
-    pub const fn str_kind(&self) -> &str {
-        match self {
-            Self::Flake { .. } => "flake",
-            Self::File { .. } => "file",
-            Self::Store { .. } => "store path",
-            Self::Expression { .. } => "expression",
-        }
-    }
-}
 
 /// Attempts to find a default installable for `NixOS` builds.
 ///

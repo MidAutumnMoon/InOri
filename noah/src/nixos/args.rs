@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::args::{DiffType, NixBuildPassthroughArgs};
 use crate::remote::RemoteHost;
 use clap::Args;
-use nh_installable::{FlakeConfig, InstallableArgs};
+use nh_installable::InstallableArgs;
 
 use crate::nixos::generations::Field;
 
@@ -65,13 +65,6 @@ pub struct RebuildActivateArgs {
     /// Show activation logs.
     #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
     pub show_activation_logs: bool,
-}
-
-impl RebuildArgs {
-    #[must_use]
-    pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
-        self.common.installable.uses_flakes(config)
-    }
 }
 
 #[derive(Debug, Args)]
@@ -154,13 +147,6 @@ pub struct ReplArgs {
     /// nixosConfigurations.
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
-}
-
-impl ReplArgs {
-    #[must_use]
-    pub fn uses_flakes(&self, config: &FlakeConfig) -> bool {
-        self.installable.uses_flakes(config)
-    }
 }
 
 #[derive(Debug, Args)]
