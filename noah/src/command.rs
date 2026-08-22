@@ -483,6 +483,8 @@ impl<'env> Command<'env> {
             // Without a private PTY, run0 can transfer ownership of the
             // caller's terminal to root.
             args.push(OsString::from("--pty-late"));
+        } else {
+            // no care
         }
 
         args.push(OsString::from("env"));

@@ -29,12 +29,6 @@ struct CliOpts {
     old_blueprint: Option<PathBuf>,
 }
 
-impl CliOpts {
-    fn parse() -> Self {
-        <Self as clap::Parser>::parse()
-    }
-}
-
 #[tracing::instrument(name = "app_run", skip_all)]
 fn run(cliopts: CliOpts) -> AnyResult<()> {
     info!("Preparing blueprints");
@@ -89,7 +83,7 @@ fn main() -> AnyResult<()> {
 
     let cliopt = {
         debug!("Parse cliopts");
-        CliOpts::parse().tap(|cliopts| trace!(?cliopts))
+        <CliOpts as clap::Parser>::parse().tap(|cliopts| trace!(?cliopts))
     };
 
     run(cliopt).context("Error occurred when running app")

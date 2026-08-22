@@ -27,6 +27,7 @@ fn try_main() -> io::Result<()> {
     if let Some(arg) = args.next() {
         sleep_seconds = arg.parse().unwrap_or_else(|_| {
             eprintln!("error: invalid number of seconds");
+            #[expect(clippy::exit, reason = "on purpose")]
             std::process::exit(1);
         });
     }

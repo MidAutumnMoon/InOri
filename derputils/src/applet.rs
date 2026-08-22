@@ -56,18 +56,10 @@ pub fn usage() -> String {
     use std::fmt::Write;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
-    let width = APPLETS
-        .iter()
-        .map(|a| a.name.len())
-        .max()
-        .unwrap_or(0);
+    let width = APPLETS.iter().map(|a| a.name.len()).max().unwrap_or(0);
     for applet in APPLETS {
-        let _ = writeln!(
-            out,
-            "  {:<width$}  {}",
-            applet.name,
-            applet.descr
-        );
+        let _ =
+            writeln!(out, "  {:<width$}  {}", applet.name, applet.descr);
     }
     out
 }
@@ -126,10 +118,11 @@ pub fn select<'a>(
 }
 
 #[cfg(test)]
-#[allow(clippy::panic)]
+#[expect(clippy::panic, reason = "in tests")]
+#[expect(clippy::pointer_format, reason = "in tests")]
 mod test {
-    use std::assert_matches;
     use super::*;
+    use std::assert_matches;
 
     fn args(items: &[&str]) -> Vec<OsString> {
         items.iter().map(OsString::from).collect()

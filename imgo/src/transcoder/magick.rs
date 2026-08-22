@@ -87,7 +87,7 @@ impl External for Denoise {
 
 #[derive(Debug, clap::Args)]
 #[group(id = "CleanScanTranscoder")]
-pub struct CleanScan {}
+pub struct CleanScan;
 
 impl Meta for CleanScan {
     fn id(&self) -> &'static str {
@@ -131,5 +131,6 @@ fn eighth_of_total_cores() -> NonZeroU64 {
     let cores = available_parallelism()
         .expect("Failed to get core numbers")
         .get();
+    #[expect(clippy::integer_division, reason = "don't care")]
     NonZeroU64::new(((cores as u64 * 80) / 100).max(1)).unwrap()
 }

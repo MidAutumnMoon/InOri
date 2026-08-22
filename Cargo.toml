@@ -107,6 +107,7 @@ arbitrary_source_item_ordering = "allow"
 missing_docs_in_private_items = "allow"
 missing_inline_in_public_items = "allow"
 missing_trait_methods = "allow"
+single_call_fn = "allow"
 
 # Useful when writting no_std codes, but annoying in general codes.
 std_instead_of_alloc = "allow"
