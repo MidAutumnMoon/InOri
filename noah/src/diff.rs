@@ -1,5 +1,5 @@
-use std::fmt;
-use std::io;
+use std::any::Any;
+use std::io::{self, Write as _};
 use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
@@ -12,6 +12,7 @@ use crate::remote::SshConfig;
 // TODO: get rid of this fucking module heirachy structure
 use crate::remote::dix::ResolvedRemoteStorePath;
 use rootcause::Result;
+use rootcause::prelude::ResultExt as _;
 use rootcause::report;
 use tracing::debug;
 use tracing::info;
@@ -19,13 +20,6 @@ use tracing::warn;
 use yansi::Paint;
 
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
-
-struct WriteFmt<W: io::Write>(W);
-impl<W: io::Write> fmt::Write for WriteFmt<W> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.0.write_all(s.as_bytes()).map_err(|_| fmt::Error)
-    }
-}
 
 struct QueriedDiff {
     old_label: PathBuf,
@@ -220,6 +214,18 @@ fn query_remote_nixos_diff(
     query_endpoint_diff(&DiffEndpoint::Remote(old_root), &new, ssh_config)
 }
 
+/// Recover the panic message from a [`thread::Result`] error payload.
+///
+/// Panics raised with a string payload (`panic!("...")`) are reported
+/// verbatim; anything else degrades to a placeholder.
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-string panic value")
+}
+
 fn query_endpoint_diff(
     old: &DiffEndpoint,
     new: &DiffEndpoint,
@@ -229,13 +235,18 @@ fn query_endpoint_diff(
         let old_snapshot = scope.spawn(|| old.query_snapshot(ssh_config));
         let new_snapshot = scope.spawn(|| new.query_snapshot(ssh_config));
 
-        let old_snapshot = old_snapshot.join().map_err(|_| {
-            report!("old diff endpoint snapshot thread panicked")
+        let old_snapshot = old_snapshot.join().map_err(|payload| {
+            report!(
+                "old diff endpoint snapshot thread panicked: {}",
+                panic_message(&*payload)
+            )
         })??;
-        let new_snapshot = new_snapshot.join().map_err(|_| {
-            report!("new diff endpoint snapshot thread panicked")
+        let new_snapshot = new_snapshot.join().map_err(|payload| {
+            report!(
+                "new diff endpoint snapshot thread panicked: {}",
+                panic_message(&*payload)
+            )
         })??;
-
         Ok(QueriedDiff {
             old_label: old.label(),
             new_label: new.label(),
@@ -280,9 +291,12 @@ fn print_dix_header_raw(old_label: &Path, new_label: &Path) {
 }
 
 fn write_dix_report(report: &dix::DiffReport) -> Result<()> {
-    let stdout = io::stdout();
-    let mut out = WriteFmt(stdout.lock());
+    let mut out = String::new();
     let wrote = dix::write_diff_report(&mut out, report)?;
+
+    io::stdout()
+        .write_all(out.as_bytes())
+        .context("Failed to write diff report to stdout")?;
 
     if wrote == 0 && report.size_old() == report.size_new() {
         info!("No version or size changes.");
@@ -317,6 +331,22 @@ mod tests {
             remote_profile_path(out_path, target_profile, Some(actual))
                 .as_deref(),
             Some(Path::new("/nix/store/abc-system/specialisation/foo"))
+        );
+    }
+
+    #[test]
+    fn panic_message_recovers_string_payloads() {
+        let str_payload: Box<dyn Any + Send> = Box::new("boom");
+        assert_eq!(panic_message(&*str_payload), "boom");
+
+        let string_payload: Box<dyn Any + Send> =
+            Box::new(String::from("boom"));
+        assert_eq!(panic_message(&*string_payload), "boom");
+
+        let other_payload: Box<dyn Any + Send> = Box::new(42_u8);
+        assert_eq!(
+            panic_message(&*other_payload),
+            "non-string panic value"
         );
     }
 }

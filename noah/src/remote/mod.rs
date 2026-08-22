@@ -99,14 +99,14 @@ static PASSWORD_CACHE: LazyLock<Mutex<HashMap<String, SecretString>>> =
 fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
     let guard = PASSWORD_CACHE
         .lock()
-        .map_err(|_| report!("Password cache lock poisoned"))?;
+        .map_err(|_poisoned| report!("Password cache lock poisoned"))?;
     Ok(guard.get(host).cloned())
 }
 
 fn cache_password(host: &str, password: SecretString) -> Result<()> {
     PASSWORD_CACHE
         .lock()
-        .map_err(|_| report!("Password cache lock poisoned"))?
+        .map_err(|_poisoned| report!("Password cache lock poisoned"))?
         .insert(host.to_owned(), password);
     Ok(())
 }
@@ -1002,9 +1002,9 @@ pub fn validate_remote_closure(
         let path_str = remote_path.to_str().ok_or_else(|| {
             report!("Path is not valid UTF-8: {}", remote_path.display())
         })?;
-        let quoted_path = shlex::try_quote(path_str).map_err(|_| {
+        let quoted_path = shlex::try_quote(path_str).map_err(|err| {
             report!(
-                "Failed to quote path for shell: {}",
+                "Failed to quote path for shell: {}: {err}",
                 remote_path.display()
             )
         })?;

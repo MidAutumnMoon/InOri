@@ -77,7 +77,9 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
     nix::unistd::gethostname()
         .context("Failed to get hostname, and no hostname supplied")?
         .into_string()
-        .map_err(|_| report!("Hostname contains invalid UTF-8"))
+        .map_err(|host| {
+            report!("Hostname contains invalid UTF-8: {host:?}")
+        })
 }
 
 /// Self-elevates the current process by re-executing it with `sudo`.

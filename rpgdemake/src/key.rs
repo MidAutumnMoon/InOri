@@ -22,9 +22,8 @@ impl Key {
             Maybe it's fake, obfuscated or broken.",
         };
 
-        let value = hex::decode(raw_key)?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("key length mismatch"))?;
+        let mut value = [0_u8; KEY_LEN];
+        hex::decode_to_slice(raw_key, &mut value)?;
 
         Ok(Self { value })
     }
