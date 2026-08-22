@@ -99,7 +99,7 @@ fn interpolation_splat() {
 
     // Conditional splat idiom (Rust-side, but exercises the macro path).
     let check = if true { &["--", "--check"][..] } else { &[] };
-    let dry_run = if true { Some("--dry-run") } else { None };
+    let dry_run = true.then_some("--dry-run");
     assert_eq!(
         cmd!(sh, "cargo fmt {check...}").to_string(),
         "cargo fmt -- --check",

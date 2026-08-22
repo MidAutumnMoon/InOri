@@ -1199,18 +1199,12 @@ impl GenerationsArgs {
 
         let generations: Vec<_> = fs::read_dir(profile_dir)?
             .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    let path = e.path();
-                    if path
-                        .file_name()?
-                        .to_str()?
-                        .starts_with(profile.file_name()?.to_str()?)
-                    {
-                        Some(path)
-                    } else {
-                        None
-                    }
-                })
+                let e = entry.ok()?;
+                let path = e.path();
+                path.file_name()?
+                    .to_str()?
+                    .starts_with(profile.file_name()?.to_str()?)
+                    .then_some(path)
             })
             .collect();
 
