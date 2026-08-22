@@ -39,7 +39,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_select() {
+    fn select() {
         let nums = vec![1, 2, 3, 4];
         // select odd numbers
         assert_eq!(
@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reject() {
+    fn reject() {
         let nums = vec![1, 2, 3, 4];
         // reject even numbers
         assert_eq!(

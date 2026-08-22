@@ -181,21 +181,21 @@ fn check_light_decrypt(version: Version) {
 }
 
 #[test]
-fn test_mv_full() {
+fn mv_full() {
     check_full_decrypt(Version::MV);
 }
 
 #[test]
-fn test_mz_full() {
+fn mz_full() {
     check_full_decrypt(Version::MZ);
 }
 
 #[test]
-fn test_mv_light() {
+fn mv_light() {
     check_light_decrypt(Version::MV);
 }
 
 #[test]
-fn test_mz_light() {
+fn mz_light() {
     check_light_decrypt(Version::MZ);
 }

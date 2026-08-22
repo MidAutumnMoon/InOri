@@ -301,7 +301,7 @@ fn parse_flake_reference(
 }
 
 #[test]
-fn test_parse_attribute() {
+fn parse_attribute_works() {
     assert_eq!(
         parse_attribute(r"foo.bar"),
         Ok(vec!["foo".to_string(), "bar".to_string()])
@@ -508,7 +508,7 @@ impl Installable {
 }
 
 #[test]
-fn test_installable_to_args() {
+fn installable_to_args() {
     assert_eq!(
         (Installable::Flake {
             reference: String::from("w"),
@@ -598,7 +598,7 @@ fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
 }
 
 #[test]
-fn test_join_attribute() {
+fn join_attribute_works() {
     assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
     assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
     assert_eq!(

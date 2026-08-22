@@ -323,7 +323,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_copy_direction_to_remote_args() {
+    fn copy_direction_to_remote_args() {
         let host = RemoteHost::parse("build.example").unwrap();
 
         assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_direction_preserves_ssh_store_scheme() {
+    fn copy_direction_preserves_ssh_store_scheme() {
         let host = RemoteHost::parse("ssh://build.example").unwrap();
 
         assert_eq!(
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_direction_from_remote_cannot_take_substitute_policy() {
+    fn copy_direction_from_remote_cannot_take_substitute_policy() {
         let host = RemoteHost::parse("build.example").unwrap();
 
         assert_eq!(
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_direction_between_remotes_args() {
+    fn copy_direction_between_remotes_args() {
         let from_host = RemoteHost::parse("build.example").unwrap();
         let to_host = RemoteHost::parse("target.example").unwrap();
 
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_direction_preserves_ipv6_store_uri_brackets() {
+    fn copy_direction_preserves_ipv6_store_uri_brackets() {
         let host = RemoteHost::parse("user@[2001:db8::1]").unwrap();
 
         assert_eq!(
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exec_with_spinner_streaming_mixed_output_no_deadlock() {
+    fn exec_with_spinner_streaming_mixed_output_no_deadlock() {
         let spinner = Spinner::hidden();
         // Interleaved stdout and stderr: alternating lines with explicit flush.
         let cmd = Exec::cmd("bash").arg("-c").arg(
@@ -430,7 +430,7 @@ done
     }
 
     #[test]
-    fn test_exec_with_spinner_streaming_command_start_error_propagation() {
+    fn exec_with_spinner_streaming_command_start_error_propagation() {
         let spinner = Spinner::hidden();
         // A nonexistent command triggers `cmd.start()` failure.
         // This should verify that errors propagate out of

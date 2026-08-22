@@ -7,7 +7,7 @@ fn specified(installable: Installable) -> InstallableArgs {
 }
 
 #[test]
-fn test_resolve_non_unspecified_returns_unchanged() {
+fn resolve_non_unspecified_returns_unchanged() {
     let config = FlakeConfig::default();
     let flake = Installable::Flake {
         reference: String::from("/path/to/flake"),
@@ -50,7 +50,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
 }
 
 #[test]
-fn test_resolve_or_default_non_unspecified_returns_unchanged() {
+fn resolve_or_default_non_unspecified_returns_unchanged() {
     let config = FlakeConfig::default();
     let flake = Installable::Flake {
         reference: String::from("github:user/repo"),
@@ -65,7 +65,7 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
 }
 
 #[test]
-fn test_resolve_or_default_uses_env_before_default() {
+fn resolve_or_default_uses_env_before_default() {
     let flake_dir = tempfile::tempdir().unwrap();
     fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
     let config = FlakeConfig {
@@ -90,7 +90,7 @@ fn test_resolve_or_default_uses_env_before_default() {
 }
 
 #[test]
-fn test_resolve_or_default_accepts_existing_local_flake_path() {
+fn resolve_or_default_accepts_existing_local_flake_path() {
     let config = FlakeConfig::default();
     let flake_dir = tempfile::tempdir().unwrap();
     fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
@@ -111,7 +111,7 @@ fn test_resolve_or_default_accepts_existing_local_flake_path() {
 }
 
 #[test]
-fn test_resolve_or_default_rejects_missing_absolute_path() {
+fn resolve_or_default_rejects_missing_absolute_path() {
     let config = FlakeConfig::default();
     let parent = tempfile::tempdir().unwrap();
     let missing_path = parent.path().join("missing-flake");
@@ -135,7 +135,7 @@ fn test_resolve_or_default_rejects_missing_absolute_path() {
 }
 
 #[test]
-fn test_resolve_or_default_rejects_existing_dir_without_flake_nix() {
+fn resolve_or_default_rejects_existing_dir_without_flake_nix() {
     let config = FlakeConfig::default();
     let dir = tempfile::tempdir().unwrap();
 
@@ -155,7 +155,7 @@ fn test_resolve_or_default_rejects_existing_dir_without_flake_nix() {
 }
 
 #[test]
-fn test_resolve_or_default_rejects_subdir_inside_flake() {
+fn resolve_or_default_rejects_subdir_inside_flake() {
     let config = FlakeConfig::default();
     let flake_dir = tempfile::tempdir().unwrap();
     fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
@@ -178,7 +178,7 @@ fn test_resolve_or_default_rejects_subdir_inside_flake() {
 }
 
 #[test]
-fn test_resolve_or_default_rejects_missing_path_scheme() {
+fn resolve_or_default_rejects_missing_path_scheme() {
     let config = FlakeConfig::default();
     let parent = tempfile::tempdir().unwrap();
     let missing_path = parent.path().join("missing-flake");
@@ -198,7 +198,7 @@ fn test_resolve_or_default_rejects_missing_path_scheme() {
 }
 
 #[test]
-fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
+fn resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
     let config = FlakeConfig::default();
     let source_dir = tempfile::tempdir().unwrap();
 
@@ -221,7 +221,7 @@ fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
 }
 
 #[test]
-fn test_resolve_or_default_ignores_registry_and_url_refs() {
+fn resolve_or_default_ignores_registry_and_url_refs() {
     let config = FlakeConfig::default();
     for reference in ["nixpkgs", "github:NixOS/nixpkgs"] {
         let installable = Installable::Flake {
@@ -236,7 +236,7 @@ fn test_resolve_or_default_ignores_registry_and_url_refs() {
 }
 
 #[test]
-fn test_resolve_rejects_empty_nh_flake() {
+fn resolve_rejects_empty_nh_flake() {
     let config = FlakeConfig {
         flake: Some(String::new()),
         ..Default::default()
@@ -251,7 +251,7 @@ fn test_resolve_rejects_empty_nh_flake() {
 }
 
 #[test]
-fn test_resolve_rejects_empty_command_specific_flake() {
+fn resolve_rejects_empty_command_specific_flake() {
     let config = FlakeConfig {
         os_flake: Some(String::new()),
         flake: Some(String::from("github:user/repo")),
@@ -267,7 +267,7 @@ fn test_resolve_rejects_empty_command_specific_flake() {
 }
 
 #[test]
-fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
+fn resolve_rejects_env_flake_without_reference_before_attribute() {
     let config = FlakeConfig {
         flake: Some(String::from("#fallback")),
         ..Default::default()
@@ -282,7 +282,7 @@ fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
 }
 
 #[test]
-fn test_resolve_rejects_malformed_nh_attrp() {
+fn resolve_rejects_malformed_nh_attrp() {
     let config = FlakeConfig {
         file: Some(String::from("/path/to/file.nix")),
         attrp: String::from(r#"foo."bar"#),
@@ -300,7 +300,7 @@ fn test_resolve_rejects_malformed_nh_attrp() {
 }
 
 #[test]
-fn test_cli_installable_rejects_empty_flake_reference() {
+fn cli_installable_rejects_empty_flake_reference() {
     let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
     let err = InstallableArgs::from_arg_matches(
         &cmd.try_get_matches_from(["test", ""]).unwrap(),
@@ -312,7 +312,7 @@ fn test_cli_installable_rejects_empty_flake_reference() {
 }
 
 #[test]
-fn test_cli_installable_rejects_attribute_without_reference() {
+fn cli_installable_rejects_attribute_without_reference() {
     let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
     let err = InstallableArgs::from_arg_matches(
         &cmd.try_get_matches_from(["test", "#fallback"]).unwrap(),
@@ -326,7 +326,7 @@ fn test_cli_installable_rejects_attribute_without_reference() {
 }
 
 #[test]
-fn test_cli_file_rejects_malformed_attribute() {
+fn cli_file_rejects_malformed_attribute() {
     let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
     let matches = cmd
         .try_get_matches_from([
@@ -348,7 +348,7 @@ fn test_cli_file_rejects_malformed_attribute() {
 }
 
 #[test]
-fn test_uses_flakes_checks_cli_and_env_inputs() {
+fn uses_flakes_checks_cli_and_env_inputs() {
     let config = FlakeConfig::default();
 
     assert!(!InstallableArgs::Unspecified.uses_flakes(&config));
@@ -373,7 +373,7 @@ fn test_uses_flakes_checks_cli_and_env_inputs() {
 }
 
 #[test]
-fn test_uses_flakes_respects_resolution_precedence() {
+fn uses_flakes_respects_resolution_precedence() {
     let config = FlakeConfig {
         flake: Some(String::from("github:user/repo")),
         ..Default::default()
@@ -402,7 +402,7 @@ fn test_uses_flakes_respects_resolution_precedence() {
 }
 
 #[test]
-fn test_uses_flakes_ignores_empty_env_values() {
+fn uses_flakes_ignores_empty_env_values() {
     // Application startup filters empty values before constructing this model.
     // Constructing empty fields directly still must not select a flake source.
     let config = FlakeConfig {
@@ -415,7 +415,7 @@ fn test_uses_flakes_ignores_empty_env_values() {
 }
 
 #[test]
-fn test_resolve_os_context_uses_nh_os_flake() {
+fn resolve_os_context_uses_nh_os_flake() {
     let config = FlakeConfig {
         os_flake: Some(String::from("/etc/nixos#myhost")),
         ..Default::default()
@@ -436,7 +436,7 @@ fn test_resolve_os_context_uses_nh_os_flake() {
 }
 
 #[test]
-fn test_resolve_os_context_prefers_os_flake_over_generic() {
+fn resolve_os_context_prefers_os_flake_over_generic() {
     let config = FlakeConfig {
         os_flake: Some(String::from("/etc/nixos#myhost")),
         flake: Some(String::from("/home/user/flake#other")),
@@ -458,7 +458,7 @@ fn test_resolve_os_context_prefers_os_flake_over_generic() {
 }
 
 #[test]
-fn test_resolve_os_context_falls_back_to_nh_flake() {
+fn resolve_os_context_falls_back_to_nh_flake() {
     let config = FlakeConfig {
         flake: Some(String::from("/home/user/flake#fallback")),
         ..Default::default()
@@ -479,7 +479,7 @@ fn test_resolve_os_context_falls_back_to_nh_flake() {
 }
 
 #[test]
-fn test_resolve_no_env_vars_returns_unspecified() {
+fn resolve_no_env_vars_returns_unspecified() {
     let config = FlakeConfig::default();
 
     let resolved = InstallableArgs::Unspecified.resolve(&config).unwrap();
@@ -487,7 +487,7 @@ fn test_resolve_no_env_vars_returns_unspecified() {
 }
 
 #[test]
-fn test_resolve_with_empty_attribute() {
+fn resolve_with_empty_attribute() {
     let config = FlakeConfig {
         os_flake: Some(String::from("/etc/nixos")),
         ..Default::default()
@@ -508,7 +508,7 @@ fn test_resolve_with_empty_attribute() {
 }
 
 #[test]
-fn test_resolve_with_nested_attribute() {
+fn resolve_with_nested_attribute() {
     let config = FlakeConfig {
         os_flake: Some(String::from(
             "/etc/nixos#nixosConfigurations.myhost",
@@ -531,7 +531,7 @@ fn test_resolve_with_nested_attribute() {
 }
 
 #[test]
-fn test_resolve_command_specific_isolation() {
+fn resolve_command_specific_isolation() {
     let config = FlakeConfig {
         os_flake: Some(String::from("/etc/nixos#myhost")),
         ..Default::default()

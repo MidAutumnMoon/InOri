@@ -11,7 +11,7 @@ use std::path::Path;
 use common::setup;
 
 #[test]
-fn test_push_dir() {
+fn push_dir() {
     let sh = setup();
 
     let d1 = sh.current_dir();
@@ -32,7 +32,7 @@ fn test_push_dir() {
 }
 
 #[test]
-fn test_copy_file() {
+fn copy_file() {
     let sh = setup();
 
     let path;
@@ -59,7 +59,7 @@ fn test_copy_file() {
 }
 
 #[test]
-fn test_exists() {
+fn exists() {
     let mut sh = setup();
     let tmp = sh.create_temp_dir().unwrap();
     sh.set_current_dir(tmp.path());
@@ -88,7 +88,7 @@ fn write_makes_directory() {
 }
 
 #[test]
-fn test_remove_path() {
+fn remove_path() {
     let mut sh = setup();
 
     let tempdir = sh.create_temp_dir().unwrap();

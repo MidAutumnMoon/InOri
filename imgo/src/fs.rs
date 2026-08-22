@@ -289,7 +289,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_filename() {
+    fn filename() {
         let f = BaseSeqExt::from_str(".hide");
         assert!(f.is_err());
 

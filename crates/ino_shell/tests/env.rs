@@ -17,7 +17,7 @@ use common::setup;
 const VAR: &str = "SPICA";
 
 #[test]
-fn test_subshells_env() {
+fn subshells_env() {
     let sh = setup();
 
     let e1 = sh.var_os(VAR);
@@ -40,7 +40,7 @@ fn test_subshells_env() {
 }
 
 #[test]
-fn test_env() {
+fn env() {
     let mut sh = setup();
 
     let v1 = "xshell_test_123";
@@ -105,7 +105,7 @@ fn test_env() {
 }
 
 #[test]
-fn test_env_clear() {
+fn env_clear() {
     let mut sh = setup();
 
     let v1 = "xshell_test_123";
