@@ -533,8 +533,8 @@ impl RebuildArgs {
         &self,
         temporary: bool,
     ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
-        if let Some(p) = self.common.out_link.clone() {
-            return Ok((p, None));
+        if let Some(path) = self.common.out_link.clone() {
+            return Ok((path, None));
         }
 
         if temporary {
@@ -708,7 +708,7 @@ impl RebuildArgs {
         let current_specialisation =
             std::fs::read_to_string(SPEC_LOCATION)
                 .ok()
-                .map(|s| s.trim().to_owned());
+                .map(|content| content.trim().to_owned());
 
         let target_specialisation = if self.no_specialisation {
             None
@@ -788,7 +788,7 @@ impl RollbackArgs {
 
         let current_generation = generations
             .iter()
-            .find(|g| g.current)
+            .find(|generation| generation.current)
             .ok_or_else(|| report!("Current generation not found"))?;
 
         // Find previous generation or specific generation
@@ -816,7 +816,7 @@ impl RollbackArgs {
         // Handle specialisations
         let current_specialisation = fs::read_to_string(SPEC_LOCATION)
             .ok()
-            .map(|s| s.trim().to_owned());
+            .map(|content| content.trim().to_owned());
 
         let target_specialisation = if self.no_specialisation {
             None
@@ -926,7 +926,7 @@ impl RollbackArgs {
                     target_generation.number
                 );
             }
-            Err(e) => {
+            Err(err) => {
                 // If activation fails, rollback the profile
                 if current_generation.number > 0 {
                     let current_gen_link = profile_dir.join(format!(
@@ -944,7 +944,7 @@ impl RollbackArgs {
                         .context("NixOS: Failed to restore previous system profile after failed activation")?;
                 }
 
-                return Err(report!("Activation (switch) failed: {}", e)
+                return Err(report!("Activation (switch) failed: {}", err)
                     .context("Failed to activate configuration")
                     .into());
             }
@@ -1084,13 +1084,13 @@ fn find_previous_generation(
 ) -> Result<generations::GenerationInfo> {
     let current = generations
         .iter()
-        .find(|g| g.number == current_number)
+        .find(|generation| generation.number == current_number)
         .ok_or_else(|| report!("Current generation not found"))?;
 
     generations
         .iter()
         .rev()
-        .find(|g| g.number < current.number)
+        .find(|generation| generation.number < current.number)
         .cloned()
         .ok_or_else(|| {
             report!("No generation older than the current one exists")
@@ -1103,7 +1103,7 @@ fn get_generation_by_number(
 ) -> Result<&generations::GenerationInfo> {
     generations
         .iter()
-        .find(|g| g.number == number)
+        .find(|generation| generation.number == number)
         .ok_or_else(|| report!("Generation {} not found", number))
 }
 
@@ -1116,15 +1116,15 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     let mut generations = Vec::new();
     for entry in fs::read_dir(profiles_dir)? {
         let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                warn!("Failed to read entry in profile directory: {}", e);
+            Ok(dir_entry) => dir_entry,
+            Err(err) => {
+                warn!("Failed to read entry in profile directory: {}", err);
                 continue;
             }
         };
 
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|s| s.to_str())
+        if let Some(name) = path.file_name().and_then(|os_str| os_str.to_str())
             && name.starts_with("system-")
             && name.ends_with("-link")
             && let Some(gen_info) = generations::describe(&path, None)
@@ -1139,7 +1139,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 
     tracing::debug!("{} generations found", generations.len());
 
-    generations.sort_by_key(|g| g.number);
+    generations.sort_by_key(|generation| generation.number);
 
     Ok(generations)
 }
@@ -1185,7 +1185,7 @@ impl GenerationsArgs {
     #[expect(clippy::missing_errors_doc)]
     pub fn info(&self) -> Result<()> {
         let profile = match self.profile {
-            Some(ref p) => PathBuf::from(p),
+            Some(ref path) => PathBuf::from(path),
             None => bail!("Profile path is required"),
         };
 
@@ -1201,8 +1201,8 @@ impl GenerationsArgs {
 
         let generations: Vec<_> = fs::read_dir(profile_dir)?
             .filter_map(|entry| {
-                let e = entry.ok()?;
-                let path = e.path();
+                let dir_entry = entry.ok()?;
+                let path = dir_entry.path();
                 path.file_name()?
                     .to_str()?
                     .starts_with(profile.file_name()?.to_str()?)

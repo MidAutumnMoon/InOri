@@ -28,7 +28,7 @@ pub trait InoIter: Iterator {
         Self: Sized,
         P: FnMut(&Self::Item) -> bool,
     {
-        self.filter(move |e| !pred(e))
+        self.filter(move |element| !pred(element))
     }
 }
 

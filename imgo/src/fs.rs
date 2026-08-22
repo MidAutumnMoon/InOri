@@ -55,7 +55,7 @@ impl FromStr for BaseSeqExt {
         for (idx, part) in parts.iter().enumerate().skip(1) {
             let _g = debug_span!("find_seq", idx, part).entered();
 
-            if part.chars().all(|c| c.is_ascii_digit()) {
+            if part.chars().all(|char| char.is_ascii_digit()) {
                 debug!("Part is all digits, use it as seq");
 
                 seq = NonZeroU64::from_str_radix(part, 10)
@@ -155,8 +155,8 @@ pub fn collect_images(
 
     let mut accu = Vec::new();
 
-    let ignore_backup_dir = |e: &DirEntry| {
-        e.path().file_name().and_then(|n| n.to_str())
+    let ignore_backup_dir = |entry: &DirEntry| {
+        entry.path().file_name().and_then(|n| n.to_str())
             != Some(crate::BACKUP_DIR_NAME)
     };
 
@@ -187,15 +187,15 @@ pub fn collect_images(
             accu.push(Image {
                 path: RelAbs::from_path(workspace, path)?,
                 format,
-                extra: BaseSeqExt::try_from(path)?.tap(|f| debug!(?f)),
+                extra: BaseSeqExt::try_from(path)?.tap(|seq| debug!(?seq)),
             });
         } else {
             debug!("Unsupported or invalid image format, ignored");
         }
     }
-    accu.sort_by(|a, b| {
-        let a_path = a.path.original_path();
-        let b_path = b.path.original_path();
+    accu.sort_by(|left, right| {
+        let a_path = left.path.original_path();
+        let b_path = right.path.original_path();
         natord::compare(
             &b_path.to_string_lossy(),
             &a_path.to_string_lossy(),
@@ -290,57 +290,57 @@ mod tests {
 
     #[test]
     fn filename() {
-        let f = BaseSeqExt::from_str(".hide");
-        f.unwrap_err();
+        let seq = BaseSeqExt::from_str(".hide");
+        seq.unwrap_err();
 
-        let f = BaseSeqExt::from_str("raw");
-        f.unwrap_err();
+        let seq = BaseSeqExt::from_str("raw");
+        seq.unwrap_err();
 
-        let f = BaseSeqExt::from_str("example.123.jpg").unwrap();
-        assert_eq!(f.base, "example");
-        assert_eq!(f.seq, Some(NonZeroU64::new(123).unwrap()));
-        assert_eq!(f.ext, Some(".jpg".into()));
+        let seq = BaseSeqExt::from_str("example.123.jpg").unwrap();
+        assert_eq!(seq.base, "example");
+        assert_eq!(seq.seq, Some(NonZeroU64::new(123).unwrap()));
+        assert_eq!(seq.ext, Some(".jpg".into()));
 
-        let f = BaseSeqExt::from_str("base.2.png").unwrap();
-        assert_eq!(f.base, "base");
-        assert_eq!(f.seq, Some(NonZeroU64::new(2).unwrap()));
-        assert_eq!(f.ext, Some(".png".into()));
+        let seq = BaseSeqExt::from_str("base.2.png").unwrap();
+        assert_eq!(seq.base, "base");
+        assert_eq!(seq.seq, Some(NonZeroU64::new(2).unwrap()));
+        assert_eq!(seq.ext, Some(".png".into()));
 
-        let f = BaseSeqExt::from_str("long.3.doc.txt").unwrap();
-        assert_eq!(f.base, "long");
-        assert_eq!(f.seq, Some(NonZeroU64::new(3).unwrap()));
-        assert_eq!(f.ext, Some(".doc.txt".into()));
+        let seq = BaseSeqExt::from_str("long.3.doc.txt").unwrap();
+        assert_eq!(seq.base, "long");
+        assert_eq!(seq.seq, Some(NonZeroU64::new(3).unwrap()));
+        assert_eq!(seq.ext, Some(".doc.txt".into()));
 
-        let f = BaseSeqExt::from_str("abc.1b.2.docx").unwrap();
-        assert_eq!(f.base, "abc.1b");
-        assert_eq!(f.seq, Some(NonZeroU64::new(2).unwrap()));
-        assert_eq!(f.ext, Some(".docx".into()));
+        let seq = BaseSeqExt::from_str("abc.1b.2.docx").unwrap();
+        assert_eq!(seq.base, "abc.1b");
+        assert_eq!(seq.seq, Some(NonZeroU64::new(2).unwrap()));
+        assert_eq!(seq.ext, Some(".docx".into()));
 
         // Test filename with only base and seq
-        let f = BaseSeqExt::from_str("a.123").unwrap();
-        assert_eq!(f.base, "a");
-        assert_eq!(f.seq, Some(NonZeroU64::new(123).unwrap()));
-        assert_eq!(f.ext, None);
+        let seq = BaseSeqExt::from_str("a.123").unwrap();
+        assert_eq!(seq.base, "a");
+        assert_eq!(seq.seq, Some(NonZeroU64::new(123).unwrap()));
+        assert_eq!(seq.ext, None);
 
         // Test basic inc seq
-        let f = BaseSeqExt::from_str("some.2.yo").unwrap();
-        let f = f.increment_seq();
-        assert_eq!(f.seq, Some(NonZeroU64::new(3).unwrap()));
+        let seq = BaseSeqExt::from_str("some.2.yo").unwrap();
+        let seq = seq.increment_seq();
+        assert_eq!(seq.seq, Some(NonZeroU64::new(3).unwrap()));
 
         //
         // Test increment None seq
         //
-        let f = BaseSeqExt::from_str("a.b").unwrap();
-        assert_eq!(f.seq, None);
-        let f = f.increment_seq();
-        assert_eq!(f.seq, Some(NonZeroU64::new(1).unwrap()));
+        let seq = BaseSeqExt::from_str("a.b").unwrap();
+        assert_eq!(seq.seq, None);
+        let seq = seq.increment_seq();
+        assert_eq!(seq.seq, Some(NonZeroU64::new(1).unwrap()));
 
         //
         // Test filenames which contain numbers
         //
-        let f = BaseSeqExt::from_str("124.png").unwrap();
-        assert_eq!(f.base, "124");
-        assert_eq!(f.seq, None);
-        assert_eq!(f.ext, Some(".png".into()));
+        let seq = BaseSeqExt::from_str("124.png").unwrap();
+        assert_eq!(seq.base, "124");
+        assert_eq!(seq.seq, None);
+        assert_eq!(seq.ext, Some(".png".into()));
     }
 }

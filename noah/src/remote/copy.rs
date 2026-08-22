@@ -13,15 +13,15 @@ use tracing::{debug, error, info};
 use super::{RemoteHost, SshConfig, get_flake_flags, get_nix_sshopts_env};
 
 #[derive(Debug, Clone, Copy)]
-enum CopyDirection<'a> {
-    FromRemote(&'a RemoteHost),
+enum CopyDirection<'host> {
+    FromRemote(&'host RemoteHost),
     ToRemote {
-        host: &'a RemoteHost,
+        host: &'host RemoteHost,
         use_substitutes: bool,
     },
     BetweenRemotes {
-        from_host: &'a RemoteHost,
-        to_host: &'a RemoteHost,
+        from_host: &'host RemoteHost,
+        to_host: &'host RemoteHost,
         use_substitutes: bool,
     },
 }

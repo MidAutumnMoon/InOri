@@ -39,9 +39,9 @@ pub struct OptionSearchResult {
 }
 
 #[derive(Debug, Serialize)]
-pub struct JsonOutput<'a, T> {
-    pub query: &'a str,
-    pub channel: &'a str,
+pub struct JsonOutput<'data, T> {
+    pub query: &'data str,
+    pub channel: &'data str,
     pub elapsed_ms: u128,
-    pub results: &'a [T],
+    pub results: &'data [T],
 }

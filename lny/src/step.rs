@@ -834,13 +834,13 @@ mod test {
                 .tap(|it| it.touch().unwrap());
             let dst = dir.child(make_random_str!());
 
-            let s = make_symlink!(
+            let symlink = make_symlink!(
                 src.to_str().unwrap(),
                 dst.to_str().unwrap()
             );
-            let s = Step::Create { new_symlink: s };
+            let symlink = Step::Create { new_symlink: symlink };
 
-            s.execute().unwrap();
+            symlink.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
             assert_eq!(dst.read_link().unwrap(), src.path());
@@ -927,12 +927,12 @@ mod test {
         {
             let new_symlink = make_symlink!("/yjay", "/ann");
             let old_symlink = make_symlink!("/yjay", "/buffoon");
-            let s = Step::Replace {
+            let step = Step::Replace {
                 new_symlink,
                 old_symlink,
             };
             assert!({
-                let ret = s.execute();
+                let ret = step.execute();
                 ret.is_err()
                     && ret.err().unwrap().to_string().contains("BUG")
             });
@@ -979,7 +979,7 @@ mod test {
                 &old_src.to_str().unwrap(),
                 &dst.to_str().unwrap()
             );
-            let s = Step::Replace {
+            let step = Step::Replace {
                 new_symlink,
                 old_symlink,
             };
@@ -987,7 +987,7 @@ mod test {
             let trdsrc = top.child("trd").tap(|it| it.touch().unwrap());
             symlink(&trdsrc, &dst).unwrap();
 
-            assert!(s.execute().is_err());
+            assert!(step.execute().is_err());
             assert_eq!(dst.read_link().unwrap(), trdsrc.path());
         }
         // 3. subdirs

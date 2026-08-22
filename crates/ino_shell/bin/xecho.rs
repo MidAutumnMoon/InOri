@@ -46,8 +46,8 @@ fn try_main() -> io::Result<()> {
         io::copy(&mut stdin, &mut stdout)?;
     } else if echo_env {
         for key in args {
-            if let Some(v) = std::env::var_os(&key) {
-                w!("{}={}\n", key, v.to_string_lossy());
+            if let Some(value) = std::env::var_os(&key) {
+                w!("{}={}\n", key, value.to_string_lossy());
             }
         }
     } else {

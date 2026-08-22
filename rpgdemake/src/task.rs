@@ -39,7 +39,7 @@ pub fn decrypt(
         "Insufficient data to decode"
     };
     ensure! {
-        content.get(..RPG_HEADER_LEN).is_some_and(|h| h == RPG_HEADER),
+        content.get(..RPG_HEADER_LEN).is_some_and(|header| header == RPG_HEADER),
         "RPG Maker header mismatch"
     };
 
@@ -49,8 +49,8 @@ pub fn decrypt(
 
     match method {
         DecryptAction::Full(key) => {
-            for (b, cell) in key.value.iter().zip(content.iter_mut()) {
-                *cell ^= b;
+            for (byte, cell) in key.value.iter().zip(content.iter_mut()) {
+                *cell ^= byte;
             }
         }
         DecryptAction::Light => {
@@ -88,7 +88,7 @@ pub fn run(
         ProgressStyle::with_template(
             "{spinner:.blue} {pos}/{len} [{wide_bar:.cyan/blue}] {msg}",
         )
-        .map_err(|e| anyhow::anyhow!("invalid progress template: {e}"))?
+        .map_err(|err| anyhow::anyhow!("invalid progress template: {err}"))?
         .progress_chars("█▓░"),
     );
 
@@ -102,16 +102,16 @@ pub fn run(
                 );
                 None
             }
-            Err(e) => {
+            Err(err) => {
                 pb.inc(1);
                 pb.suspend(|| {
                     ceprintln!(
                         fg::Red,
-                        "(err) {}: {e:#}",
+                        "(err) {}: {err:#}",
                         asset.path().display()
                     );
                 });
-                Some(e)
+                Some(err)
             }
         })
         .collect();

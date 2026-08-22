@@ -320,12 +320,12 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
     // Read directory entries
     let entries = match std::fs::read_dir(control_dir) {
         Ok(entries) => entries,
-        Err(e) => {
+        Err(err) => {
             // Directory might not exist if no SSH connections were made
             debug!(
                 "Could not read SSH control directory {}: {}",
                 control_dir.display(),
-                e
+                err
             );
             return;
         }
@@ -359,11 +359,11 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
                         );
                     }
                 }
-                Err(e) => {
+                Err(err) => {
                     tracing::warn!(
                         "Failed to close SSH control socket at {}: {}",
                         path.display(),
-                        e
+                        err
                     );
                 }
             }
@@ -703,11 +703,11 @@ fn get_default_ssh_opts(config: &SshConfig) -> Vec<String> {
 }
 
 /// Shell-quote a string for safe passing through SSH to remote shell.
-fn shell_quote(s: &str) -> String {
+fn shell_quote(word: &str) -> String {
     // Use shlex::try_quote for battle-tested quoting
     // Returns Cow::Borrowed if no quoting needed, Cow::Owned if quoted
-    shlex::try_quote(s).map_or_else(
-        |_| format!("'{}'", s.replace('\'', r"'\''")),
+    shlex::try_quote(word).map_or_else(
+        |_| format!("'{}'", word.replace('\'', r"'\''")),
         std::borrow::Cow::into_owned,
     )
 }
@@ -786,9 +786,9 @@ fn attempt_remote_cleanup(
 
     // Use popen with timeout to avoid hanging on unresponsive hosts
     let mut job = match ssh_cmd.start() {
-        Ok(p) => p,
-        Err(e) => {
-            info!("Failed to execute remote cleanup on '{host}': {e}");
+        Ok(process) => process,
+        Err(err) => {
+            info!("Failed to execute remote cleanup on '{host}': {err}");
             return;
         }
     };
@@ -806,8 +806,8 @@ fn attempt_remote_cleanup(
             info!("Remote cleanup on '{host}' timed out after 5 seconds");
             return;
         }
-        Err(e) => {
-            info!("Error waiting for remote cleanup on '{host}': {e}");
+        Err(err) => {
+            info!("Error waiting for remote cleanup on '{host}': {err}");
             return;
         }
     }
@@ -820,10 +820,10 @@ fn attempt_remote_cleanup(
         } else {
             // Capture stderr for error diagnosis
             let stderr =
-                job.stderr.take().map_or_else(String::new, |mut e| {
-                    let mut s = String::new();
-                    let _ = e.read_to_string(&mut s);
-                    s
+                job.stderr.take().map_or_else(String::new, |mut stderr_reader| {
+                    let mut stderr_text = String::new();
+                    let _ = stderr_reader.read_to_string(&mut stderr_text);
+                    stderr_text
                 });
             let stderr_lower = stderr.to_lowercase();
 
@@ -874,9 +874,9 @@ fn get_flake_flags() -> Vec<&'static str> {
 fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
     extra_args
         .iter()
-        .map(|s| {
-            s.to_str().map(String::from).ok_or_else(|| {
-                report!("Extra argument is not valid UTF-8: {:?}", s)
+        .map(|arg| {
+            arg.to_str().map(String::from).ok_or_else(|| {
+                report!("Extra argument is not valid UTF-8: {:?}", arg)
             })
         })
         .collect::<Result<Vec<_>>>()
@@ -906,7 +906,7 @@ fn run_remote_command(
     debug!("Running remote command on {}: {}", host, args.join(" "));
 
     let quoted_args: Vec<String> =
-        args.iter().map(|s| shell_quote(s)).collect();
+        args.iter().map(|arg| shell_quote(arg)).collect();
     let remote_cmd = quoted_args.join(" ");
     let mut cmd = Exec::cmd("ssh");
     for opt in &ssh_opts {
@@ -1007,11 +1007,11 @@ pub fn validate_closure_remote(
                 missing.push(format!("  - {file} ({description})"));
             }
             Ok(_) => {} // File exists
-            Err(e) => {
+            Err(err) => {
                 bail!(
                     "Failed to check file existence on remote host {}: {}",
                     host,
-                    e
+                    err
                 )
             }
         }
@@ -1564,13 +1564,13 @@ pub fn build_remote(
                     );
                     out_link.is_some()
                 }
-                Err(e) => {
+                Err(err) => {
                     warn!(
                         "Direct copy from {} to {} failed: {}. Will relay through \
              localhost.",
                         build_host.hostname(),
                         target_host.hostname(),
-                        e
+                        err
                     );
                     true
                 }
@@ -1685,7 +1685,7 @@ fn build_on_remote_simple(
     // Build SSH command with stdout capture
     // Quote all arguments for safe shell passing
     let quoted_args: Vec<String> =
-        arg_refs.iter().map(|s| shell_quote(s)).collect();
+        arg_refs.iter().map(|arg| shell_quote(arg)).collect();
     let remote_cmd = quoted_args.join(" ");
 
     let mut ssh_cmd = Exec::cmd("ssh");
@@ -1727,9 +1727,9 @@ fn build_on_remote_simple(
         let stderr = job
             .stderr
             .take()
-            .and_then(|mut e| {
-                let mut s = String::new();
-                e.read_to_string(&mut s).ok().map(|_| s)
+            .and_then(|mut stderr_reader| {
+                let mut stderr_text = String::new();
+                stderr_reader.read_to_string(&mut stderr_text).ok().map(|_| stderr_text)
             })
             .unwrap_or_else(|| String::from("(no stderr)"));
         bail!("Remote command failed: {}", stderr);
@@ -1781,7 +1781,7 @@ fn build_on_remote_with_nom(
     // Build SSH command
     // Quote all arguments for safe shell passing
     let quoted_remote: Vec<String> =
-        arg_refs.iter().map(|s| shell_quote(s)).collect();
+        arg_refs.iter().map(|arg| shell_quote(arg)).collect();
     let remote_cmd = quoted_remote.join(" ");
 
     let mut ssh_cmd = Exec::cmd("ssh");
@@ -1820,9 +1820,9 @@ fn build_on_remote_with_nom(
                 debug!("Interrupt detected during build with nom");
                 // Kill remaining local processes. This will cause SSH to terminate
                 // the remote command automatically
-                for p in &job.processes {
-                    let _ = p.kill();
-                    let _ = p.wait(); // reap zombie
+                for process in &job.processes {
+                    let _ = process.kill();
+                    let _ = process.wait(); // reap zombie
                 }
 
                 // Attempt remote cleanup if enabled
@@ -1899,31 +1899,31 @@ mod tests {
 
     proptest! {
       #[test]
-      fn hostname_always_returns_suffix_after_last_at(s in "\\PC*") {
+      fn hostname_always_returns_suffix_after_last_at(hostname in "\\PC*") {
           let host = RemoteHost {
-            host:         s.clone(),
+            host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
-          let expected = s.rsplit('@').next().unwrap();
+          let expected = hostname.rsplit('@').next().unwrap();
           prop_assert_eq!(host.hostname(), expected);
       }
 
       #[test]
-      fn hostname_is_substring_of_host(s in "\\PC*") {
+      fn hostname_is_substring_of_host(hostname in "\\PC*") {
           let host = RemoteHost {
-            host:         s.clone(),
+            host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
-          prop_assert!(s.contains(host.hostname()));
+          prop_assert!(hostname.contains(host.hostname()));
       }
 
       #[test]
-      fn hostname_no_at_means_whole_string(s in "[^@]*") {
+      fn hostname_no_at_means_whole_string(hostname in "[^@]*") {
           let host = RemoteHost {
-            host:         s.clone(),
+            host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
-          prop_assert_eq!(host.hostname(), s);
+          prop_assert_eq!(host.hostname(), hostname);
       }
 
       #[test]

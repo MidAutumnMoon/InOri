@@ -36,8 +36,8 @@ use crate::RelAbs;
 use crate::collect_images;
 
 /// Type alias for the transcoder work closure passed through the pipeline.
-type Work<'a> =
-    dyn Fn(&Image, &Path) -> anyhow::Result<Vec<String>> + Sync + 'a;
+type Work<'data> =
+    dyn Fn(&Image, &Path) -> anyhow::Result<Vec<String>> + Sync + 'data;
 
 /// Internal flag shared across worker threads: once one task fails,
 /// remaining tasks observe `Cancel` and skip themselves.
@@ -72,12 +72,12 @@ fn run_work(
 ) -> Option<Vec<String>> {
     match exec(image, temp) {
         Ok(w) => Some(w),
-        Err(e) => {
+        Err(err) => {
             fail(
                 permit,
                 bar,
                 format!(
-                    "Failed to process {}: {e}",
+                    "Failed to process {}: {err}",
                     image.path.original_path().display()
                 ),
             );
@@ -96,23 +96,23 @@ fn backup(
 ) -> Option<()> {
     let backup_path = image.path.backup_path_structure(backup_dir);
     if let Some(backup_parent) = backup_path.parent()
-        && let Err(e) = create_dir_all(backup_parent)
+        && let Err(err) = create_dir_all(backup_parent)
     {
         fail(
             permit,
             bar,
             format!(
-                "Failed to create backup dir {}: {e}",
+                "Failed to create backup dir {}: {err}",
                 backup_parent.display()
             ),
         );
         return None;
     }
-    if let Err(e) = rename(input_path, &backup_path) {
+    if let Err(err) = rename(input_path, &backup_path) {
         fail(
             permit,
             bar,
-            format!("Failed to backup {}: {e}", input_path.display()),
+            format!("Failed to backup {}: {err}", input_path.display()),
         );
         return None;
     }
@@ -173,13 +173,13 @@ fn process_one(
 
     let temp_output =
         match NamedTempFile::with_suffix(format!(".{output_ext}")) {
-            Ok(t) => t,
-            Err(e) => {
+            Ok(temp) => temp,
+            Err(err) => {
                 fail(
                     permit,
                     bar,
                     format!(
-                        "Failed to create tempfile for {}: {e}",
+                        "Failed to create tempfile for {}: {err}",
                         input_path.display()
                     ),
                 );
@@ -201,12 +201,12 @@ fn process_one(
 
     let dest_path = resolve_dest(&dest_dir, image, output_ext);
 
-    if let Err(e) = std::fs::copy(temp_output.path(), &dest_path) {
+    if let Err(err) = std::fs::copy(temp_output.path(), &dest_path) {
         fail(
             permit,
             bar,
             format!(
-                "Failed to copy output to {}: {e}",
+                "Failed to copy output to {}: {err}",
                 dest_path.display()
             ),
         );

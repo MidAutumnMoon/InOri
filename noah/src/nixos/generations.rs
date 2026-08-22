@@ -144,7 +144,7 @@ pub fn get_closure_sizes_batch(
 
     let store_paths: Vec<PathBuf> = generation_dirs
         .iter()
-        .map(|p| p.read_link().unwrap_or_else(|_| p.to_path_buf()))
+        .map(|path| path.read_link().unwrap_or_else(|_| path.to_path_buf()))
         .collect();
 
     let output = match NixCommand::new(CommandKind::PathInfo)
@@ -153,9 +153,9 @@ pub fn get_closure_sizes_batch(
         .output()
     {
         Ok(out) => out,
-        Err(e) => {
+        Err(err) => {
             debug!(
-                "get_closure_sizes_batch: failed to run nix path-info: {e:?}"
+                "get_closure_sizes_batch: failed to run nix path-info: {err:?}"
             );
             return HashMap::new();
         }
@@ -168,9 +168,9 @@ pub fn get_closure_sizes_batch(
     >(&output_str)
     {
         Ok(j) => j,
-        Err(e) => {
+        Err(err) => {
             debug!(
-                "get_closure_sizes_batch: failed to parse JSON: {e} output: \
+                "get_closure_sizes_batch: failed to parse JSON: {err} output: \
            {output_str}"
             );
             return HashMap::new();
@@ -202,8 +202,8 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
         .output()
     {
         Ok(out) => out,
-        Err(e) => {
-            debug!("get_closure_size: failed to run nix path-info: {e:?}");
+        Err(err) => {
+            debug!("get_closure_size: failed to run nix path-info: {err:?}");
             return "Unknown".to_owned();
         }
     };
@@ -215,9 +215,9 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
     >(&output_str)
     {
         Ok(j) => j,
-        Err(e) => {
+        Err(err) => {
             debug!(
-                "get_closure_size: failed to parse JSON: {e} output: {output_str}"
+                "get_closure_size: failed to parse JSON: {err} output: {output_str}"
             );
             return "Unknown".to_owned();
         }
@@ -312,8 +312,8 @@ pub fn describe(
                 .output()
                 .ok()
                 .and_then(|output| String::from_utf8(output.stdout).ok())
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty())
+                .map(|revision| revision.trim().to_owned())
+                .filter(|revision| !revision.is_empty())
         } else {
             None
         }
@@ -326,7 +326,7 @@ pub fn describe(
                 .map(|entries| {
                     entries
                         .filter_map(std::result::Result::ok)
-                        .filter_map(|e| e.file_name().into_string().ok())
+                        .filter_map(|entry| entry.file_name().into_string().ok())
                         .collect::<Vec<String>>()
                 })
                 .unwrap_or_default();
@@ -339,7 +339,7 @@ pub fn describe(
     // Check if this generation is the current one
     let Some(run_current_target) = fs::read_link("/run/current-system")
         .ok()
-        .and_then(|p| fs::canonicalize(p).ok())
+        .and_then(|path| fs::canonicalize(path).ok())
     else {
         return Some(GenerationInfo {
             number: generation_number,
@@ -355,7 +355,7 @@ pub fn describe(
 
     let Some(gen_store_path) = fs::read_link(generation_dir)
         .ok()
-        .and_then(|p| fs::canonicalize(p).ok())
+        .and_then(|path| fs::canonicalize(path).ok())
     else {
         return Some(GenerationInfo {
             number: generation_number,
@@ -432,8 +432,8 @@ pub fn print_info(
     // Conditionally hide columns if they are empty for all generations
     let has_confrev = generations
         .iter()
-        .any(|g| g.configuration_revision.is_some());
-    let has_spec = generations.iter().any(|g| g.specialisations.is_some());
+        .any(|generation| generation.configuration_revision.is_some());
+    let has_spec = generations.iter().any(|generation| generation.specialisations.is_some());
 
     let visible_fields: Vec<Field> = fields.map_or_else(
         || {
@@ -442,7 +442,7 @@ pub fn print_info(
 
             all_fields
                 .into_iter()
-                .filter(|f| match f {
+                .filter(|field| match field {
                     Confrev => has_confrev,
                     Spec => has_spec,
                     _ => true,
@@ -455,19 +455,19 @@ pub fn print_info(
     // Determine column widths for pretty printing
     let max_nixos_version_len = generations
         .iter()
-        .map(|g| g.nixos_version.len())
+        .map(|generation| generation.nixos_version.len())
         .max()
         .unwrap_or(22); // length of version + date + rev, assumes no tags
 
     let max_kernel_len = generations
         .iter()
-        .map(|g| g.kernel_version.len())
+        .map(|generation| generation.kernel_version.len())
         .max()
         .unwrap_or(12); // arbitrary value
 
     let max_generation_no_len = generations
         .iter()
-        .map(|g| g.number.to_string().len())
+        .map(|generation| generation.number.to_string().len())
         .max()
         .unwrap_or(5);
 
@@ -483,8 +483,8 @@ pub fn print_info(
 
     let header = visible_fields
         .iter()
-        .map(|f| {
-            let (name, width) = f.column_info(widths);
+        .map(|field| {
+            let (name, width) = field.column_info(widths);
             format!("{name:<width$}")
         })
         .collect::<Vec<String>>()
@@ -502,16 +502,16 @@ pub fn print_info(
             generation.specialisations.as_ref().map(|specs| {
                 specs
                     .iter()
-                    .map(|s| format!("*{s}"))
+                    .map(|name| format!("*{name}"))
                     .collect::<Vec<String>>()
                     .join(" ")
             });
 
         let row: String = visible_fields
             .iter()
-            .map(|f| {
-                let (_, width) = f.column_info(widths);
-                let cell_content = match f {
+            .map(|field| {
+                let (_, width) = field.column_info(widths);
+                let cell_content = match field {
                     Field::Id => {
                         format!(
                             "{}{}",

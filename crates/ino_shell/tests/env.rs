@@ -177,20 +177,20 @@ fn check_env(
 ) {
     let mut failed = false;
     let mut seen = env.clone();
-    for &(k, val) in wanted_env {
-        match (seen.remove(k), val) {
+    for &(key, val) in wanted_env {
+        match (seen.remove(key), val) {
             (Some(env_v), Some(want_v)) if env_v == want_v => {}
             (None, None) => {}
             (have, want) => {
                 eprintln!(
-                    "mismatch on env var {k:?}: have `{have:?}`, want `{want:?}` "
+                    "mismatch on env var {key:?}: have `{have:?}`, want `{want:?}` "
                 );
                 failed = true;
             }
         }
     }
-    for (k, v) in seen {
-        eprintln!("Unexpected env key {k:?} (value: {v:?})");
+    for (key, value) in seen {
+        eprintln!("Unexpected env key {key:?} (value: {value:?})");
         failed = true;
     }
     assert!(

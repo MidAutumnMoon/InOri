@@ -70,8 +70,8 @@ pub fn ensure_ssh_key_login(ssh_config: &SshConfig) -> Result<()> {
 /// Returns an error if:
 /// - No hostname is supplied and the system hostname cannot be retrieved
 pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
-    if let Some(h) = supplied_hostname {
-        return Ok(h);
+    if let Some(hostname) = supplied_hostname {
+        return Ok(hostname);
     }
 
     nix::unistd::gethostname()

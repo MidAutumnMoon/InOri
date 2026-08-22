@@ -114,16 +114,16 @@ impl FromArgMatches for InstallableArgs {
         if let Some(i) = installable {
             let canonical = fs::canonicalize(i);
 
-            if let Ok(p) = canonical
-                && p.starts_with("/nix/store")
+            if let Ok(path) = canonical
+                && path.starts_with("/nix/store")
             {
                 return Ok(Self::Specified(Installable::Store {
-                    path: p,
+                    path: path,
                 }));
             }
         }
 
-        if let Some(f) = file {
+        if let Some(file_path) = file {
             let attribute =
                 parse_attribute(installable.map_or("", String::as_str))
                     .map_err(|err| {
@@ -133,12 +133,12 @@ impl FromArgMatches for InstallableArgs {
                         )
                     })?;
             return Ok(Self::Specified(Installable::File {
-                path: PathBuf::from(f),
+                path: PathBuf::from(file_path),
                 attribute,
             }));
         }
 
-        if let Some(e) = expr {
+        if let Some(expression) = expr {
             let attribute =
                 parse_attribute(installable.map_or("", String::as_str))
                     .map_err(|err| {
@@ -148,7 +148,7 @@ impl FromArgMatches for InstallableArgs {
                         )
                     })?;
             return Ok(Self::Specified(Installable::Expression {
-                expression: e.clone(),
+                expression: expression.clone(),
                 attribute,
             }));
         }
@@ -235,17 +235,17 @@ Nix accepts various kinds of installables:
     }
 }
 
-fn parse_attribute(s: &str) -> Result<Vec<String>, &'static str> {
+fn parse_attribute(attribute: &str) -> Result<Vec<String>, &'static str> {
     let mut res = Vec::new();
 
-    if s.is_empty() {
+    if attribute.is_empty() {
         return Ok(res);
     }
 
     let mut in_quote = false;
     let mut elem = String::new();
 
-    let mut chars = s.chars();
+    let mut chars = attribute.chars();
     while let Some(char) = chars.next() {
         match char {
             '.' => {
@@ -515,11 +515,11 @@ where
             res.push('.');
         }
 
-        let s = elem.as_ref();
+        let segment = elem.as_ref();
 
-        if s.is_empty() || s.contains(['.', '"', '\\']) {
+        if segment.is_empty() || segment.contains(['.', '"', '\\']) {
             res.push('"');
-            for char in s.chars() {
+            for char in segment.chars() {
                 match char {
                     '"' | '\\' => {
                         res.push('\\');
@@ -530,7 +530,7 @@ where
             }
             res.push('"');
         } else {
-            res.push_str(s);
+            res.push_str(segment);
         }
     }
 
@@ -598,14 +598,14 @@ fn resolve_fallback_flake_dir(
 
     // Resolve the directory path
     let resolved_dir = match fs::canonicalize(dir) {
-        Ok(p) => p,
-        Err(e) => {
-            return match e.kind() {
+        Ok(path) => path,
+        Err(err) => {
+            return match err.kind() {
                 ErrorKind::NotFound => Err(FallbackError::NotFound),
                 ErrorKind::PermissionDenied => {
                     Err(FallbackError::PermissionDenied(dir.to_path_buf()))
                 }
-                _ => Err(FallbackError::Io(e)),
+                _ => Err(FallbackError::Io(err)),
             };
         }
     };
@@ -614,14 +614,14 @@ fn resolve_fallback_flake_dir(
     if dir_is_symlink {
         let flake_path = resolved_dir.join("flake.nix");
         return match fs::metadata(&flake_path) {
-            Ok(m) if m.is_file() => Ok(resolved_dir),
+            Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(e) => match e.kind() {
+            Err(err) => match err.kind() {
                 ErrorKind::NotFound => Err(FallbackError::NotFound),
                 ErrorKind::PermissionDenied => {
                     Err(FallbackError::PermissionDenied(flake_path))
                 }
-                _ => Err(FallbackError::Io(e)),
+                _ => Err(FallbackError::Io(err)),
             },
         };
     }
@@ -641,25 +641,25 @@ fn resolve_fallback_flake_dir(
                         Ok(parent.to_path_buf())
                     })
             }
-            Err(e) => match e.kind() {
+            Err(err) => match err.kind() {
                 ErrorKind::NotFound => Err(FallbackError::NotFound),
                 ErrorKind::PermissionDenied => {
                     Err(FallbackError::PermissionDenied(flake_path))
                 }
-                _ => Err(FallbackError::Io(e)),
+                _ => Err(FallbackError::Io(err)),
             },
         }
     } else {
         // flake.nix is a real file, check it exists
         match fs::metadata(&flake_path) {
-            Ok(m) if m.is_file() => Ok(resolved_dir),
+            Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(e) => match e.kind() {
+            Err(err) => match err.kind() {
                 ErrorKind::NotFound => Err(FallbackError::NotFound),
                 ErrorKind::PermissionDenied => {
                     Err(FallbackError::PermissionDenied(flake_path))
                 }
-                _ => Err(FallbackError::Io(e)),
+                _ => Err(FallbackError::Io(err)),
             },
         }
     }
@@ -715,10 +715,10 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
                 FALLBACK_HELP_HINT
             ))
         }
-        Err(FallbackError::Io(e)) => Err(rootcause::report!(
+        Err(FallbackError::Io(err)) => Err(rootcause::report!(
             "I/O error accessing {}: {}\n\n{}",
             default_dir.display(),
-            e,
+            err,
             FALLBACK_HELP_HINT
         )),
         Err(FallbackError::NotFound) => Err(rootcause::report!(

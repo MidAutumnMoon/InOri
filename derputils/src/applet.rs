@@ -47,7 +47,7 @@ pub const APPLETS: &[Applet] = &[
 ];
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
-    APPLETS.iter().find(|a| a.name == name)
+    APPLETS.iter().find(|applet| applet.name == name)
 }
 
 /// Usage text listing all applets.
@@ -56,7 +56,7 @@ pub fn usage() -> String {
     use std::fmt::Write as _;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
-    let width = APPLETS.iter().map(|a| a.name.len()).max().unwrap_or(0);
+    let width = APPLETS.iter().map(|applet| applet.name.len()).max().unwrap_or(0);
     for applet in APPLETS {
         let _ =
             writeln!(out, "  {:<width$}  {}", applet.name, applet.descr);
@@ -66,11 +66,11 @@ pub fn usage() -> String {
 
 /// What `main` should do after inspecting `argv`.
 #[derive(Debug)]
-pub enum Selection<'a> {
+pub enum Selection<'argv> {
     /// Run `applet` with `args`.
     Run {
-        applet: &'a Applet,
-        args: &'a [OsString],
+        applet: &'argv Applet,
+        args: &'argv [OsString],
     },
     /// Print usage to stdout, exit 0.
     Help,
@@ -92,10 +92,10 @@ fn resolve_applet(name: String, args: &[OsString]) -> Selection<'_> {
 /// Multicall dispatch: pick the applet from `argv[0]`, or from the first
 /// argument when invoked under the dispatcher name.
 #[must_use]
-pub fn select<'a>(
-    invoked_as: &'a OsStr,
-    args: &'a [OsString],
-) -> Selection<'a> {
+pub fn select<'argv>(
+    invoked_as: &'argv OsStr,
+    args: &'argv [OsString],
+) -> Selection<'argv> {
     let basename = Path::new(invoked_as).file_name().map_or_else(
         || BIN_NAME.to_owned(),
         |n| n.to_string_lossy().into_owned(),

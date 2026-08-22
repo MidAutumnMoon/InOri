@@ -224,10 +224,10 @@ impl args::CleanMode {
 
         // Use mutation to raise errors as they come
         let mut profiles_tagged = ProfilesTagged::new();
-        for p in profiles {
+        for path in profiles {
             profiles_tagged.insert(
-                p.clone(),
-                cleanable_generations(&p, args.keep, args.keep_since)?,
+                path.clone(),
+                cleanable_generations(&path, args.keep, args.keep_since)?,
             );
         }
 
@@ -250,13 +250,13 @@ impl args::CleanMode {
                 .follow_links(false)
                 .same_file_system(!args.cross_filesystems)
                 .into_iter()
-                .filter_map(|e| {
-                    e.map_err(|err| {
+                .filter_map(|entry| {
+                    entry.map_err(|err| {
                         warn!(?err, "gcroot walk error");
                     })
                     .ok()
                 })
-                .filter(|e| e.path().is_symlink())
+                .filter(|entry| entry.path().is_symlink())
             {
                 let src = entry.path().to_path_buf();
                 let dst = src
@@ -552,12 +552,12 @@ where
         Ok(read_dir) => {
             for entry in read_dir {
                 match entry {
-                    Ok(e) => {
-                        let path = e.path();
+                    Ok(err) => {
+                        let path = err.path();
 
                         if let Ok(dst) = path.read_link() {
-                            let name = if let Some(f) = dst.file_name() {
-                                f.to_string_lossy()
+                            let name = if let Some(file_name) = dst.file_name() {
+                                file_name.to_string_lossy()
                             } else {
                                 warn!(
                                     "Failed to get filename for {dst:?}"

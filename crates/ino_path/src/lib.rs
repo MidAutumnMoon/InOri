@@ -44,9 +44,9 @@ impl PathExt for Path {
     #[inline]
     fn is_dir_no_traverse(&self) -> IoResult<bool> {
         match self.symlink_metadata() {
-            Ok(m) => Ok(m.is_dir()),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
-            Err(e) => Err(e),
+            Ok(metadata) => Ok(metadata.is_dir()),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err),
         }
     }
 
@@ -79,14 +79,14 @@ mod test {
     #[test]
     fn try_exists_no_traverse() {
         let top = make_tempdir!();
-        let p = top.child("p");
+        let path = top.child("p");
 
-        assert!(!p.try_exists_no_traverse().unwrap());
-        p.touch().unwrap();
-        assert!(p.try_exists_no_traverse().unwrap());
-        remove_file(&p).unwrap();
-        symlink("/sys/bbbbbbbroken", &p).unwrap();
-        assert!(p.try_exists_no_traverse().unwrap());
+        assert!(!path.try_exists_no_traverse().unwrap());
+        path.touch().unwrap();
+        assert!(path.try_exists_no_traverse().unwrap());
+        remove_file(&path).unwrap();
+        symlink("/sys/bbbbbbbroken", &path).unwrap();
+        assert!(path.try_exists_no_traverse().unwrap());
     }
 
     #[test]

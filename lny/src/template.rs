@@ -187,15 +187,15 @@ mod test {
             "{{ what-no-kidding }}",
         ];
 
-        for t in tmpls_to_ok {
-            let p = RenderedPath::from_unrendered(t);
-            trace!(?p);
-            p.unwrap();
+        for template in tmpls_to_ok {
+            let path = RenderedPath::from_unrendered(template);
+            trace!(?path);
+            path.unwrap();
         }
-        for t in tmpls_to_err {
-            let p = RenderedPath::from_unrendered(t);
-            trace!(?p);
-            p.unwrap_err();
+        for template in tmpls_to_err {
+            let path = RenderedPath::from_unrendered(template);
+            trace!(?path);
+            path.unwrap_err();
         }
     }
 }

@@ -69,13 +69,13 @@ fn offset(pixel_count: usize, key: f64) -> usize {
 }
 
 /// Greatest common divisor (Euclidean algorithm).
-fn gcd(mut a: usize, mut b: usize) -> usize {
-    while b != 0 {
-        let t = b;
-        b = a % b;
-        a = t;
+fn gcd(mut left: usize, mut right: usize) -> usize {
+    while right != 0 {
+        let temp = right;
+        right = left % right;
+        left = temp;
     }
-    a
+    left
 }
 
 /// Builds the Gilbert curve permutation of all pixel indices over a
@@ -86,12 +86,12 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 #[must_use]
 pub fn gilbert2d(width: u32, height: u32) -> Vec<u32> {
     let mut curve = Vec::with_capacity(width as usize * height as usize);
-    let (w, h) = (width as i32, height as i32);
+    let (width_i, height_i) = (width as i32, height as i32);
 
-    if w >= h {
-        generate2d(&mut curve, width, Pt(0, 0), Pt(w, 0), Pt(0, h));
+    if width_i >= height_i {
+        generate2d(&mut curve, width, Pt(0, 0), Pt(width_i, 0), Pt(0, height_i));
     } else {
-        generate2d(&mut curve, width, Pt(0, 0), Pt(0, h), Pt(w, 0));
+        generate2d(&mut curve, width, Pt(0, 0), Pt(0, height_i), Pt(width_i, 0));
     }
     curve
 }
@@ -258,8 +258,8 @@ pub fn scramble_rgba(
 /// Convenience wrapper over [`scramble_rgba`] that takes an
 /// `image::RgbaImage` directly.
 pub fn scramble_image(img: &mut RgbaImage, key: f64, encrypt: bool) {
-    let (w, h) = img.dimensions();
-    scramble_rgba(img.as_mut(), w, h, key, encrypt);
+    let (width, height) = img.dimensions();
+    scramble_rgba(img.as_mut(), width, height, key, encrypt);
 }
 
 #[cfg(test)]
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn gilbert_is_permutation() {
-        for (w, h) in [
+        for (width, height) in [
             (1, 1),
             (2, 2),
             (3, 5),
@@ -279,15 +279,15 @@ mod tests {
             (9, 16),
             (64, 32),
         ] {
-            let p = gilbert2d(w, h);
-            assert_eq!(p.len(), (w as usize) * (h as usize), "{w}x{h}");
+            let points = gilbert2d(width, height);
+            assert_eq!(points.len(), (width as usize) * (height as usize), "{width}x{height}");
             // Use a HashSet to verify permutation without indexing.
             let mut seen = std::collections::HashSet::new();
-            for &idx in &p {
-                assert!(idx < p.len() as u32, "{w}x{h}: idx {idx} OOB");
-                assert!(seen.insert(idx), "{w}x{h}: dup {idx}");
+            for &idx in &points {
+                assert!(idx < points.len() as u32, "{width}x{height}: idx {idx} OOB");
+                assert!(seen.insert(idx), "{width}x{height}: dup {idx}");
             }
-            assert_eq!(seen.len(), p.len(), "{w}x{h}: missing indices");
+            assert_eq!(seen.len(), points.len(), "{width}x{height}: missing indices");
         }
     }
 
@@ -324,31 +324,31 @@ mod tests {
         ];
         let keys = [0.0_f64, 0.5, 1.0, 2.0, 3.7];
 
-        for &(w, h) in &sizes {
-            let n = (w as usize) * (h as usize);
+        for &(width, height) in &sizes {
+            let count = (width as usize) * (height as usize);
 
             // ── Raw buffer round-trip ───────────────────────────────
             let original: Vec<u8> =
-                (0..(n * 4) as u32).map(|v| v as u8).collect();
+                (0..(count * 4) as u32).map(|byte| byte as u8).collect();
             for &key in &keys {
                 let mut buf = original.clone();
-                scramble_rgba(&mut buf, w, h, key, true);
-                if key != 0.0 && n > 1 {
+                scramble_rgba(&mut buf, width, height, key, true);
+                if key != 0.0 && count > 1 {
                     assert_ne!(
                         buf, original,
-                        "{w}x{h} key={key} did not change"
+                        "{width}x{height} key={key} did not change"
                     );
                 }
-                scramble_rgba(&mut buf, w, h, key, false);
+                scramble_rgba(&mut buf, width, height, key, false);
                 assert_eq!(
                     buf, original,
-                    "{w}x{h} key={key} round-trip failed",
+                    "{width}x{height} key={key} round-trip failed",
                 );
             }
 
             // ── PNG encode/decode round-trip ────────────────────────
             let orig_img: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                ImageBuffer::from_fn(w, h, |x, y| {
+                ImageBuffer::from_fn(width, height, |x, y| {
                     Rgba([
                         (x * 7) as u8,
                         (y * 11) as u8,
@@ -378,7 +378,7 @@ mod tests {
                 assert_eq!(
                     restored.as_raw(),
                     orig_img.as_raw(),
-                    "{w}x{h} key={key} PNG round-trip failed",
+                    "{width}x{height} key={key} PNG round-trip failed",
                 );
             }
         }

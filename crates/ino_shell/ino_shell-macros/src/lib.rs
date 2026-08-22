@@ -106,11 +106,11 @@ fn splat_concat_error(name: &str) -> String {
 /// declarative `cmd!` macro passes the literal through as such a group.
 fn into_literal(ts: &TokenTree) -> Option<Literal> {
     match ts {
-        TokenTree::Literal(l) => Some(l.clone()),
-        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
-            let mut it = g.stream().into_iter();
+        TokenTree::Literal(literal) => Some(literal.clone()),
+        TokenTree::Group(group) if group.delimiter() == Delimiter::None => {
+            let mut it = group.stream().into_iter();
             match (it.next(), it.next()) {
-                (Some(TokenTree::Literal(l)), None) => Some(l),
+                (Some(TokenTree::Literal(literal)), None) => Some(literal),
                 _ => None,
             }
         }
@@ -195,9 +195,9 @@ fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token>> + '_ {
 
 /// Classifies the token at the start of `s`, returning the unconsumed suffix,
 /// its normalized text (quotes and braces already stripped), and its kind.
-fn next_token(s: &str) -> Result<(&str, String, TokenKind)> {
+fn next_token(input: &str) -> Result<(&str, String, TokenKind)> {
     // `{name}` or `{name...}` — whitespace inside the braces is tolerated.
-    if let Some(after_open) = s.strip_prefix('{') {
+    if let Some(after_open) = input.strip_prefix('{') {
         let (inner, remaining) = after_open
             .split_once('}')
             .ok_or_else(|| "unclosed `{` in command".to_owned())?;
@@ -211,7 +211,7 @@ fn next_token(s: &str) -> Result<(&str, String, TokenKind)> {
     }
 
     // `'...'` — a quoted word; interpolation is disabled inside.
-    if let Some(after_open) = s.strip_prefix('\'') {
+    if let Some(after_open) = input.strip_prefix('\'') {
         let (text, remaining) = after_open
             .split_once('\'')
             .ok_or_else(|| "unclosed `'` in command".to_owned())?;
@@ -219,14 +219,14 @@ fn next_token(s: &str) -> Result<(&str, String, TokenKind)> {
     }
 
     // A bare word, running up to the next whitespace, quote or interpolation.
-    let split_index = s
+    let split_index = input
         .find(|character: char| {
             character.is_ascii_whitespace()
                 || character == '\''
                 || character == '{'
         })
-        .unwrap_or(s.len());
-    let (word, remaining) = s.split_at(split_index);
+        .unwrap_or(input.len());
+    let (word, remaining) = input.split_at(split_index);
     Ok((remaining, word.to_owned(), TokenKind::Word))
 }
 
@@ -281,8 +281,8 @@ impl Fragment {
 ///
 /// Unlike [`str::trim_matches`], at most one quote is removed from each side,
 /// so `""` becomes an empty string and `"""` becomes `"`.
-fn strip_outer_quotes(s: &str) -> &str {
-    s.strip_circumfix('"', '"').unwrap_or(s)
+fn strip_outer_quotes(input: &str) -> &str {
+    input.strip_circumfix('"', '"').unwrap_or(input)
 }
 
 /// Validates that `name` is a plain identifier (ASCII alphanumerics and
@@ -291,7 +291,7 @@ fn validate_ident(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err("empty interpolation in command".to_owned());
     }
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if !name.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
         return Err(format!(
             "can only interpolate simple variables, got this expression instead: `{name}`"
         ));
@@ -320,6 +320,6 @@ fn respan(ts: TokenStream, span: Span) -> TokenStream {
     res
 }
 
-fn parse_ts(s: &str) -> TokenStream {
-    s.parse().expect("internally generated token stream")
+fn parse_ts(input: &str) -> TokenStream {
+    input.parse().expect("internally generated token stream")
 }

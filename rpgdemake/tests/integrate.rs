@@ -103,8 +103,8 @@ impl Layout {
 }
 
 fn assert_file_matches(path: &std::path::Path, expected: &[u8]) {
-    let actual = std::fs::read(path).unwrap_or_else(|e| {
-        panic!("expected file {} to exist: {e}", path.display())
+    let actual = std::fs::read(path).unwrap_or_else(|err| {
+        panic!("expected file {} to exist: {err}", path.display())
     });
     assert_eq!(
         actual,

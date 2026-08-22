@@ -12,19 +12,19 @@ fn main() -> Result<()> {
     // Run the command with a timeout
     match command.run() {
         Ok(()) => println!("Command completed successfully."),
-        Err(e) => eprintln!("Command failed: {e}"),
+        Err(err) => eprintln!("Command failed: {err}"),
     }
 
     // Run the command with a timeout and get stdout
     match command.read() {
         Ok(output) => println!("Command output: {output}"),
-        Err(e) => eprintln!("Command failed: {e}"),
+        Err(err) => eprintln!("Command failed: {err}"),
     }
 
     // Run the command with a timeout and get stderr
     match command.read_stderr() {
         Ok(output) => println!("Command stderr: {output}"),
-        Err(e) => eprintln!("Command failed: {e}"),
+        Err(err) => eprintln!("Command failed: {err}"),
     }
 
     // Run the command with a timeout and get the full output
@@ -32,7 +32,7 @@ fn main() -> Result<()> {
         Ok(output) => {
             println!("Command completed successfully.{output:?}");
         }
-        Err(e) => eprintln!("Command failed: {e}"),
+        Err(err) => eprintln!("Command failed: {err}"),
     }
 
     Ok(())

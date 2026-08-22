@@ -295,10 +295,10 @@ impl ElevationStrategy {
     }
 }
 
-struct ElevationParts<'a> {
+struct ElevationParts<'ctx> {
     program: PathBuf,
     args: Vec<OsString>,
-    askpass: Option<&'a str>,
+    askpass: Option<&'ctx str>,
 }
 
 #[derive(Debug)]
@@ -407,11 +407,11 @@ impl<'env> Command<'env> {
         self
     }
 
-    fn environment<'a>(
-        &'a self,
+    fn environment<'ctx>(
+        &'ctx self,
         elevated: bool,
-    ) -> Vec<(&'a str, &'a str)> {
-        let mut vars: Vec<(&'a str, &'a str)> =
+    ) -> Vec<(&'ctx str, &'ctx str)> {
+        let mut vars: Vec<(&'ctx str, &'ctx str)> =
             Vec::with_capacity(self.preserved_env.len() + 10);
 
         if elevated {
@@ -559,8 +559,8 @@ impl<'env> Command<'env> {
             cmd.stderr(Redirection::None).stdout(Redirection::None)
         };
 
-        if let Some(m) = &self.message {
-            info!("{m}");
+        if let Some(message) = &self.message {
+            info!("{message}");
         }
 
         debug!(?cmd);
@@ -600,7 +600,7 @@ impl<'env> Command<'env> {
                     }
                     Ok(())
                 }
-                Err(e) => Err(e).context(msg).map_err(Into::into),
+                Err(err) => Err(err).context(msg).map_err(Into::into),
             }
         }
     }
@@ -669,8 +669,8 @@ impl Build {
     ///
     /// Returns an error if the build command fails to execute.
     pub fn run(&self) -> Result<()> {
-        if let Some(m) = &self.message {
-            info!("{m}");
+        if let Some(message) = &self.message {
+            info!("{message}");
         }
 
         let installable_args = self.installable.to_args();

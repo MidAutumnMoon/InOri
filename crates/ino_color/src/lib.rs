@@ -56,9 +56,9 @@ static ENV_SET: LazyLock<EnvSet> = LazyLock::new(|| {
         // FORCE_COLOR: present and non-empty → force color.
         // Per <https://force-color.org/>.
         force_color: std::env::var_os("FORCE_COLOR")
-            .is_some_and(|v| !v.is_empty()),
+            .is_some_and(|value| !value.is_empty()),
         clicolor_force: std::env::var("CLICOLOR_FORCE")
-            .is_ok_and(|v| v != "0"),
+            .is_ok_and(|value| value != "0"),
         clicolor: match std::env::var("CLICOLOR").as_deref() {
             Ok("1") => Some(true),
             Ok("0") => Some(false),

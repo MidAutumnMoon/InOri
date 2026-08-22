@@ -480,7 +480,7 @@ impl Shell {
         result.extend(
             self.env
                 .iter()
-                .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+                .map(|(key, value)| (OsString::from(key), OsString::from(value))),
         );
         result
     }
@@ -554,8 +554,8 @@ impl Shell {
     ) -> Result<()> {
         fn inner(sh: &Shell, path: &Path, contents: &[u8]) -> Result<()> {
             let path = sh.path(path);
-            if let Some(p) = path.parent() {
-                sh.create_dir(p)?;
+            if let Some(parent) = path.parent() {
+                sh.create_dir(parent)?;
             }
             fs::write(&path, contents)
                 .map_err(|err| InoError::new_write_file(err, path))
@@ -573,8 +573,8 @@ impl Shell {
         fn inner(sh: &Shell, src: &Path, dst: &Path) -> Result<()> {
             let src = sh.path(src);
             let dst = sh.path(dst);
-            if let Some(p) = dst.parent() {
-                sh.create_dir(p)?;
+            if let Some(parent) = dst.parent() {
+                sh.create_dir(parent)?;
             }
             std::fs::copy(&src, &dst).map_err(|err| {
                 InoError::new_copy_file(err, src.clone(), dst.clone())
@@ -634,7 +634,7 @@ impl Shell {
                 InoError::new_read_dir(err, path.clone())
             })?;
             let mut res: Vec<PathBuf> = dir
-                .map(|entry| entry.map(|e| e.path()))
+                .map(|entry| entry.map(|entry| entry.path()))
                 .collect::<Result<_, _>>()
                 .map_err(|err| InoError::new_read_dir(err, path))?;
             // Sort to ensure determinism, and ease debugging of downstream programs!
@@ -724,8 +724,8 @@ impl Shell {
         Cmd::new(self, program.as_ref())
     }
 
-    fn path(&self, p: &Path) -> PathBuf {
-        self.cwd.join(p)
+    fn path(&self, path: &Path) -> PathBuf {
+        self.cwd.join(path)
     }
 }
 
@@ -872,7 +872,7 @@ impl Cmd {
     {
         Arc::make_mut(&mut self.sh.env).extend(
             vars.into_iter()
-                .map(|(k, v)| (k.as_ref().into(), v.as_ref().into())),
+                .map(|(key, value)| (key.as_ref().into(), value.as_ref().into())),
         );
         self
     }

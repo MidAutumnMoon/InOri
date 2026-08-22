@@ -309,10 +309,10 @@ impl InoError {
 #[cfg(test)]
 #[test]
 fn error_send_sync() {
-    fn f<T>()
+    fn assert_send_sync<T>()
     where
         T: Send + Sync,
     {
     }
-    f::<InoError>();
+    assert_send_sync::<InoError>();
 }

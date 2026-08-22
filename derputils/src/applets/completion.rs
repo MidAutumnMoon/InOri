@@ -102,12 +102,12 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
     let targets: Vec<&'static str> = match args.applet.as_deref() {
         Some(name) => {
             let applet =
-                APPLETS.iter().find(|a| a.name == name).ok_or_else(
+                APPLETS.iter().find(|entry| entry.name == name).ok_or_else(
                     || rootcause::report!("unknown applet '{name}'"),
                 )?;
             vec![applet.name]
         }
-        None => APPLETS.iter().map(|a| a.name).collect(),
+        None => APPLETS.iter().map(|applet| applet.name).collect(),
     };
 
     // Depends only on the shell, not the applet — build once.
