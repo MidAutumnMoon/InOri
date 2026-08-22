@@ -43,7 +43,7 @@ static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(clippy::expect_used)]
-    Regex::new(r"^result(-.*)?$")
+    Regex::new("^result(-.*)?$")
         .expect("Failed to compile result link regex")
 });
 

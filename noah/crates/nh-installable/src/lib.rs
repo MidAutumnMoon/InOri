@@ -200,7 +200,7 @@ impl Args for InstallableArgs {
                 .value_name("INSTALLABLE")
                 .help("Which installable to use")
                 .long_help(format!(
-                    r"Which installable to use.
+                    "Which installable to use.
 Nix accepts various kinds of installables:
 
 [FLAKEREF[#ATTRPATH]]
@@ -302,7 +302,7 @@ fn parse_flake_reference(
 #[test]
 fn parse_attribute_works() {
     assert_eq!(
-        parse_attribute(r"foo.bar"),
+        parse_attribute("foo.bar"),
         Ok(vec!["foo".to_string(), "bar".to_string()])
     );
     assert_eq!(

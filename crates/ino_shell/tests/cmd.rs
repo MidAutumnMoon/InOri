@@ -122,7 +122,7 @@ fn exit_status() {
     let err = cmd!(sh, "xecho -f").read().unwrap_err();
     assert_eq!(
         err.to_string(),
-        r"command exited with non-zero code `xecho -f`: 1
+        "command exited with non-zero code `xecho -f`: 1
 stdout suffix:
 
 
@@ -141,7 +141,7 @@ fn exit_status_signal() {
     let err = cmd!(sh, "xecho -s").read().unwrap_err();
     assert_eq!(
         err.to_string(),
-        r"command was terminated by a signal `xecho -s`: 9
+        "command was terminated by a signal `xecho -s`: 9
 stdout suffix:
 
 

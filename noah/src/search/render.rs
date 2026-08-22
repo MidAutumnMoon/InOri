@@ -14,7 +14,7 @@ static HYPERLINKS_SUPPORTED: LazyLock<bool> =
 
 static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(clippy::expect_used)]
-    Regex::new(r"<[^>]*>").expect("HTML tag regex should always be valid")
+    Regex::new("<[^>]*>").expect("HTML tag regex should always be valid")
 });
 
 const DIM: &str = "\x1b[2m";
