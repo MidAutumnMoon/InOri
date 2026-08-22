@@ -93,17 +93,12 @@ impl Field {
 }
 #[must_use]
 pub fn from_dir(generation_dir: &Path) -> Option<u64> {
-    generation_dir
+    let generation_base = generation_dir
         .file_name()
-        .and_then(|os_str| os_str.to_str())
-        .and_then(|generation_base| {
-            let no_link_gen = generation_base.trim_end_matches("-link");
-            no_link_gen
-                .rsplit_once('-')
-                .and_then(|(_, generation_num)| {
-                    generation_num.parse::<u64>().ok()
-                })
-        })
+        .and_then(|os_str| os_str.to_str())?;
+    let no_link_gen = generation_base.trim_end_matches("-link");
+    let (_, generation_num) = no_link_gen.rsplit_once('-')?;
+    generation_num.parse::<u64>().ok()
 }
 
 fn closure_size_from_json(
@@ -112,11 +107,10 @@ fn closure_size_from_json(
 ) -> Option<u64> {
     json.as_array().map_or_else(
         || {
-            json.as_object().and_then(|obj| {
-                obj.get(store_path_str)
-                    .and_then(|value| value.get("closureSize"))
-                    .and_then(serde_json::Value::as_u64)
-            })
+            let obj = json.as_object()?;
+            obj.get(store_path_str)
+                .and_then(|value| value.get("closureSize"))
+                .and_then(serde_json::Value::as_u64)
         },
         |arr| {
             arr.iter().find_map(|entry| {
