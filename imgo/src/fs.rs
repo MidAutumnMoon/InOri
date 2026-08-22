@@ -223,7 +223,6 @@ pub enum RelAbs {
 }
 
 impl RelAbs {
-    #[expect(clippy::missing_errors_doc)]
     #[instrument]
     pub fn from_path(workspace: &Path, orig_path: &Path) -> Self {
         debug!("Guess whether path is relative or absolute");

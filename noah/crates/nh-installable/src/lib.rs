@@ -598,6 +598,10 @@ fn resolve_fallback_flake_dir(
     let resolved_dir = match fs::canonicalize(dir) {
         Ok(path) => path,
         Err(err) => {
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
+            )]
             return match err.kind() {
                 ErrorKind::NotFound => Err(FallbackError::NotFound),
                 ErrorKind::PermissionDenied => {
@@ -614,13 +618,19 @@ fn resolve_fallback_flake_dir(
         return match fs::metadata(&flake_path) {
             Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => Err(FallbackError::NotFound),
-                ErrorKind::PermissionDenied => {
-                    Err(FallbackError::PermissionDenied(flake_path))
+            Err(err) => {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
+                )]
+                match err.kind() {
+                    ErrorKind::NotFound => Err(FallbackError::NotFound),
+                    ErrorKind::PermissionDenied => {
+                        Err(FallbackError::PermissionDenied(flake_path))
+                    }
+                    _ => Err(FallbackError::Io(err)),
                 }
-                _ => Err(FallbackError::Io(err)),
-            },
+            }
         };
     }
 
@@ -639,26 +649,38 @@ fn resolve_fallback_flake_dir(
                         Ok(parent.to_path_buf())
                     })
             }
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => Err(FallbackError::NotFound),
-                ErrorKind::PermissionDenied => {
-                    Err(FallbackError::PermissionDenied(flake_path))
+            Err(err) => {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
+                )]
+                match err.kind() {
+                    ErrorKind::NotFound => Err(FallbackError::NotFound),
+                    ErrorKind::PermissionDenied => {
+                        Err(FallbackError::PermissionDenied(flake_path))
+                    }
+                    _ => Err(FallbackError::Io(err)),
                 }
-                _ => Err(FallbackError::Io(err)),
-            },
+            }
         }
     } else {
         // flake.nix is a real file, check it exists
         match fs::metadata(&flake_path) {
             Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => Err(FallbackError::NotFound),
-                ErrorKind::PermissionDenied => {
-                    Err(FallbackError::PermissionDenied(flake_path))
+            Err(err) => {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
+                )]
+                match err.kind() {
+                    ErrorKind::NotFound => Err(FallbackError::NotFound),
+                    ErrorKind::PermissionDenied => {
+                        Err(FallbackError::PermissionDenied(flake_path))
+                    }
+                    _ => Err(FallbackError::Io(err)),
                 }
-                _ => Err(FallbackError::Io(err)),
-            },
+            }
         }
     }
 }

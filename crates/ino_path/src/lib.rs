@@ -46,10 +46,16 @@ impl PathExt for Path {
     #[inline]
     fn try_exists_no_traverse(&self) -> io::Result<bool> {
         match self.symlink_metadata() {
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => Ok(false),
-                _ => Err(err),
-            },
+            Err(err) => {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "io::ErrorKind has many variants; all other errors are propagated as-is"
+                )]
+                match err.kind() {
+                    ErrorKind::NotFound => Ok(false),
+                    _ => Err(err),
+                }
+            }
             Ok(_) => Ok(true),
         }
     }

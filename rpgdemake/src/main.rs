@@ -117,7 +117,7 @@ fn find(
             let asset = EncryptedAsset::new(entry.path().to_owned())?;
             match mode {
                 Mode::Light if !asset.is_png() => None,
-                _ => Some(asset),
+                Mode::Light | Mode::Full => Some(asset),
             }
         })
         .collect();

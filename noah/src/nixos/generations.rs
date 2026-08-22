@@ -448,7 +448,7 @@ pub fn print_info(
                 .filter(|field| match field {
                     Confrev => has_confrev,
                     Spec => has_spec,
-                    _ => true,
+                    Id | Date | Nver | Kernel | Size => true,
                 })
                 .collect()
         },

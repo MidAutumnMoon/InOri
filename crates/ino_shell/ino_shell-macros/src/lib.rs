@@ -114,7 +114,7 @@ fn into_literal(ts: &TokenTree) -> Option<Literal> {
                 _ => None,
             }
         }
-        _ => None,
+        TokenTree::Group(_) | TokenTree::Ident(_) | TokenTree::Punct(_) => None,
     }
 }
 
@@ -313,7 +313,7 @@ fn respan(ts: TokenStream, span: Span) -> TokenStream {
                 group.delimiter(),
                 respan(group.stream(), span),
             )),
-            _ => tt,
+            TokenTree::Punct(_) | TokenTree::Literal(_) => tt,
         };
         res.extend(Some(tt));
     }

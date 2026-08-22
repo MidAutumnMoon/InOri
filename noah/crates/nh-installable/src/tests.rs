@@ -84,7 +84,11 @@ fn resolve_or_default_uses_env_before_default() {
             assert_eq!(reference, flake_dir.path().to_string_lossy());
             assert_eq!(attribute, vec!["myhost"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -428,7 +432,11 @@ fn resolve_os_context_uses_nh_os_flake() {
             assert_eq!(reference, "/etc/nixos");
             assert_eq!(attribute, vec!["myhost"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -452,7 +460,11 @@ fn resolve_os_context_prefers_os_flake_over_generic() {
             assert_eq!(reference, "/etc/nixos");
             assert_eq!(attribute, vec!["myhost"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -475,7 +487,11 @@ fn resolve_os_context_falls_back_to_nh_flake() {
             assert_eq!(reference, "/home/user/flake");
             assert_eq!(attribute, vec!["fallback"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -506,7 +522,11 @@ fn resolve_with_empty_attribute() {
             assert_eq!(reference, "/etc/nixos");
             assert!(attribute.is_empty());
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -531,7 +551,11 @@ fn resolve_with_nested_attribute() {
             assert_eq!(reference, "/etc/nixos");
             assert_eq!(attribute, vec!["nixosConfigurations", "myhost"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 
@@ -555,7 +579,11 @@ fn resolve_command_specific_isolation() {
             assert_eq!(reference, "/etc/nixos");
             assert_eq!(attribute, vec!["myhost"]);
         }
-        _ => panic!("Expected Flake, got {resolved:?}"),
+        Installable::File { .. }
+        | Installable::Store { .. }
+        | Installable::Expression { .. } => {
+            panic!("Expected Flake, got {resolved:?}")
+        }
     }
 }
 

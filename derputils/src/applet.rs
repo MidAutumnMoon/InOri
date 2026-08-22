@@ -137,7 +137,12 @@ mod test {
                 assert_eq!(applet.name, "qr");
                 assert_eq!(args, &[OsString::from("-c")]);
             }
-            other => panic!("expected Run, got {other:?}"),
+            other @ (Selection::Help
+            | Selection::Version
+            | Selection::NoApplet
+            | Selection::UnknownApplet { .. }) => {
+                panic!("expected Run, got {other:?}")
+            }
         }
     }
 
@@ -150,7 +155,12 @@ mod test {
                 assert_eq!(applet.name, "uuid7");
                 assert!(args.is_empty());
             }
-            other => panic!("expected Run, got {other:?}"),
+            other @ (Selection::Help
+            | Selection::Version
+            | Selection::NoApplet
+            | Selection::UnknownApplet { .. }) => {
+                panic!("expected Run, got {other:?}")
+            }
         }
     }
 
