@@ -39,7 +39,7 @@ impl AssetKind {
     /// Parse an encrypted file extension into an `AssetKind`.
     ///
     /// MV extensions: `.rpgmvp`, `.rpgmvo`, `.rpgmvm`
-    /// MZ extensions: `.png_`, `.ogg_`, `.m4a_`
+    /// MZ extensions: `.png_`, `.ogg_`, `.m4a_`.
     pub fn from_ext(ext: &str) -> Option<Self> {
         match ext {
             "rpgmvp" | "png_" => Some(Self::Png),

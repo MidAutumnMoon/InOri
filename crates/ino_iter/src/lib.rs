@@ -5,7 +5,7 @@ pub trait InoIter: Iterator {
     /// Alias of [`Iterator::filter`] with a more intuitive name.
     /// Leaving only items for which `pred` returns `true`.
     ///
-    /// See also `select` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-select>
+    /// See also `select` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-select>.
     #[inline]
     fn select<P>(self, pred: P) -> Filter<Self, P>
     where
@@ -18,7 +18,7 @@ pub trait InoIter: Iterator {
     /// The inverse of [`Self::select`] with a more intuitive name.
     /// Remove(aka reject) items for which `pred` returns `true`.
     ///
-    /// See also `reject` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-reject>
+    /// See also `reject` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-reject>.
     #[inline]
     fn reject<P>(
         self,

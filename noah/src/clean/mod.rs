@@ -69,7 +69,7 @@ struct GcRootTagged {
 }
 
 /// Filter paths to only include existing directories, logging warnings for
-/// missing ones
+/// missing ones.
 fn filter_existing_dirs<I>(paths: I) -> impl Iterator<Item = PathBuf>
 where
     I: IntoIterator<Item = PathBuf>,

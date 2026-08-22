@@ -142,7 +142,7 @@ pub(crate) fn exec_with_streaming(
 /// Strategy argument for handling privilege elevation when running commands.
 ///
 /// Defines how `nh` should handle privilege elevation for commands
-/// that require root access (e.g., `switch-to-configuration`)
+/// that require root access (e.g., `switch-to-configuration`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ElevationStrategyArg {
     /// No elevation - commands run without privilege escalation.
@@ -264,7 +264,7 @@ impl ElevationStrategy {
     /// is more likely to be using it as their main privilege elevation program.
     /// `run0` and `pkexec` are preinstalled in any `NixOS` system with polkit
     /// support installed, so they have been placed lower as it's easier to
-    /// deactivate sudo than it is to remove `run0`/`pkexec`
+    /// deactivate sudo than it is to remove `run0`/`pkexec`.
     ///
     /// # Returns
     ///

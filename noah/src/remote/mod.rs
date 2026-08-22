@@ -123,7 +123,7 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// * `base_cmd` - The base command to execute
 ///
 /// # Returns
-/// The complete command string to execute on the remote
+/// The complete command string to execute on the remote.
 ///
 /// # Errors
 /// Returns error if:
@@ -513,7 +513,7 @@ impl NixStoreScheme {
 // scheme.
 #[derive(Debug, Clone)]
 pub struct RemoteHost {
-    /// The host string (may include user@)
+    /// The host string (may include user@).
     host: String,
     store_scheme: NixStoreScheme,
 }
@@ -1064,13 +1064,13 @@ pub fn validate_closure_remote(
 ///
 /// This determines which action the system's activation script will execute.
 pub enum ActivationType {
-    /// Run the configuration in a test mode without activating
+    /// Run the configuration in a test mode without activating.
     Test,
 
-    /// Atomically switch to the new configuration
+    /// Atomically switch to the new configuration.
     Switch,
 
-    /// Make the new configuration the default boot option
+    /// Make the new configuration the default boot option.
     Boot,
 }
 
@@ -1089,23 +1089,23 @@ impl ActivationType {
 /// Represents the target platform for remote operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
-    /// NixOS system configuration
+    /// NixOS system configuration.
     NixOS,
 }
 
 /// Configuration for remote activation operations.
 #[derive(Debug)]
 pub struct ActivateRemoteConfig {
-    /// The target platform for activation
+    /// The target platform for activation.
     pub platform: Platform,
 
-    /// The type of activation to perform
+    /// The type of activation to perform.
     pub activation_type: ActivationType,
 
-    /// Whether to install the bootloader during activation
+    /// Whether to install the bootloader during activation.
     pub install_bootloader: bool,
 
-    /// Whether to show output logs during activation
+    /// Whether to show output logs during activation.
     pub show_logs: bool,
 
     /// Elevation strategy for remote activation commands.
@@ -1369,7 +1369,7 @@ fn activate_nixos_remote(
 const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
 /// Evaluate a flake installable to get its derivation path.
-/// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
+/// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`.
 fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
     // Build the installable with .drvPath appended
     let drv_installable = match installable {
@@ -1469,20 +1469,20 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
 /// skipped.
 #[derive(Debug, Clone)]
 pub struct RemoteBuildConfig {
-    /// The host to build on
+    /// The host to build on.
     pub build_host: RemoteHost,
 
     /// Optional target host to copy the result to (instead of localhost).
     /// When set, copies directly from `build_host` to `target_host`.
     pub target_host: Option<RemoteHost>,
 
-    /// Whether to use nix-output-monitor for build output
+    /// Whether to use nix-output-monitor for build output.
     pub use_nom: bool,
 
-    /// Whether to use substitutes when copying closures
+    /// Whether to use substitutes when copying closures.
     pub use_substitutes: bool,
 
-    /// Extra arguments to pass to the build command
+    /// Extra arguments to pass to the build command.
     pub extra_args: Vec<OsString>,
 }
 

@@ -10,33 +10,33 @@ pub struct CleanProxy {
 }
 
 #[derive(Debug, Clone, Subcommand)]
-/// Enhanced nix cleanup
+/// Enhanced nix cleanup.
 pub enum CleanMode {
-    /// Clean all profiles
+    /// Clean all profiles.
     All(CleanArgs),
-    /// Clean the current user's profiles
+    /// Clean the current user's profiles.
     User(CleanArgs),
-    /// Clean a specific profile
+    /// Clean a specific profile.
     Profile(CleanProfileArgs),
 }
 
 #[derive(Args, Clone, Debug)]
 pub struct CleanArgs {
     #[arg(long, short, default_value = "1")]
-    /// At least keep this number of generations
+    /// At least keep this number of generations.
     pub keep: u32,
 
     #[arg(long, short = 'K', default_value = "0h")]
     /// At least keep gcroots and generations in this time range since now.
     ///
-    /// See the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
+    /// See the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>.
     pub keep_since: humantime::Duration,
 
-    /// Only print actions, without performing them
+    /// Only print actions, without performing them.
     #[arg(long, short = 'n')]
     pub dry: bool,
 
-    /// Ask for confirmation
+    /// Ask for confirmation.
     #[arg(
     long,
     short,
@@ -45,31 +45,31 @@ pub struct CleanArgs {
   )]
     pub ask: bool,
 
-    /// Don't run nix store --gc
+    /// Don't run nix store --gc.
     #[arg(long = "no-gc", alias = "nogc")]
     pub no_gc: bool,
 
-    /// Don't clean gcroots
+    /// Don't clean gcroots.
     #[arg(long = "no-gcroots", alias = "nogcroots")]
     pub no_gcroots: bool,
 
-    /// Don't clean direnv gcroots
+    /// Don't clean direnv gcroots.
     #[arg(long = "no-direnv", alias = "nodirenv")]
     pub no_direnv: bool,
 
-    /// Run nix-store --optimise after gc
+    /// Run nix-store --optimise after gc.
     #[arg(long)]
     pub optimise: bool,
 
-    /// Pass --max to nix store gc
+    /// Pass --max to nix store gc.
     #[arg(long)]
     pub max: Option<String>,
 
-    /// Keep at least one gcroot per direnv project
+    /// Keep at least one gcroot per direnv project.
     #[arg(long)]
     pub keep_one: bool,
 
-    /// Cross filesystem boundaries when scanning gcroots
+    /// Cross filesystem boundaries when scanning gcroots.
     #[arg(long, short = 'x')]
     pub cross_filesystems: bool,
 }
@@ -79,6 +79,6 @@ pub struct CleanProfileArgs {
     #[command(flatten)]
     pub common: CleanArgs,
 
-    /// Which profile to clean
+    /// Which profile to clean.
     pub profile: PathBuf,
 }

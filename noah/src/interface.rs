@@ -28,7 +28,7 @@ const fn make_style() -> Styles {
 {all-args}{after-help}
 "
 )]
-/// Yet another nix helper
+/// Yet another nix helper.
 pub struct Main {
     #[arg(
         short,
@@ -44,7 +44,7 @@ pub struct Main {
     /// or one of: 'none' (no elevation),
     /// 'passwordless' (use elevation without password prompt for remote hosts
     /// with NOPASSWD configured), or 'auto' (automatically detect available
-    /// elevation programs in order: doas, sudo, run0, pkexec)
+    /// elevation programs in order: doas, sudo, run0, pkexec).
     pub elevation_strategy: Option<nh::command::ElevationStrategyArg>,
 
     #[command(subcommand)]
@@ -54,23 +54,23 @@ pub struct Main {
 #[derive(Subcommand, Debug)]
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
-    /// Build and activate the new configuration, and make it the boot default
+    /// Build and activate the new configuration, and make it the boot default.
     Switch(nh::nixos::args::RebuildActivateArgs),
-    /// Build the new configuration and make it the boot default
+    /// Build the new configuration and make it the boot default.
     Boot(nh::nixos::args::RebuildActivateArgs),
-    /// Build and activate the new configuration
+    /// Build and activate the new configuration.
     Test(nh::nixos::args::RebuildActivateArgs),
-    /// Build the new configuration
+    /// Build the new configuration.
     Build(nh::nixos::args::RebuildArgs),
-    /// Load system in a repl
+    /// Load system in a repl.
     Repl(nh::nixos::args::ReplArgs),
-    /// List available generations from profile path
+    /// List available generations from profile path.
     Info(nh::nixos::args::GenerationsArgs),
-    /// Rollback to a previous generation
+    /// Rollback to a previous generation.
     Rollback(nh::nixos::args::RollbackArgs),
-    /// Searches packages or NixOS options via search.nixos.org
+    /// Searches packages or NixOS options via search.nixos.org.
     Search(nh::search::args::SearchArgs),
-    /// Enhanced nix cleanup
+    /// Enhanced nix cleanup.
     Clean(nh::clean::args::CleanProxy),
 }
 

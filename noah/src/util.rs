@@ -54,7 +54,7 @@ pub fn ensure_ssh_key_login(ssh_config: &SshConfig) -> Result<()> {
     Ok(())
 }
 
-/// Gets the hostname of the current system
+/// Gets the hostname of the current system.
 ///
 /// # Arguments
 ///
@@ -80,7 +80,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
         .map_err(|_| report!("Hostname contains invalid UTF-8"))
 }
 
-/// Self-elevates the current process by re-executing it with `sudo`
+/// Self-elevates the current process by re-executing it with `sudo`.
 ///
 /// # Panics
 ///

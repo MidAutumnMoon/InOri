@@ -213,7 +213,7 @@
 //! `xshell` itself uses a similar script to automatically publish oneself to crates.io when the
 //! version in Cargo.toml changes:
 //!
-//! <https://github.com/matklad/xshell/blob/master/examples/ci.rs>
+//! <https://github.com/matklad/xshell/blob/master/examples/ci.rs>.
 //!
 //! ## Maintenance
 //!
@@ -562,7 +562,7 @@ impl Shell {
         inner(self, path.as_ref(), contents.as_ref())
     }
 
-    /// Creates a `dst` file with the same contents as `src`
+    /// Creates a `dst` file with the same contents as `src`.
     #[doc(alias = "cp")]
     pub fn copy_file(
         &self,

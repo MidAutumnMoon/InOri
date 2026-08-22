@@ -4,9 +4,9 @@ const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
-/// Searches packages or NixOS options via search.nixos.org
+/// Searches packages or NixOS options via search.nixos.org.
 pub struct SearchArgs {
-    /// Number of search results to display
+    /// Number of search results to display.
     #[arg(
         long,
         short = 'l',
@@ -15,7 +15,7 @@ pub struct SearchArgs {
     )]
     pub limit: u64,
 
-    /// Show supported platforms for each package
+    /// Show supported platforms for each package.
     #[arg(
         long,
         short = 'P',
@@ -26,7 +26,7 @@ pub struct SearchArgs {
     pub platforms: bool,
 
     /// Backend index version to query on search.nixos.org. Defaults to the
-    /// version bundled with nh
+    /// version bundled with nh.
     #[arg(
         id = "backend-version",
         long = "backend-version",
@@ -37,7 +37,7 @@ pub struct SearchArgs {
     pub backend_version: Option<u32>,
 
     /// Number of newer index versions to try when the requested version is
-    /// outdated (missing on the backend)
+    /// outdated (missing on the backend).
     #[arg(
         id = "backend-version-fallbacks",
         long = "backend-version-fallbacks",
@@ -48,7 +48,7 @@ pub struct SearchArgs {
     )]
     pub backend_fallbacks: u32,
 
-    /// Output results as JSON
+    /// Output results as JSON.
     #[arg(
         long,
         short = 'j',
@@ -72,38 +72,38 @@ pub struct SearchArgs {
     pub mode: Option<SearchMode>,
 
     /// Query shorthand: equivalent to `nh search packages <query>` or
-    /// `nh search options <query>` depending on `--default-search`
+    /// `nh search options <query>` depending on `--default-search`.
     pub query: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum SearchMode {
-    /// Search packages via search.nixos.org
+    /// Search packages via search.nixos.org.
     Packages(PackagesArgs),
-    /// Search NixOS options via search.nixos.org
+    /// Search NixOS options via search.nixos.org.
     Options(OptionsArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct PackagesArgs {
-    /// Name of the package to search
+    /// Name of the package to search.
     #[arg(required = true)]
     pub query: Vec<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct OptionsArgs {
-    /// Name of the option to search
+    /// Name of the option to search.
     #[arg(required = true)]
     pub query: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SearchKind {
-    /// Search packages (default)
+    /// Search packages (default).
     #[default]
     Packages,
-    /// Search NixOS options
+    /// Search NixOS options.
     Options,
 }
 

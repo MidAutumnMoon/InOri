@@ -13,20 +13,20 @@ use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct GenerationInfo {
-    /// Number of a generation
+    /// Number of a generation.
     pub number: u64,
 
-    /// Date on switch a generation was built
+    /// Date on switch a generation was built.
     pub date: String,
 
-    /// `NixOS` version derived from `nixos-version`
+    /// `NixOS` version derived from `nixos-version`.
     pub nixos_version: String,
 
-    /// Version of the bootable kernel for a given generation
+    /// Version of the bootable kernel for a given generation.
     pub kernel_version: String,
 
     /// Revision for a configuration. This will be the value
-    /// set in `config.system.configurationRevision`
+    /// set in `config.system.configurationRevision`.
     pub configuration_revision: Option<String>,
 
     /// Specialisations, if any.
@@ -41,26 +41,26 @@ pub struct GenerationInfo {
 
 #[derive(ValueEnum, Clone, Debug)]
 pub enum Field {
-    /// Generation Id
+    /// Generation Id.
     Id,
 
-    /// Build Date
+    /// Build Date.
     Date,
 
-    /// Nixos Version
+    /// Nixos Version.
     Nver,
 
-    /// Kernel Version
+    /// Kernel Version.
     Kernel,
 
-    /// Configuration Revision
+    /// Configuration Revision.
     #[clap(name = "confRev")]
     Confrev,
 
-    /// Specialisations
+    /// Specialisations.
     Spec,
 
-    /// Closure Size
+    /// Closure Size.
     Size,
 }
 

@@ -6,11 +6,11 @@ use tracing::warn;
 
 #[derive(Debug, Args)]
 pub struct CommonRebuildArgs {
-    /// Only print actions, without performing them
+    /// Only print actions, without performing them.
     #[arg(long, short = 'n')]
     pub dry: bool,
 
-    /// Ask for confirmation
+    /// Ask for confirmation.
     #[arg(
     long,
     short,
@@ -22,15 +22,15 @@ pub struct CommonRebuildArgs {
     #[command(flatten)]
     pub installable: InstallableArgs,
 
-    /// Don't use nix-output-monitor for the build process
+    /// Don't use nix-output-monitor for the build process.
     #[arg(long)]
     pub no_nom: bool,
 
-    /// Path to save the result link, defaults to using a temporary directory
+    /// Path to save the result link, defaults to using a temporary directory.
     #[arg(long, short)]
     pub out_link: Option<PathBuf>,
 
-    /// Whether to display a package diff
+    /// Whether to display a package diff.
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
     pub diff: DiffType,
 
@@ -41,122 +41,122 @@ pub struct CommonRebuildArgs {
 #[derive(ValueEnum, Clone, Default, Debug)]
 pub enum DiffType {
     /// Display package diff only if the of the
-    /// current and the deployed configuration matches
+    /// current and the deployed configuration matches.
     #[default]
     Auto,
-    /// Always display package diff
+    /// Always display package diff.
     Always,
-    /// Never display package diff
+    /// Never display package diff.
     Never,
 }
 
 #[derive(Debug, Default, Args)]
 pub struct NixBuildPassthroughArgs {
-    /// Number of concurrent jobs Nix should run
+    /// Number of concurrent jobs Nix should run.
     #[arg(long, short = 'j')]
     pub max_jobs: Option<usize>,
 
-    /// Number of cores Nix should utilize
+    /// Number of cores Nix should utilize.
     #[arg(long)]
     pub cores: Option<usize>,
 
-    /// Logging format used by Nix
+    /// Logging format used by Nix.
     #[arg(long)]
     pub log_format: Option<String>,
 
-    /// Continue building despite encountering errors
+    /// Continue building despite encountering errors.
     #[arg(long, short = 'k')]
     pub keep_going: bool,
 
-    /// Keep build outputs from failed builds
+    /// Keep build outputs from failed builds.
     #[arg(long, short = 'K')]
     pub keep_failed: bool,
 
-    /// Attempt to build locally if substituters fail
+    /// Attempt to build locally if substituters fail.
     #[arg(long)]
     pub fallback: bool,
 
-    /// Repair corrupted store paths
+    /// Repair corrupted store paths.
     #[arg(long)]
     pub repair: bool,
 
-    /// Explicitly define remote builders
+    /// Explicitly define remote builders.
     #[arg(long)]
     pub builders: Option<String>,
 
-    /// Paths to include
+    /// Paths to include.
     #[arg(long, short = 'I')]
     pub include: Vec<String>,
 
-    /// Print build logs directly to stdout
+    /// Print build logs directly to stdout.
     #[arg(long, short = 'L')]
     pub print_build_logs: bool,
 
-    /// Display tracebacks on errors
+    /// Display tracebacks on errors.
     #[arg(long, short = 't')]
     pub show_trace: bool,
 
-    /// Accept configuration from flakes
+    /// Accept configuration from flakes.
     #[arg(long)]
     pub accept_flake_config: bool,
 
-    /// Refresh flakes to the latest revision
+    /// Refresh flakes to the latest revision.
     #[arg(long)]
     pub refresh: bool,
 
-    /// Allow impure builds
+    /// Allow impure builds.
     #[arg(long)]
     pub impure: bool,
 
-    /// Build without internet access
+    /// Build without internet access.
     #[arg(long)]
     pub offline: bool,
 
-    /// Prohibit network usage
+    /// Prohibit network usage.
     #[arg(long)]
     pub no_net: bool,
 
-    /// Recreate the flake.lock file entirely
+    /// Recreate the flake.lock file entirely.
     #[arg(long)]
     pub recreate_lock_file: bool,
 
-    /// Do not update the flake.lock file
+    /// Do not update the flake.lock file.
     #[arg(long)]
     pub no_update_lock_file: bool,
 
-    /// Do not write a lock file
+    /// Do not write a lock file.
     #[arg(long)]
     pub no_write_lock_file: bool,
 
-    /// Do not use registries
+    /// Do not use registries.
     #[arg(long = "no-use-registries")]
     pub no_use_registries: bool,
 
-    /// Do not use registries (deprecated, use --no-use-registries)
+    /// Do not use registries (deprecated, use --no-use-registries).
     #[arg(long, alias = "no-registries")]
     pub no_registries: bool,
 
-    /// Commit the lock file after updates
+    /// Commit the lock file after updates.
     #[arg(long)]
     pub commit_lock_file: bool,
 
-    /// Suppress build output
+    /// Suppress build output.
     #[arg(long, short = 'Q')]
     pub no_build_output: bool,
 
-    /// Use substitutes when copying
+    /// Use substitutes when copying.
     #[arg(long)]
     pub use_substitutes: bool,
 
-    /// Output results in JSON format
+    /// Output results in JSON format.
     #[arg(long)]
     pub json: bool,
 
-    /// Set a Nix configuration option (may be given multiple times)
+    /// Set a Nix configuration option (may be given multiple times).
     #[arg(long, number_of_values = 2, value_names = ["NAME", "VALUE"])]
     pub option: Vec<String>,
 
-    /// Override a specific flake input (may be given multiple times)
+    /// Override a specific flake input (may be given multiple times).
     #[arg(long, number_of_values = 2, value_names = ["INPUT", "FLAKE_URL"])]
     pub override_input: Vec<String>,
 }

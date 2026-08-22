@@ -248,7 +248,7 @@ macro_rules! __ino_print {
 /// However, it hits sorta of rustc limitation and the dollar sign
 /// needs to be escaped while creating nested macros.
 ///
-/// Ref: <https://github.com/rust-lang/rust/issues/35853>
+/// Ref: <https://github.com/rust-lang/rust/issues/35853>.
 macro_rules! create_print_macro {
     // Create a single macro
     // `$dol`          the "escaped" dollar sign

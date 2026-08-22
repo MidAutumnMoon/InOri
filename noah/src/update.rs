@@ -7,7 +7,7 @@ use tracing::{info, warn};
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
     #[arg(short = 'u', long = "update", conflicts_with = "update_input")]
-    /// Update all flake inputs
+    /// Update all flake inputs.
     pub update_all: bool,
 
     #[arg(
@@ -15,7 +15,7 @@ pub struct UpdateArgs {
         long = "update-input",
         conflicts_with = "update_all"
     )]
-    /// Update the specified flake input(s)
+    /// Update the specified flake input(s).
     pub update_input: Option<Vec<String>>,
 }
 

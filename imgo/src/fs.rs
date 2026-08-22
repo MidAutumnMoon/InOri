@@ -264,7 +264,7 @@ impl RelAbs {
 
     /// Returns the backup path for this image.
     /// For relative paths `a/b.png` -> `backup_dir/a/b.png`
-    /// For absolute paths `/mnt/media/a.png` -> `backup_dir/mnt/media/a.png`
+    /// For absolute paths `/mnt/media/a.png` -> `backup_dir/mnt/media/a.png`.
     #[must_use]
     pub fn backup_path_structure(&self, backup_dir: &Path) -> PathBuf {
         let rel_path = match self {
