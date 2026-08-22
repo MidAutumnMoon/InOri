@@ -1,15 +1,17 @@
-#![expect(
-    clippy::exhaustive_enums,
-    reason = "App only, not published"
-)]
+#![expect(clippy::exhaustive_enums, reason = "App only, not published")]
 
-use std::{
-    ffi::{OsStr, OsString},
-    io::{self, Write},
-    time::{Duration, Instant},
-};
+use std::ffi::OsStr;
+use std::ffi::OsString;
+use std::io;
+use std::io::Write;
+use std::time::Duration;
+use std::time::Instant;
 
-use subprocess::{Capture, Exec, ExitStatus, Job, Redirection};
+use subprocess::Capture;
+use subprocess::Exec;
+use subprocess::ExitStatus;
+use subprocess::Job;
+use subprocess::Redirection;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NixCmdError {
@@ -425,6 +427,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[expect(clippy::panic_in_result_fn, reason = "tests")]
     fn capture_exec_captures_both_streams() -> Result<()> {
         let output = capture_exec(
             Exec::cmd("sh")

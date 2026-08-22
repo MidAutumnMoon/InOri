@@ -1,11 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::report;
+
+use super::Host;
+use super::SshConfig;
+use super::get_nix_sshopts_env;
+use super::run_remote_command;
 use crate::external_report;
-use rootcause::{Result, bail, report};
-
-use super::{
-    Host, SshConfig, get_nix_sshopts_env, run_remote_command,
-};
 
 /// A remote store path after resolving symlinks such as
 /// `/run/current-system`.
@@ -86,11 +90,7 @@ impl ResolvedRemoteStorePath {
             .map_err(external_report)
     }
 
-    fn new(
-        host: &Host,
-        path: PathBuf,
-        original: &str,
-    ) -> Result<Self> {
+    fn new(host: &Host, path: PathBuf, original: &str) -> Result<Self> {
         if !path.starts_with("/nix/store") {
             bail!(
                 "resolved remote path '{}' for '{}' is not in /nix/store",
@@ -107,6 +107,7 @@ impl ResolvedRemoteStorePath {
 }
 
 #[cfg(test)]
+#[expect(clippy::panic_in_result_fn, reason = "tests")]
 mod tests {
     use super::*;
 

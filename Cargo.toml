@@ -110,6 +110,7 @@ single_call_fn = "allow"
 non_ascii_literal = "allow"
 inline_modules = "allow"
 integer_division_remainder_used = "allow"
+as_conversions = "allow"
 
 # Shadow is useful, clippy's lints on shadow_same and shadow_reuse
 # are unreasonable, though shadow_unrelated can be useful.

@@ -69,6 +69,7 @@ impl FromStr for Shell {
 
 /// Parsed arguments for the `completion` applet.
 #[derive(Debug, Clone)]
+#[expect(clippy::module_name_repetitions, reason = "It's clear")]
 pub struct CompletionArgs {
     pub shell: Shell,
     pub applet: Option<String>,

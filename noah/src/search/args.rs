@@ -108,6 +108,7 @@ pub enum SearchKind {
 }
 
 #[cfg(test)]
+#[expect(clippy::panic_in_result_fn, reason = "Tests")]
 mod tests {
     use clap::{Parser, Subcommand, error::ErrorKind};
     use std::assert_matches;

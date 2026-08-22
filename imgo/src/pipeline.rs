@@ -383,12 +383,8 @@ fn orchestrate(
         bar
     };
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "`jobs` is a small thread count; u64->usize truncation is impossible in practice"
-    )]
     let thread_pool = ThreadPoolBuilder::new()
-        .num_threads(jobs.get() as usize)
+        .num_threads(usize::try_from(jobs.get())?)
         .build()?;
 
     let Some(output_ext) = output_format.exts().first() else {
