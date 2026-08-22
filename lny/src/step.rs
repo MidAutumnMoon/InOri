@@ -5,7 +5,6 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
 
 use anyhow::Context as _;
@@ -30,15 +29,15 @@ pub struct StepQueue {
 impl StepQueue {
     #[tracing::instrument(name = "step_queue_new", skip_all)]
     pub fn new(
-        new_blueprint: Blueprint,
-        old_blueprint: Blueprint,
+        new_symlinks: Vec<Symlink>,
+        old_symlinks: Vec<Symlink>,
     ) -> AnyResult<Self> {
         info!("Actualize blueprint");
         debug!("actualize blueprint into steps");
-        trace!(?new_blueprint, ?old_blueprint);
+        trace!(?new_symlinks, ?old_symlinks);
 
         let (mut new_blueprint_symlinks, mut old_blueprint_symlinks) =
-            [new_blueprint.symlinks, old_blueprint.symlinks]
+            [new_symlinks, old_symlinks]
                 .map(|symlinks| symlinks.into_iter().map(Some))
                 .map(|iter| {
                     iter.collect_vec().tap(|symlinks| trace!(?symlinks))
@@ -579,18 +578,13 @@ mod test {
     fn generate_steps() {
         // no step
         {
-            let new_bp = Blueprint::empty();
-            let old_bp = Blueprint::empty();
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(vec![], vec![]);
             assert!(queue.is_ok_and(|it| it.steps.is_empty()));
         }
         // create
         {
             let sym = make_symlink!();
-            let new_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![sym.clone()]);
-            let old_bp = Blueprint::empty();
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(vec![sym.clone()], vec![]);
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
@@ -602,10 +596,7 @@ mod test {
         // remove
         {
             let sym = make_symlink!();
-            let new_bp = Blueprint::empty();
-            let old_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![sym.clone()]);
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(vec![], vec![sym.clone()]);
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
@@ -619,11 +610,10 @@ mod test {
             let new_symlink = make_symlink!("/src_new", "/dst");
             let old_symlink = make_symlink!("/src_old", "/dst");
 
-            let new_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![new_symlink.clone()]);
-            let old_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![old_symlink.clone()]);
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(
+                vec![new_symlink.clone()],
+                vec![old_symlink.clone()],
+            );
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
@@ -637,11 +627,10 @@ mod test {
             let new_symlink = make_symlink!("/src_x", "/dst");
             let old_symlink = make_symlink!("/src_x", "/dst");
 
-            let new_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![new_symlink.clone()]);
-            let old_bp = Blueprint::empty()
-                .tap_mut(|it| it.symlinks = vec![old_symlink.clone()]);
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(
+                vec![new_symlink],
+                vec![old_symlink],
+            );
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
@@ -659,23 +648,19 @@ mod test {
             let rep_symlink_new =
                 make_symlink!("/src_yee", "/dst_replace");
 
-            let new_bp = Blueprint::empty().tap_mut(|it| {
-                it.symlinks = vec![
-                    unc_symlink.clone(),
-                    new_symlink.clone(),
-                    rep_symlink_new.clone(),
-                ];
-            });
+            let new_symlinks = vec![
+                unc_symlink.clone(),
+                new_symlink.clone(),
+                rep_symlink_new.clone(),
+            ];
 
-            let old_bp = Blueprint::empty().tap_mut(|it| {
-                it.symlinks = vec![
-                    unc_symlink.clone(),
-                    del_symlink.clone(),
-                    rep_symlink_old.clone(),
-                ];
-            });
+            let old_symlinks = vec![
+                unc_symlink,
+                del_symlink.clone(),
+                rep_symlink_old.clone(),
+            ];
 
-            let queue = StepQueue::new(new_bp, old_bp);
+            let queue = StepQueue::new(new_symlinks, old_symlinks);
             assert!(queue.is_ok());
             let queue = queue.unwrap();
             assert_eq!(queue.steps.len(), 4);
@@ -703,17 +688,13 @@ mod test {
     fn step_queue_is_fifo() {
         // Push order: new-bp symlinks first (Create/Replace/Nothing),
         // then leftover old-bp symlinks (Remove).
-        let new_bp = Blueprint::empty().tap_mut(|it| {
-            it.symlinks = vec![
-                make_symlink!("/a", "/dst_a"),
-                make_symlink!("/b", "/dst_b"),
-            ];
-        });
-        let old_bp = Blueprint::empty().tap_mut(|it| {
-            it.symlinks = vec![make_symlink!("/c", "/dst_c")];
-        });
+        let new_symlinks = vec![
+            make_symlink!("/a", "/dst_a"),
+            make_symlink!("/b", "/dst_b"),
+        ];
+        let old_symlinks = vec![make_symlink!("/c", "/dst_c")];
 
-        let mut queue = StepQueue::new(new_bp, old_bp).unwrap();
+        let mut queue = StepQueue::new(new_symlinks, old_symlinks).unwrap();
 
         assert_matches!(queue.next(), Some(Step::Create { .. }));
         assert_matches!(queue.next(), Some(Step::Create { .. }));

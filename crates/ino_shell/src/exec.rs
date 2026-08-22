@@ -37,6 +37,10 @@ use std::{
 };
 
 #[derive(Default, Debug)]
+#[expect(
+    clippy::field_scoped_visibility_modifiers,
+    reason = "blast raidus too large, leave it for later"
+)]
 pub struct ExecResult {
     pub(crate) stdout: Vec<u8>,
     pub(crate) stderr: Vec<u8>,

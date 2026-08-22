@@ -19,8 +19,7 @@ const CURRENT_BLUEPRINT_VERSION: usize = 1;
 #[serde(validate = "Self::validate")]
 pub struct Blueprint {
     version: usize,
-    // TODO avoid direct field access
-    pub symlinks: Vec<Symlink>,
+    symlinks: Vec<Symlink>,
 }
 
 impl Blueprint {
@@ -36,11 +35,9 @@ impl Blueprint {
             .context("Failed to parse the blueprint's content")
     }
 
-    pub fn empty() -> Self {
-        Self {
-            version: CURRENT_BLUEPRINT_VERSION,
-            symlinks: vec![],
-        }
+    /// Consume the blueprint, yielding its symlink declarations.
+    pub fn into_symlinks(self) -> Vec<Symlink> {
+        self.symlinks
     }
 
     #[tracing::instrument(skip_all)]
@@ -80,12 +77,6 @@ impl FromStr for Blueprint {
         Ok(serde_json::from_str::<Self>(raw)
             .context("Blueprint contains invalid JSON")?
             .tap(|blueprint| trace!(?blueprint)))
-    }
-}
-
-impl Default for Blueprint {
-    fn default() -> Self {
-        Self::empty()
     }
 }
 

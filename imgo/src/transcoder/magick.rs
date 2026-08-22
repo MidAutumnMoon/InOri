@@ -17,7 +17,7 @@ pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
 pub struct Denoise {
     #[arg(long, short)]
     #[arg(default_value = "artifact")]
-    pub mode: Mode,
+    mode: Mode,
 
     /// The strength of the denoise. Different mode has different settings.
     /// Read the doc of imagemagick.

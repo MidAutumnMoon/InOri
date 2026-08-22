@@ -52,11 +52,13 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
         return Ok(());
     }
 
-    let (new_blueprint, old_blueprint) = [new_blueprint, old_blueprint]
-        .map(Option::unwrap_or_default)
+    let (new_symlinks, old_symlinks) = [new_blueprint, old_blueprint]
+        .map(|blueprint| {
+            blueprint.map_or_else(Vec::new, Blueprint::into_symlinks)
+        })
         .into();
 
-    let step_queue = StepQueue::new(new_blueprint, old_blueprint)
+    let step_queue = StepQueue::new(new_symlinks, old_symlinks)
         .context("Error happened while executing the blueprint")?;
 
     info!("Check feasibility");

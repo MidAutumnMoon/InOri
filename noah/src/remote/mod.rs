@@ -41,9 +41,9 @@ use copy::copy_to_remote;
 #[derive(Debug, Clone)]
 pub struct SshConfig {
     /// `NH_SSHOPTS` (preferred) or `NIX_SSHOPTS` (legacy), shell-split.
-    pub user_opts: Vec<String>,
+    user_opts: Vec<String>,
     /// `NH_REMOTE_CLEANUP` — defaults to `true` when unset; `false` when "0".
-    pub cleanup_remote: bool,
+    cleanup_remote: bool,
     control_dir: PathBuf,
     agent_socket: Option<PathBuf>,
     nixos_no_check: Option<String>,
