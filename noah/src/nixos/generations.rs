@@ -122,7 +122,10 @@ fn closure_size_from_json(
     )
 }
 
-#[expect(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "display-only; precision loss is irrelevant for human-readable sizes"
+)]
 fn bytes_to_gb_string(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
 }
@@ -388,7 +391,7 @@ pub fn describe(
 /// # Errors
 ///
 /// Returns an error if output or formatting fails.
-#[expect(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, reason = "field formatters stay together; splitting scatters the table layout")]
 pub fn print_info(
     mut generations: Vec<GenerationInfo>,
     fields: Option<&[Field]>,

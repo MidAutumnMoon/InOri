@@ -58,7 +58,10 @@ struct BuiltConfiguration {
 }
 
 impl RebuildActivateArgs {
-    #[expect(clippy::missing_errors_doc)]
+    #[expect(
+        clippy::missing_errors_doc,
+        reason = "errors are contextualized `rootcause::Report`s at each `?` site"
+    )]
     pub fn build_and_activate(
         &self,
         action: ActivationAction,
@@ -148,7 +151,7 @@ impl RebuildActivateArgs {
         Ok(())
     }
 
-    #[expect(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
     fn activate_rebuilt_config(
         &self,
         action: ActivationAction,
@@ -325,7 +328,7 @@ impl RebuildActivateArgs {
 
     /// Runs the test phase. For remote switches this runs the full `switch`
     /// action instead of `test`.
-    #[expect(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
     fn activate_test_phase(
         &self,
         resolved_profile: &Path,
@@ -391,7 +394,7 @@ impl RebuildActivateArgs {
     }
 
     /// Sets the system profile and installs the bootloader entry.
-    #[expect(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "activation needs the full rebuild context")]
     fn activate_boot_phase(
         &self,
         out_path: &Path,
@@ -752,7 +755,10 @@ impl RebuildArgs {
     }
 
     /// Builds the toplevel configuration without activating (`nh build`).
-    #[expect(clippy::missing_errors_doc)]
+    #[expect(
+        clippy::missing_errors_doc,
+        reason = "errors are contextualized `rootcause::Report`s at each `?` site"
+    )]
     pub fn build_only(
         &self,
         elevation: &ElevationStrategy,
@@ -774,7 +780,11 @@ impl RebuildArgs {
 }
 
 impl RollbackArgs {
-    #[expect(clippy::too_many_lines, clippy::missing_errors_doc)]
+    #[expect(
+        clippy::too_many_lines,
+        clippy::missing_errors_doc,
+        reason = "linear rollback flow whose errors carry their own context"
+    )]
     pub fn rollback(
         &self,
         elevation: ElevationStrategy,
@@ -1145,7 +1155,10 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 }
 
 impl ReplArgs {
-    #[expect(clippy::missing_errors_doc)]
+    #[expect(
+        clippy::missing_errors_doc,
+        reason = "errors are contextualized `rootcause::Report`s at each `?` site"
+    )]
     pub fn run(
         self,
         runtime_env: &RuntimeEnv,
@@ -1182,7 +1195,10 @@ impl ReplArgs {
 }
 
 impl GenerationsArgs {
-    #[expect(clippy::missing_errors_doc)]
+    #[expect(
+        clippy::missing_errors_doc,
+        reason = "errors are contextualized `rootcause::Report`s at each `?` site"
+    )]
     pub fn info(&self) -> Result<()> {
         let profile = match self.profile {
             Some(ref path) => PathBuf::from(path),

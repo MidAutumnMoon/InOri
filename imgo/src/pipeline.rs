@@ -299,7 +299,7 @@ fn collect_for(
                 })?;
                 accu.extend(collected);
             } else {
-                let path = RelAbs::from_path(&workspace, sel)?;
+                let path = RelAbs::from_path(&workspace, sel);
                 let Some(format) = ImageFormat::from_path(sel) else {
                     bail!(
                         "The format of {} is not supported",
@@ -376,7 +376,10 @@ fn orchestrate(
         bar
     };
 
-    #[expect(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "`jobs` is a small thread count; u64->usize truncation is impossible in practice"
+    )]
     let thread_pool = ThreadPoolBuilder::new()
         .num_threads(jobs.get() as usize)
         .build()?;

@@ -46,7 +46,7 @@ impl Meta for Denoise {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        #[expect(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "literal 2 is non-zero by construction")]
         NonZeroU64::new(2).unwrap()
     }
 
@@ -125,8 +125,8 @@ impl External for CleanScan {
 }
 
 #[inline]
-#[expect(clippy::unwrap_used)]
-#[expect(clippy::expect_used)]
+#[expect(clippy::unwrap_used, reason = "the `.max(1)` clamp guarantees a non-zero result")]
+#[expect(clippy::expect_used, reason = "`available_parallelism` failure is an unexpected OS error")]
 fn eighth_of_total_cores() -> NonZeroU64 {
     let cores = available_parallelism()
         .expect("Failed to get core numbers")

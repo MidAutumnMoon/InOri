@@ -61,7 +61,7 @@ impl Meta for Avif {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        #[expect(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "literal 1 is non-zero by construction")]
         NonZeroU64::new(1).unwrap()
     }
 

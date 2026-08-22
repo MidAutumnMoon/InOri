@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
-#[expect(non_snake_case, clippy::struct_field_names)]
+#[expect(
+    non_snake_case,
+    clippy::struct_field_names,
+    reason = "DTO mirrors the upstream `nix search --json` schema"
+)]
 pub struct PackageSearchResult {
     // r#type: String,
     pub package_attr_name: String,

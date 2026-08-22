@@ -67,9 +67,12 @@ impl FromStr for BaseSeqExt {
             }
         }
 
-        #[expect(clippy::indexing_slicing)]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "slice bounds are enforced by `ensure!(idx < parts.len())` and the `parts.len() >= 2` check above"
+        )]
         let (base, ext) = if let Some(idx) = seq_index {
-            ensure!(idx <= parts.len(), "[BUG] Index out of bound");
+            ensure!(idx < parts.len(), "[BUG] Index out of bound");
             let base = &parts[..idx];
             let ext = &parts[(idx + 1)..];
             (base, ext)
@@ -143,8 +146,11 @@ impl BaseSeqExt {
 
 /// Collect all images under `workspace` of `formats`.
 /// If `recursive` is false, only the immediate children of `workspace` are scanned.
+///
+/// # Errors
+///
+/// Fails if `formats` is empty or the workspace cannot be traversed.
 #[instrument]
-#[expect(clippy::missing_errors_doc)]
 pub fn collect_images(
     workspace: &Path,
     formats: &[ImageFormat],
@@ -185,7 +191,7 @@ pub fn collect_images(
         {
             debug!(?format);
             accu.push(Image {
-                path: RelAbs::from_path(workspace, path)?,
+                path: RelAbs::from_path(workspace, path),
                 format,
                 extra: BaseSeqExt::try_from(path)?.tap(|seq| debug!(?seq)),
             });
@@ -219,35 +225,35 @@ pub enum RelAbs {
 impl RelAbs {
     #[expect(clippy::missing_errors_doc)]
     #[instrument]
-    pub fn from_path(
-        workspace: &Path,
-        orig_path: &Path,
-    ) -> anyhow::Result<Self> {
+    pub fn from_path(workspace: &Path, orig_path: &Path) -> Self {
         debug!("Guess whether path is relative or absolute");
         if orig_path.is_absolute() {
             debug!("Input path is absolute");
-            #[expect(clippy::option_if_let_else)]
+            #[expect(
+                clippy::option_if_let_else,
+                reason = "the if-let-else shape mirrors the two `Ok` outcomes; a match would add noise"
+            )]
             if let Ok(rel_path) = orig_path.strip_prefix(workspace) {
                 // workspace=/home path=/home/uv
                 // path stripped => uv
                 debug!("Input path is relative to workspace");
-                Ok(Self::Relative {
+                Self::Relative {
                     workspace: workspace.to_path_buf(),
                     rel_path: rel_path.to_path_buf(),
-                })
+                }
             } else {
                 debug!("Input path is not relative to workspace");
-                Ok(Self::Absolute {
+                Self::Absolute {
                     path: orig_path.to_path_buf(),
-                })
+                }
             }
         } else {
             debug!("Input path is relative, use it as-is");
             // Already relative path
-            Ok(Self::Relative {
+            Self::Relative {
                 workspace: workspace.to_path_buf(),
                 rel_path: orig_path.to_path_buf(),
-            })
+            }
         }
     }
 
@@ -284,7 +290,7 @@ impl RelAbs {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
 mod tests {
     use super::*;
 

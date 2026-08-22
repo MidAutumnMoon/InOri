@@ -13,7 +13,7 @@ static HYPERLINKS_SUPPORTED: LazyLock<bool> =
     LazyLock::new(supports_hyperlinks::supports_hyperlinks);
 
 static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
     Regex::new("<[^>]*>").expect("HTML tag regex should always be valid")
 });
 

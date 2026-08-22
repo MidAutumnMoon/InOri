@@ -49,7 +49,7 @@ impl Key {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
 mod tests {
 
     use super::*;

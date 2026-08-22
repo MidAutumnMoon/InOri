@@ -24,10 +24,11 @@
 //! re-used immediately after wait. As far as I understand, this is a race condition you can't lock
 //! your way out of. Hence the sleepy loop in `wait_deadline`.
 
-// `Stdio::piped()` guarantees `child.stdout/stderr/stdin` are `Some`,
-// and `Read::read` guarantees `n <= buffer.len()`. The unwrap/indexing
-// here are safe by construction.
-#![expect(clippy::unwrap_used, clippy::indexing_slicing)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "`Stdio::piped()` guarantees `child.stdout/stderr/stdin` are `Some`, and `Read::read` guarantees `n <= buffer.len()`"
+)]
 use std::{
     collections::VecDeque,
     io::{self, Read as _, Write as _},

@@ -6,8 +6,11 @@ use std::path::PathBuf;
 /// Walk through all directories in $PATH, search for
 /// the executable of `name` in each one. Returns a list
 /// of paths that have it.
+///
+/// # Panics
+///
+/// Panics if the `PATH` environment variable is not set.
 #[tracing::instrument]
-#[expect(clippy::missing_panics_doc)]
 pub fn lookup_executable_in_path(program: &str) -> Vec<PathBuf> {
     debug!("Try find executable in $PATH");
 

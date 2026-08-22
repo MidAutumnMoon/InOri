@@ -15,17 +15,30 @@ pub enum PathExtError {
 }
 
 /// Extra functions to work with [`Path`].
-#[expect(clippy::missing_errors_doc)]
 pub trait PathExt {
     /// Like [`Path::try_exists`], but **does not** traverse
     /// symlinks automatically.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Ok(false)` when the path does not exist; propagates
+    /// other errors from [`Path::symlink_metadata`].
     fn try_exists_no_traverse(&self) -> io::Result<bool>;
 
     /// Like [`Path::is_dir`], but **does not** traverse symlink.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Ok(false)` when the path does not exist; propagates
+    /// other errors from [`Path::symlink_metadata`].
     fn is_dir_no_traverse(&self) -> IoResult<bool>;
 
     /// Like [`Path::is_absolute`], but returns error if
     /// this path is not absolute.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathExtError::NotAbsolute`] if the path is not absolute.
     fn must_absolute(&self) -> Result<&Self, PathExtError>;
 }
 
@@ -61,7 +74,7 @@ impl PathExt for Path {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
 mod test {
 
     use std::fs::remove_file;

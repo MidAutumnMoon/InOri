@@ -30,19 +30,19 @@ use yansi::{Color, Paint};
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
     Regex::new(r".*/(?:\.direnv|direnv/layouts)/.*")
         .expect("Failed to compile direnv regex")
 });
 
 static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
     Regex::new(r"^(.*)-(\d+)-link$")
         .expect("Failed to compile generation regex")
 });
 
 static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
     Regex::new("^result(-.*)?$")
         .expect("Failed to compile result link regex")
 });
@@ -718,7 +718,7 @@ fn remove_path_nofail(path: &Path) {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used)]
+#[expect(clippy::expect_used, reason = "Tests")]
 mod tests {
     use super::*;
 

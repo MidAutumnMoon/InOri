@@ -14,7 +14,7 @@ const SPINNER_FRAMES: &[&str] = &["⢹", "⢺", "⢼", "⣸", "⣇", "⡧", "⡗
 /// Panics if the hardcoded spinner template is invalid.
 #[must_use]
 pub fn spinner(message: impl Into<String>) -> Spinner {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, reason = "hardcoded template; the `# Panics` section documents the failure case")]
     let style = ProgressStyle::with_template("{spinner:.blue} {msg}")
         .expect("Static spinner template is valid")
         .tick_strings(SPINNER_FRAMES);

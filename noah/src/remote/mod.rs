@@ -535,7 +535,7 @@ impl RemoteHost {
     /// exists).
     #[must_use]
     pub fn hostname(&self) -> &str {
-        #[expect(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used, reason = "`rsplit('@')` always yields at least one element")]
         self.host.rsplit('@').next().unwrap()
     }
 
