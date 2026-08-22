@@ -525,7 +525,7 @@ impl DstFact {
     }
 }
 
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 #[cfg(test)]
 mod test {
 

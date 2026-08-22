@@ -345,7 +345,7 @@ impl RebuildActivateArgs {
                 ActivationAction::Switch => {
                     crate::remote::ActivationType::Switch
                 }
-                #[allow(
+                #[expect(
                     clippy::unreachable,
                     reason = "the boot action has no test phase"
                 )]

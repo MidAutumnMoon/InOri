@@ -192,7 +192,7 @@ struct Subject {
 
 impl Subject {
     fn new(path: AbsolutePath) -> Self {
-        #[allow(clippy::enum_glob_use)]
+        #[expect(clippy::enum_glob_use)]
         use SubjectKind::*;
 
         const CHECKLIST: &[(&str, SubjectKind)] = &[
@@ -211,7 +211,7 @@ impl Subject {
     }
 
     fn describe(&self) -> &'static str {
-        #[allow(clippy::enum_glob_use)]
+        #[expect(clippy::enum_glob_use)]
         use SubjectKind::*;
         match self.kind {
             BootedSystem => "The generation activated at boot time",

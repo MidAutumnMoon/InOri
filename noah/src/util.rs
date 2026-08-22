@@ -85,7 +85,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 /// # Panics
 ///
 /// Panics if the process re-execution with elevated privileges fails.
-#[allow(clippy::panic, clippy::expect_used)]
+#[expect(clippy::panic, clippy::expect_used)]
 pub fn self_elevate(
     strategy: ElevationStrategy,
     runtime_env: &RuntimeEnv,

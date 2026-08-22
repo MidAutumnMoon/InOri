@@ -15,7 +15,7 @@ pub enum PathExtError {
 }
 
 /// Extra functions to work with [`Path`].
-#[allow(clippy::missing_errors_doc)]
+#[expect(clippy::missing_errors_doc)]
 pub trait PathExt {
     /// Like [`Path::try_exists`], but **does not** traverse
     /// symlinks automatically.
@@ -61,7 +61,7 @@ impl PathExt for Path {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod test {
 
     use std::fs::remove_file;

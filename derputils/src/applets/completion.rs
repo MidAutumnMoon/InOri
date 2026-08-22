@@ -143,7 +143,7 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod test {
     use std::assert_matches;
     use super::*;

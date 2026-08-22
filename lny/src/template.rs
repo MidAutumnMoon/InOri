@@ -15,7 +15,7 @@ use tracing::debug;
 use tracing::trace;
 
 // Constructing an [`Environment`] is expensive.
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
     use minijinja::UndefinedBehavior;
 
@@ -167,7 +167,7 @@ mod test {
     use super::*;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn rendered_path() {
         let tmpls_to_ok = [
             // absolute path

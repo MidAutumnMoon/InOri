@@ -1,6 +1,6 @@
 /// Init custom [`tracing_subscriber`] configuration.
 #[inline(always)]
-#[allow(clippy::wildcard_imports)]
+#[expect(clippy::wildcard_imports)]
 pub fn init_tracing_subscriber() {
     use tracing_subscriber::filter::*;
     use tracing_subscriber::prelude::*;

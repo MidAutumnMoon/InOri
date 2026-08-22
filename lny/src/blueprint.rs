@@ -115,7 +115,7 @@ mod test {
     use tap::Tap;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn symlinks_are_unique() {
         let json = serde_json::json! { {
             "version": CURRENT_BLUEPRINT_VERSION,

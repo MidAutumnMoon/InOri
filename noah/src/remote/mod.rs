@@ -535,7 +535,7 @@ impl RemoteHost {
     /// exists).
     #[must_use]
     pub fn hostname(&self) -> &str {
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         self.host.rsplit('@').next().unwrap()
     }
 
@@ -1799,7 +1799,7 @@ fn build_on_remote_with_nom(
     let poll_interval = Duration::from_millis(100);
 
     for proc in &job.processes {
-        #[allow(
+        #[expect(
             clippy::needless_continue,
             reason = "Better for explicitness and consistency"
         )]
