@@ -1,32 +1,40 @@
-use std::{
-    convert::Into,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::convert::Into;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::diff::{handle_nixos_diff, print_dix_diff};
-use crate::remote::{RemoteBuildConfig, RemoteHost, SshConfig};
-use crate::{
-    args::DiffType,
-    command::{
-        self, Command, CommandKind, ElevationStrategy, NixCommand,
-        SudoConfig,
-    },
-    runtime::RuntimeEnv,
-    update::update,
-    util::{ensure_ssh_key_login, get_hostname},
-};
-use nh_installable::{FlakeConfig, Installable};
-use rootcause::{Result, bail, prelude::ResultExt as _, report};
-use tracing::{debug, info, warn};
+use nh_installable::FlakeConfig;
+use nh_installable::Installable;
+use nix_command::CommandKind;
+use nix_command::NixCommand;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
-use crate::nixos::{
-    args::{
-        GenerationsArgs, RebuildActivateArgs, RebuildArgs, ReplArgs,
-        RollbackArgs,
-    },
-    generations,
-};
+use crate::args::DiffType;
+use crate::command;
+use crate::command::Command;
+use crate::command::ElevationStrategy;
+use crate::command::SudoConfig;
+use crate::diff::handle_nixos;
+use crate::diff::print_dix_report;
+use crate::nixos::args::Generations;
+use crate::nixos::args::Rebuild;
+use crate::nixos::args::RebuildActivate;
+use crate::nixos::args::Repl;
+use crate::nixos::args::Rollback;
+use crate::nixos::generations;
+use crate::remote::BuildConfig;
+use crate::remote::Host;
+use crate::remote::SshConfig;
+use crate::runtime::RuntimeEnv;
+use crate::update::update;
+use crate::util::ensure_ssh_key_login;
+use crate::util::get_hostname;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -57,7 +65,7 @@ struct BuiltConfiguration {
     actual_store_path: Option<PathBuf>,
 }
 
-impl RebuildActivateArgs {
+impl RebuildActivate {
     #[expect(
         clippy::missing_errors_doc,
         reason = "errors are contextualized `rootcause::Report`s at each `?` site"
@@ -182,7 +190,7 @@ impl RebuildActivateArgs {
         if let Some(target_host) = &self.rebuild.target_host
             && out_path.exists()
         {
-            crate::remote::copy_to_remote(
+            crate::remote::copy::copy_to_remote(
                 target_host,
                 target_profile,
                 self.rebuild.common.passthrough.use_substitutes,
@@ -467,7 +475,7 @@ impl RebuildActivateArgs {
     }
 }
 
-impl RebuildArgs {
+impl Rebuild {
     /// Performs initial setup and gathers context for an OS rebuild operation.
     ///
     /// This includes:
@@ -507,9 +515,7 @@ impl RebuildArgs {
         let target_hostname = get_hostname(
             self.hostname
                 .as_deref()
-                .or_else(|| {
-                    self.target_host.as_ref().map(RemoteHost::hostname)
-                })
+                .or_else(|| self.target_host.as_ref().map(Host::hostname))
                 .map(ToOwned::to_owned),
         )?;
         Ok((elevate, target_hostname))
@@ -644,7 +650,7 @@ impl RebuildArgs {
         // 4. Copy result back (to localhost or target_host)
         if let Some(build_host) = self.build_host.clone() {
             info!("{MESSAGE}");
-            let config = RemoteBuildConfig {
+            let config = BuildConfig {
                 build_host,
                 target_host: self.target_host.clone(),
                 use_nom: !self.common.no_nom,
@@ -698,7 +704,7 @@ impl RebuildArgs {
         let target_profile =
             self.resolve_specialisation_and_profile(out_path)?;
 
-        handle_nixos_diff(
+        handle_nixos(
             &self.common.diff,
             self.target_host.as_ref(),
             &target_profile,
@@ -788,7 +794,7 @@ impl RebuildArgs {
     }
 }
 
-impl RollbackArgs {
+impl Rollback {
     #[expect(
         clippy::too_many_lines,
         clippy::missing_errors_doc,
@@ -856,7 +862,7 @@ impl RollbackArgs {
                 "Comparing with target profile: {}",
                 generation_link.display()
             );
-            if let Err(error) = print_dix_diff(
+            if let Err(error) = print_dix_report(
                 &PathBuf::from(CURRENT_PROFILE),
                 &generation_link,
             ) {
@@ -1021,8 +1027,8 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
 /// Similar to [`validate_system_closure`] but executes checks on a remote host.
 fn validate_system_closure_remote(
     system_path: &Path,
-    target_host: &RemoteHost,
-    build_host: Option<&RemoteHost>,
+    target_host: &Host,
+    build_host: Option<&Host>,
     ssh_config: &SshConfig,
 ) -> Result<()> {
     // Build context string for error messages
@@ -1035,7 +1041,7 @@ fn validate_system_closure_remote(
     });
 
     // Delegate to the generic remote validation function
-    crate::remote::validate_closure_remote(
+    crate::remote::validate_remote_closure(
         target_host,
         system_path,
         ESSENTIAL_FILES,
@@ -1170,7 +1176,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     Ok(generations)
 }
 
-impl ReplArgs {
+impl Repl {
     #[expect(
         clippy::missing_errors_doc,
         reason = "errors are contextualized `rootcause::Report`s at each `?` site"
@@ -1210,7 +1216,7 @@ impl ReplArgs {
     }
 }
 
-impl GenerationsArgs {
+impl Generations {
     #[expect(
         clippy::missing_errors_doc,
         reason = "errors are contextualized `rootcause::Report`s at each `?` site"

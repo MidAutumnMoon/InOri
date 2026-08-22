@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::Args;
+use clap::Subcommand;
 
 // Needed a struct to have multiple sub-subcommands
 #[derive(Debug, Clone, Args)]
@@ -13,15 +14,15 @@ pub struct CleanProxy {
 /// Enhanced nix cleanup.
 pub enum CleanMode {
     /// Clean all profiles.
-    All(CleanArgs),
+    All(Clean),
     /// Clean the current user's profiles.
-    User(CleanArgs),
+    User(Clean),
     /// Clean a specific profile.
-    Profile(CleanProfileArgs),
+    Profile(CleanProfile),
 }
 
 #[derive(Args, Clone, Debug)]
-pub struct CleanArgs {
+pub struct Clean {
     #[arg(long, short, default_value = "1")]
     /// At least keep this number of generations.
     pub keep: u32,
@@ -75,9 +76,9 @@ pub struct CleanArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct CleanProfileArgs {
+pub struct CleanProfile {
     #[command(flatten)]
-    pub common: CleanArgs,
+    pub common: Clean,
 
     /// Which profile to clean.
     pub profile: PathBuf,

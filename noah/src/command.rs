@@ -8,14 +8,15 @@ use std::{
 };
 
 use nh_installable::Installable;
-pub use nix_command::{CommandKind, NixCommand};
+use nix_command::CommandKind;
+use nix_command::NixCommand;
 use rootcause::{Result, bail, prelude::ResultExt as _, report};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which_in;
 
-use crate::{args::NixBuildPassthroughArgs, runtime::RuntimeEnv};
+use crate::{args::NixBuildPassthrough, runtime::RuntimeEnv};
 
 /// Privilege-elevation configuration captured from environment variables.
 ///
@@ -656,10 +657,7 @@ impl Build {
     }
 
     #[must_use]
-    pub fn passthrough(
-        self,
-        passthrough: &NixBuildPassthroughArgs,
-    ) -> Self {
+    pub fn passthrough(self, passthrough: &NixBuildPassthrough) -> Self {
         self.extra_args(passthrough.generate_passthrough_args())
     }
 

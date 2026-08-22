@@ -1,31 +1,41 @@
-use std::{
-    collections::HashMap,
-    ffi::OsString,
-    io::{self, Read as _},
-    path::{Path, PathBuf},
-    sync::{
-        Arc, LazyLock, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::ffi::OsString;
+use std::io;
+use std::io::Read as _;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, LazyLock, atomic::Ordering};
+use std::time::Duration;
 
-use crate::{
-    command::{CommandKind, ElevationStrategy, NixCommand},
-    runtime::RuntimeEnv,
-};
+use crate::command::ElevationStrategy;
+use crate::command::SudoConfig;
+use crate::runtime::RuntimeEnv;
 use nh_installable::Installable;
-use rootcause::{Report, Result, bail, prelude::ResultExt as _, report};
-use secrecy::{ExposeSecret as _, SecretString};
-use subprocess::{Exec, Job, Redirection};
-use tracing::{debug, info, warn};
+use nix_command::CommandKind;
+use nix_command::NixCommand;
+use rootcause::Report;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
+use secrecy::ExposeSecret as _;
+use secrecy::SecretString;
+use subprocess::Exec;
+use subprocess::Job;
+use subprocess::Redirection;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
-mod copy;
-mod dix;
+pub mod copy;
+pub mod dix;
 
-pub use copy::copy_to_remote;
-use copy::{copy_closure_between_remotes, copy_closure_from};
-pub use dix::ResolvedRemoteStorePath;
+use copy::copy_closure_between_hosts;
+use copy::copy_closure_from;
+use copy::copy_to_remote;
 
 /// SSH and remote-execution settings derived from the startup environment.
 #[derive(Debug, Clone)]
@@ -133,7 +143,7 @@ fn build_remote_command(
     strategy: Option<&ElevationStrategy>,
     base_cmd: &str,
     runtime_env: &RuntimeEnv,
-    sudo_config: &crate::command::SudoConfig,
+    sudo_config: &SudoConfig,
 ) -> Result<String> {
     if let Some(strategy) = strategy {
         if matches!(strategy, ElevationStrategy::None) {
@@ -222,7 +232,7 @@ fn build_remote_command(
 fn remote_sudo_command(
     prefix: &str,
     base_cmd: &str,
-    sudo_config: &crate::command::SudoConfig,
+    sudo_config: &SudoConfig,
 ) -> String {
     let sudo_opts = sudo_config
         .opts
@@ -409,7 +419,7 @@ pub fn init_ssh_control(config: &SshConfig) -> Result<SshControlGuard> {
 ///
 /// Returns an error if the SSH connection cannot be established.
 pub fn open_ssh_control_master(
-    host: &RemoteHost,
+    host: &Host,
     ssh_config: &SshConfig,
 ) -> Result<()> {
     let ssh_opts = get_ssh_opts(ssh_config);
@@ -450,7 +460,7 @@ pub fn open_ssh_control_master(
 /// Returns an error if the SSH connection fails, `id -u` exits non-zero, or
 /// its stdout cannot be parsed as a `u32`.
 pub fn probe_remote_uid(
-    host: &RemoteHost,
+    host: &Host,
     ssh_config: &SshConfig,
 ) -> Result<u32> {
     let ssh_opts = get_ssh_opts(ssh_config);
@@ -512,13 +522,13 @@ impl NixStoreScheme {
 // cases where we only want to compare the host and do not care about the
 // scheme.
 #[derive(Debug, Clone)]
-pub struct RemoteHost {
+pub struct Host {
     /// The host string (may include user@).
     host: String,
     store_scheme: NixStoreScheme,
 }
 
-impl RemoteHost {
+impl Host {
     /// Get the hostname part without the `user@` prefix.
     ///
     /// Used for hostname comparisons when determining if two `RemoteHost`
@@ -676,7 +686,7 @@ impl RemoteHost {
     }
 }
 
-impl std::str::FromStr for RemoteHost {
+impl std::str::FromStr for Host {
     type Err = Report;
 
     fn from_str(input: &str) -> Result<Self> {
@@ -684,7 +694,7 @@ impl std::str::FromStr for RemoteHost {
     }
 }
 
-impl std::fmt::Display for RemoteHost {
+impl std::fmt::Display for Host {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.host)
     }
@@ -767,7 +777,7 @@ fn kill_and_wait(job: &Job) -> io::Result<()> {
 /// * `remote_cmd` - The original command that was run remotely, used for pkill
 ///   matching
 fn attempt_remote_cleanup(
-    host: &RemoteHost,
+    host: &Host,
     remote_cmd: &str,
     ssh_config: &SshConfig,
 ) {
@@ -905,7 +915,7 @@ fn nix_argv_to_strings(command: &NixCommand) -> Result<Vec<String>> {
 
 /// Run a command on a remote host via SSH.
 fn run_remote_command(
-    host: &RemoteHost,
+    host: &Host,
     args: &[&str],
     capture_stdout: bool,
     ssh_config: &SshConfig,
@@ -975,8 +985,8 @@ fn run_remote_command(
 ///
 /// - SSH connection to the remote host fails
 /// - Any of the essential files are missing
-pub fn validate_closure_remote(
-    host: &RemoteHost,
+pub fn validate_remote_closure(
+    host: &Host,
     closure_path: &Path,
     essential_files: &[(&str, &str)],
     context_info: Option<&str>,
@@ -1139,8 +1149,9 @@ pub struct ActivateRemoteConfig {
 ///
 /// # Errors
 ///
+#[expect(clippy::module_name_repetitions, reason = "It's clearer")]
 pub fn activate_remote(
-    host: &RemoteHost,
+    host: &Host,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
     runtime_env: &RuntimeEnv,
@@ -1173,7 +1184,7 @@ pub fn activate_remote(
 /// # Errors
 ///
 fn activate_nixos_remote(
-    host: &RemoteHost,
+    host: &Host,
     system_profile: &Path,
     config: &ActivateRemoteConfig,
     runtime_env: &RuntimeEnv,
@@ -1478,13 +1489,13 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
 /// target host, the result stays remote-only and local out-link creation is
 /// skipped.
 #[derive(Debug, Clone)]
-pub struct RemoteBuildConfig {
+pub struct BuildConfig {
     /// The host to build on.
-    pub build_host: RemoteHost,
+    pub build_host: Host,
 
     /// Optional target host to copy the result to (instead of localhost).
     /// When set, copies directly from `build_host` to `target_host`.
-    pub target_host: Option<RemoteHost>,
+    pub target_host: Option<Host>,
 
     /// Whether to use nix-output-monitor for build output.
     pub use_nom: bool,
@@ -1508,9 +1519,10 @@ pub struct RemoteBuildConfig {
 ///
 /// # Errors
 ///
+#[expect(clippy::module_name_repetitions, reason = "It's clearer")]
 pub fn build_remote(
     installable: &Installable,
-    config: &RemoteBuildConfig,
+    config: &BuildConfig,
     out_link: Option<&std::path::Path>,
     ssh_config: &SshConfig,
 ) -> Result<PathBuf> {
@@ -1558,7 +1570,7 @@ pub fn build_remote(
             false
         }
         Some(target_host) => {
-            match copy_closure_between_remotes(
+            match copy_closure_between_hosts(
                 build_host,
                 target_host,
                 &out_path,
@@ -1629,9 +1641,9 @@ pub fn build_remote(
 
 /// Build a derivation on a remote host.
 fn build_on_remote(
-    host: &RemoteHost,
+    host: &Host,
     drv_path: &Path,
-    config: &RemoteBuildConfig,
+    config: &BuildConfig,
     ssh_config: &SshConfig,
 ) -> Result<String> {
     // Build command: nix build <drv>^* --print-out-paths [extra_args...]
@@ -1674,9 +1686,9 @@ fn build_nix_command(
 }
 
 fn build_on_remote_simple(
-    host: &RemoteHost,
+    host: &Host,
     drv_with_outputs: &str,
-    config: &RemoteBuildConfig,
+    config: &BuildConfig,
     ssh_config: &SshConfig,
 ) -> Result<String> {
     // Register interrupt handler at start
@@ -1738,7 +1750,9 @@ fn build_on_remote_simple(
         let stderr = job
             .stderr
             .take()
-            .and_then(|stderr_reader| io::read_to_string(stderr_reader).ok())
+            .and_then(|stderr_reader| {
+                io::read_to_string(stderr_reader).ok()
+            })
             .unwrap_or_else(|| String::from("(no stderr)"));
         bail!("Remote command failed: {}", stderr);
     }
@@ -1766,9 +1780,9 @@ fn build_on_remote_simple(
 
 /// Build on remote with nom - pipe through nix-output-monitor.
 fn build_on_remote_with_nom(
-    host: &RemoteHost,
+    host: &Host,
     drv_with_outputs: &str,
-    config: &RemoteBuildConfig,
+    config: &BuildConfig,
     ssh_config: &SshConfig,
 ) -> Result<String> {
     // Register interrupt handler at start
@@ -1910,7 +1924,7 @@ mod tests {
     proptest! {
       #[test]
       fn hostname_always_returns_suffix_after_last_at(hostname in "\\PC*") {
-          let host = RemoteHost {
+          let host = Host {
             host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
@@ -1920,7 +1934,7 @@ mod tests {
 
       #[test]
       fn hostname_is_substring_of_host(hostname in "\\PC*") {
-          let host = RemoteHost {
+          let host = Host {
             host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
@@ -1929,7 +1943,7 @@ mod tests {
 
       #[test]
       fn hostname_no_at_means_whole_string(hostname in "[^@]*") {
-          let host = RemoteHost {
+          let host = Host {
             host:         hostname.clone(),
             store_scheme: NixStoreScheme::SshNg,
           };
@@ -1939,7 +1953,7 @@ mod tests {
       #[test]
       fn hostname_with_user(user in "[a-zA-Z0-9_]+", hostname in "[a-zA-Z0-9_.-]+") {
           let full = format!("{user}@{hostname}");
-          let host = RemoteHost {
+          let host = Host {
             host: full,
             store_scheme: NixStoreScheme::SshNg,
           };
@@ -1948,7 +1962,7 @@ mod tests {
 
       #[test]
       fn parse_valid_bare_hostname(hostname in "[a-zA-Z0-9_.-]+") {
-          let result = RemoteHost::parse(&hostname);
+          let result = Host::parse(&hostname);
           prop_assert!(result.is_ok());
           let host = result.unwrap();
           prop_assert_eq!(host.hostname(), hostname);
@@ -1957,7 +1971,7 @@ mod tests {
       #[test]
       fn parse_valid_user_at_hostname(user in "[a-zA-Z0-9_]+", hostname in "[a-zA-Z0-9_.-]+") {
           let full = format!("{user}@{hostname}");
-          let result = RemoteHost::parse(&full);
+          let result = Host::parse(&full);
           prop_assert!(result.is_ok());
           let host = result.unwrap();
           prop_assert_eq!(host.hostname(), hostname);
@@ -1966,65 +1980,63 @@ mod tests {
 
     #[test]
     fn parse_bare_hostname() {
-        let host = RemoteHost::parse("buildserver").expect("should parse");
+        let host = Host::parse("buildserver").expect("should parse");
         assert_eq!(host.to_string(), "buildserver");
     }
 
     #[test]
     fn parse_user_at_hostname() {
-        let host =
-            RemoteHost::parse("root@buildserver").expect("should parse");
+        let host = Host::parse("root@buildserver").expect("should parse");
         assert_eq!(host.to_string(), "root@buildserver");
     }
 
     #[test]
     fn parse_ssh_uri_preserves_store_scheme() {
-        let host =
-            RemoteHost::parse("ssh://buildserver").expect("should parse");
+        let host = Host::parse("ssh://buildserver").expect("should parse");
         assert_eq!(host.to_string(), "buildserver");
         assert_eq!(host.nix_store_uri(), "ssh://buildserver");
     }
 
     #[test]
     fn parse_ssh_ng_uri_stripped() {
-        let host = RemoteHost::parse("ssh-ng://buildserver")
-            .expect("should parse");
+        let host =
+            Host::parse("ssh-ng://buildserver").expect("should parse");
         assert_eq!(host.to_string(), "buildserver");
     }
 
     #[test]
     fn parse_ssh_uri_with_user_preserves_store_scheme() {
-        let host = RemoteHost::parse("ssh://root@buildserver")
-            .expect("should parse");
+        let host =
+            Host::parse("ssh://root@buildserver").expect("should parse");
         assert_eq!(host.to_string(), "root@buildserver");
         assert_eq!(host.nix_store_uri(), "ssh://root@buildserver");
     }
 
     #[test]
     fn parse_ssh_ng_uri_with_user() {
-        let host = RemoteHost::parse("ssh-ng://admin@buildserver")
+        let host = Host::parse("ssh-ng://admin@buildserver")
             .expect("should parse");
         assert_eq!(host.to_string(), "admin@buildserver");
     }
 
     #[test]
     fn parse_empty_fails() {
-        RemoteHost::parse("").unwrap_err();
+        Host::parse("").unwrap_err();
     }
 
     #[test]
     fn parse_empty_user_fails() {
-        RemoteHost::parse("@hostname").unwrap_err();
+        Host::parse("@hostname").unwrap_err();
     }
 
     #[test]
     fn parse_empty_hostname_fails() {
-        RemoteHost::parse("user@").unwrap_err();
+        Host::parse("user@").unwrap_err();
     }
 
     #[test]
     fn parse_port_rejected() {
-        let Err(err) = RemoteHost::parse("hostname:22") else {
+        let Err(err) = Host::parse("hostname:22") else {
             panic!("expected error for port in hostname");
         };
         assert!(err.to_string().contains("NIX_SSHOPTS"));
@@ -2033,14 +2045,14 @@ mod tests {
     #[test]
     fn parse_ipv6_bracketed() {
         let host =
-            RemoteHost::parse("[2001:db8::1]").expect("should parse IPv6");
+            Host::parse("[2001:db8::1]").expect("should parse IPv6");
         assert_eq!(host.to_string(), "[2001:db8::1]");
         assert_eq!(host.hostname(), "[2001:db8::1]");
     }
 
     #[test]
     fn parse_ipv6_with_user() {
-        let host = RemoteHost::parse("root@[2001:db8::1]")
+        let host = Host::parse("root@[2001:db8::1]")
             .expect("should parse IPv6 with user");
         assert_eq!(host.to_string(), "root@[2001:db8::1]");
         assert_eq!(host.hostname(), "[2001:db8::1]");
@@ -2048,28 +2060,28 @@ mod tests {
 
     #[test]
     fn parse_ipv6_with_zone_id() {
-        let host = RemoteHost::parse("[fe80::1%eth0]")
+        let host = Host::parse("[fe80::1%eth0]")
             .expect("should parse IPv6 with zone");
         assert_eq!(host.to_string(), "[fe80::1%eth0]");
     }
 
     #[test]
     fn parse_ipv6_ssh_ng_uri() {
-        let host = RemoteHost::parse("ssh-ng://[2001:db8::1]")
+        let host = Host::parse("ssh-ng://[2001:db8::1]")
             .expect("should parse IPv6 SSH-NG URI");
         assert_eq!(host.to_string(), "[2001:db8::1]");
     }
 
     #[test]
     fn parse_ipv6_ssh_ng_uri_with_user() {
-        let host = RemoteHost::parse("ssh-ng://root@[2001:db8::1]")
+        let host = Host::parse("ssh-ng://root@[2001:db8::1]")
             .expect("should parse IPv6 SSH-NG URI with user");
         assert_eq!(host.to_string(), "root@[2001:db8::1]");
     }
 
     #[test]
     fn parse_ipv6_ssh_uri_preserves_store_scheme() {
-        let host = RemoteHost::parse("ssh://[2001:db8::1]")
+        let host = Host::parse("ssh://[2001:db8::1]")
             .expect("should parse IPv6 SSH URI");
         assert_eq!(host.to_string(), "[2001:db8::1]");
         assert_eq!(host.nix_store_uri(), "ssh://[2001:db8::1]");
@@ -2077,7 +2089,7 @@ mod tests {
 
     #[test]
     fn parse_ipv6_ssh_uri_with_user_preserves_store_scheme() {
-        let host = RemoteHost::parse("ssh://root@[2001:db8::1]")
+        let host = Host::parse("ssh://root@[2001:db8::1]")
             .expect("should parse IPv6 SSH URI with user");
         assert_eq!(host.to_string(), "root@[2001:db8::1]");
         assert_eq!(host.nix_store_uri(), "ssh://root@[2001:db8::1]");
@@ -2085,14 +2097,14 @@ mod tests {
 
     #[test]
     fn parse_ipv6_localhost() {
-        let host = RemoteHost::parse("[::1]")
-            .expect("should parse IPv6 localhost");
+        let host =
+            Host::parse("[::1]").expect("should parse IPv6 localhost");
         assert_eq!(host.to_string(), "[::1]");
     }
 
     #[test]
     fn parse_ipv6_compressed() {
-        let host = RemoteHost::parse("[2001:db8::]")
+        let host = Host::parse("[2001:db8::]")
             .expect("should parse compressed IPv6");
         assert_eq!(host.to_string(), "[2001:db8::]");
     }
@@ -2100,34 +2112,34 @@ mod tests {
     #[test]
     fn parse_ipv6_unbracketed_rejected() {
         // Bare IPv6 without brackets should be rejected
-        let result = RemoteHost::parse("2001:db8::1");
+        let result = Host::parse("2001:db8::1");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("NIX_SSHOPTS"));
     }
 
     #[test]
     fn parse_ipv6_mismatched_brackets_rejected() {
-        RemoteHost::parse("[2001:db8::1").unwrap_err();
-        RemoteHost::parse("2001:db8::1]").unwrap_err();
+        Host::parse("[2001:db8::1").unwrap_err();
+        Host::parse("2001:db8::1]").unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_extra_brackets_rejected() {
-        RemoteHost::parse("[[2001:db8::1]]").unwrap_err();
-        RemoteHost::parse("[2001:db8::[1]]").unwrap_err();
+        Host::parse("[[2001:db8::1]]").unwrap_err();
+        Host::parse("[2001:db8::[1]]").unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_with_port_rejected() {
         // IPv6 with port syntax should be rejected (use NIX_SSHOPTS)
-        let result = RemoteHost::parse("[2001:db8::1]:22");
+        let result = Host::parse("[2001:db8::1]:22");
         result.unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_chars_after_bracket_rejected() {
         // Characters after closing bracket should be rejected
-        let result = RemoteHost::parse("[2001:db8::1]extra");
+        let result = Host::parse("[2001:db8::1]extra");
         result.unwrap_err();
     }
 
@@ -2135,114 +2147,109 @@ mod tests {
     fn parse_ipv6_at_inside_brackets_rejected() {
         // @ character inside brackets should be rejected (not valid IPv6)
         // This ensures [@2001:db8::1] and [2001@db8::1] are both rejected
-        let result = RemoteHost::parse("[@2001:db8::1]");
+        let result = Host::parse("[@2001:db8::1]");
         assert!(result.is_err(), "[@2001:db8::1] should be rejected");
 
-        let result2 = RemoteHost::parse("[2001@db8::1]");
+        let result2 = Host::parse("[2001@db8::1]");
         assert!(result2.is_err(), "[2001@db8::1] should be rejected");
     }
 
     #[test]
     fn ssh_host_ipv6_strips_brackets() {
         let host =
-            RemoteHost::parse("[2001:db8::1]").expect("should parse IPv6");
+            Host::parse("[2001:db8::1]").expect("should parse IPv6");
         assert_eq!(host.ssh_host(), "2001:db8::1");
     }
 
     #[test]
     fn ssh_host_ipv6_with_user() {
         let host =
-            RemoteHost::parse("user@[2001:db8::1]").expect("should parse");
+            Host::parse("user@[2001:db8::1]").expect("should parse");
         assert_eq!(host.ssh_host(), "user@2001:db8::1");
     }
 
     #[test]
     fn ssh_host_ipv6_with_zone_id() {
-        let host =
-            RemoteHost::parse("[fe80::1%eth0]").expect("should parse");
+        let host = Host::parse("[fe80::1%eth0]").expect("should parse");
         assert_eq!(host.ssh_host(), "fe80::1%eth0");
     }
 
     #[test]
     fn ssh_host_ipv6_with_zone_id_and_user() {
-        let host = RemoteHost::parse("user@[fe80::1%eth0]")
-            .expect("should parse");
+        let host =
+            Host::parse("user@[fe80::1%eth0]").expect("should parse");
         assert_eq!(host.ssh_host(), "user@fe80::1%eth0");
     }
 
     #[test]
     fn ssh_host_ipv6_localhost() {
-        let host = RemoteHost::parse("[::1]").expect("should parse");
+        let host = Host::parse("[::1]").expect("should parse");
         assert_eq!(host.ssh_host(), "::1");
     }
 
     #[test]
     fn ssh_host_non_ipv6_unchanged() {
-        let host =
-            RemoteHost::parse("host.example").expect("should parse");
+        let host = Host::parse("host.example").expect("should parse");
         assert_eq!(host.ssh_host(), "host.example");
     }
 
     #[test]
     fn ssh_host_non_ipv6_with_user() {
-        let host =
-            RemoteHost::parse("user@host.example").expect("should parse");
+        let host = Host::parse("user@host.example").expect("should parse");
         assert_eq!(host.ssh_host(), "user@host.example");
     }
 
     #[test]
     fn ssh_host_ssh_ng_uri_ipv6() {
-        let host = RemoteHost::parse("ssh-ng://[2001:db8::1]")
-            .expect("should parse");
+        let host =
+            Host::parse("ssh-ng://[2001:db8::1]").expect("should parse");
         assert_eq!(host.ssh_host(), "2001:db8::1");
     }
 
     #[test]
     fn ssh_host_ssh_ng_uri_ipv6_with_user() {
-        let host = RemoteHost::parse("ssh-ng://root@[2001:db8::1]")
+        let host = Host::parse("ssh-ng://root@[2001:db8::1]")
             .expect("should parse");
         assert_eq!(host.ssh_host(), "root@2001:db8::1");
     }
 
     #[test]
     fn ssh_host_ssh_uri_ipv6() {
-        let host = RemoteHost::parse("ssh://[2001:db8::1]")
-            .expect("should parse");
+        let host =
+            Host::parse("ssh://[2001:db8::1]").expect("should parse");
         assert_eq!(host.ssh_host(), "2001:db8::1");
     }
 
     #[test]
     fn ssh_host_ssh_uri_ipv6_with_user() {
-        let host = RemoteHost::parse("ssh://root@[2001:db8::1]")
-            .expect("should parse");
+        let host =
+            Host::parse("ssh://root@[2001:db8::1]").expect("should parse");
         assert_eq!(host.ssh_host(), "root@2001:db8::1");
     }
 
     #[test]
     fn nix_store_uri_defaults_bare_host_to_ssh_ng() {
-        let host =
-            RemoteHost::parse("build.example").expect("should parse");
+        let host = Host::parse("build.example").expect("should parse");
         assert_eq!(host.nix_store_uri(), "ssh-ng://build.example");
     }
 
     #[test]
     fn nix_store_uri_for_user_host() {
         let host =
-            RemoteHost::parse("user@build.example").expect("should parse");
+            Host::parse("user@build.example").expect("should parse");
         assert_eq!(host.nix_store_uri(), "ssh-ng://user@build.example");
     }
 
     #[test]
     fn nix_store_uri_preserves_ipv6_brackets() {
-        let host =
-            RemoteHost::parse("[2001:db8::1]").expect("should parse");
+        let host = Host::parse("[2001:db8::1]").expect("should parse");
         assert_eq!(host.nix_store_uri(), "ssh-ng://[2001:db8::1]");
     }
 
     #[test]
     fn nix_store_uri_preserves_user_ipv6_brackets() {
         let host =
-            RemoteHost::parse("user@[2001:db8::1]").expect("should parse");
+            Host::parse("user@[2001:db8::1]").expect("should parse");
         assert_eq!(host.nix_store_uri(), "ssh-ng://user@[2001:db8::1]");
     }
 

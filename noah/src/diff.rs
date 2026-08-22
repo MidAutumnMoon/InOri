@@ -1,13 +1,21 @@
-use std::{
-    fmt, io,
-    path::{Path, PathBuf},
-    thread,
-};
+use std::fmt;
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
+use std::thread;
 
-use crate::remote::{RemoteHost, ResolvedRemoteStorePath, SshConfig};
-use crate::{args::DiffType, external_report, progress};
-use rootcause::{Result, report};
-use tracing::{debug, info, warn};
+use crate::args::DiffType;
+use crate::external_report;
+use crate::progress;
+use crate::remote::Host;
+use crate::remote::SshConfig;
+// TODO: get rid of this fucking module heirachy structure
+use crate::remote::dix::ResolvedRemoteStorePath;
+use rootcause::Result;
+use rootcause::report;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 use yansi::Paint;
 
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
@@ -63,7 +71,7 @@ impl QueriedDiff {
 /// # Errors
 ///
 /// Returns an error if querying the store or writing the diff report fails.
-pub fn print_dix_diff(
+pub fn print_dix_report(
     old_generation: &Path,
     new_generation: &Path,
 ) -> Result<()> {
@@ -91,9 +99,9 @@ fn query_local_dix_diff(
 ///
 /// Returns an error if local or remote store snapshot queries fail, or if the
 /// diff report cannot be written.
-pub fn handle_nixos_diff(
+pub fn handle_nixos(
     diff: &DiffType,
-    target_host: Option<&RemoteHost>,
+    target_host: Option<&Host>,
     target_profile: &Path,
     actual_store_path: Option<&Path>,
     out_path: &Path,
@@ -145,7 +153,7 @@ pub fn handle_nixos_diff(
 }
 
 fn print_nixos_generation_diff(
-    target_host: Option<&RemoteHost>,
+    target_host: Option<&Host>,
     current_profile: &Path,
     target_profile: &Path,
     actual_store_path: Option<&Path>,
@@ -153,7 +161,7 @@ fn print_nixos_generation_diff(
     ssh_config: &SshConfig,
 ) -> Result<()> {
     let Some(target_host) = target_host else {
-        return print_dix_diff(current_profile, target_profile);
+        return print_dix_report(current_profile, target_profile);
     };
 
     let remote_profile =
@@ -183,7 +191,7 @@ fn print_nixos_generation_diff(
 }
 
 fn query_remote_nixos_diff(
-    target_host: &RemoteHost,
+    target_host: &Host,
     current_profile: &Path,
     target_profile: &Path,
     remote_profile: Option<PathBuf>,

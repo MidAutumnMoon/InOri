@@ -1,42 +1,6 @@
-use std::path::PathBuf;
-
-use clap::{Args, ValueEnum};
-use nh_installable::InstallableArgs;
+use clap::Args;
+use clap::ValueEnum;
 use tracing::warn;
-
-#[derive(Debug, Args)]
-pub struct CommonRebuildArgs {
-    /// Only print actions, without performing them.
-    #[arg(long, short = 'n')]
-    pub dry: bool,
-
-    /// Ask for confirmation.
-    #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
-    pub ask: bool,
-
-    #[command(flatten)]
-    pub installable: InstallableArgs,
-
-    /// Don't use nix-output-monitor for the build process.
-    #[arg(long)]
-    pub no_nom: bool,
-
-    /// Path to save the result link, defaults to using a temporary directory.
-    #[arg(long, short)]
-    pub out_link: Option<PathBuf>,
-
-    /// Whether to display a package diff.
-    #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-    pub diff: DiffType,
-
-    #[command(flatten)]
-    pub passthrough: NixBuildPassthroughArgs,
-}
 
 #[derive(ValueEnum, Clone, Default, Debug)]
 pub enum DiffType {
@@ -51,7 +15,7 @@ pub enum DiffType {
 }
 
 #[derive(Debug, Default, Args)]
-pub struct NixBuildPassthroughArgs {
+pub struct NixBuildPassthrough {
     /// Number of concurrent jobs Nix should run.
     #[arg(long, short = 'j')]
     pub max_jobs: Option<usize>,
@@ -161,7 +125,7 @@ pub struct NixBuildPassthroughArgs {
     pub override_input: Vec<String>,
 }
 
-impl NixBuildPassthroughArgs {
+impl NixBuildPassthrough {
     #[must_use]
     pub fn generate_passthrough_args(&self) -> Vec<String> {
         let mut args = Vec::new();
@@ -260,11 +224,11 @@ impl NixBuildPassthroughArgs {
 
 #[cfg(test)]
 mod tests {
-    use super::NixBuildPassthroughArgs;
+    use super::NixBuildPassthrough;
 
     #[test]
     fn no_build_output_maps_to_nix_quiet_flag() {
-        let args = NixBuildPassthroughArgs {
+        let args = NixBuildPassthrough {
             no_build_output: true,
             ..Default::default()
         };
@@ -274,7 +238,7 @@ mod tests {
 
     #[test]
     fn option_pairs_are_emitted() {
-        let args = NixBuildPassthroughArgs {
+        let args = NixBuildPassthrough {
             option: vec![
                 "sandbox".into(),
                 "false".into(),
@@ -292,7 +256,7 @@ mod tests {
 
     #[test]
     fn override_input_pairs_are_emitted() {
-        let args = NixBuildPassthroughArgs {
+        let args = NixBuildPassthrough {
             override_input: vec![
                 "nixpkgs".into(),
                 "github:NixOS/nixpkgs/nixos-unstable".into(),

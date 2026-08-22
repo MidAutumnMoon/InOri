@@ -1,15 +1,18 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    process,
-};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process;
 
-use crate::command::{CommandKind, NixCommand};
 use clap::ValueEnum;
-use jiff::{Timestamp, tz::TimeZone};
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use rootcause::Result;
-use tracing::{debug, warn};
+use tracing::debug;
+use tracing::warn;
+
+use nix_command::CommandKind;
+use nix_command::NixCommand;
 
 #[derive(Debug, Clone)]
 pub struct GenerationInfo {

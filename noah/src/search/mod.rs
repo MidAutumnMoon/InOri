@@ -7,7 +7,7 @@ mod types;
 use std::time::Duration;
 
 use crate::search::{
-    args::{SearchArgs, SearchKind, SearchMode},
+    args::{Search, SearchKind, SearchMode},
     backend::BackendConfig,
     types::{OptionSearchResult, PackageSearchResult},
 };
@@ -17,7 +17,7 @@ use tracing::{debug, trace};
 
 const CHANNEL: &str = "nixos-unstable";
 
-impl SearchArgs {
+impl Search {
     /// Execute the search subcommand.
     ///
     /// # Errors

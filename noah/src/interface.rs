@@ -55,21 +55,21 @@ pub struct Main {
 #[command(disable_help_subcommand = true)]
 pub enum NHCommand {
     /// Build and activate the new configuration, and make it the boot default.
-    Switch(nh::nixos::args::RebuildActivateArgs),
+    Switch(nh::nixos::args::RebuildActivate),
     /// Build the new configuration and make it the boot default.
-    Boot(nh::nixos::args::RebuildActivateArgs),
+    Boot(nh::nixos::args::RebuildActivate),
     /// Build and activate the new configuration.
-    Test(nh::nixos::args::RebuildActivateArgs),
+    Test(nh::nixos::args::RebuildActivate),
     /// Build the new configuration.
-    Build(nh::nixos::args::RebuildArgs),
+    Build(nh::nixos::args::Rebuild),
     /// Load system in a repl.
-    Repl(nh::nixos::args::ReplArgs),
+    Repl(nh::nixos::args::Repl),
     /// List available generations from profile path.
-    Info(nh::nixos::args::GenerationsArgs),
+    Info(nh::nixos::args::Generations),
     /// Rollback to a previous generation.
-    Rollback(nh::nixos::args::RollbackArgs),
+    Rollback(nh::nixos::args::Rollback),
     /// Searches packages or NixOS options via search.nixos.org.
-    Search(nh::search::args::SearchArgs),
+    Search(nh::search::args::Search),
     /// Enhanced nix cleanup.
     Clean(nh::clean::args::CleanProxy),
 }

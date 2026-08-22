@@ -4,14 +4,14 @@ use crate::external_report;
 use rootcause::{Result, bail, report};
 
 use super::{
-    RemoteHost, SshConfig, get_nix_sshopts_env, run_remote_command,
+    Host, SshConfig, get_nix_sshopts_env, run_remote_command,
 };
 
 /// A remote store path after resolving symlinks such as
 /// `/run/current-system`.
 #[derive(Debug, Clone)]
 pub struct ResolvedRemoteStorePath {
-    host: RemoteHost,
+    host: Host,
     path: PathBuf,
 }
 
@@ -26,7 +26,7 @@ impl ResolvedRemoteStorePath {
     /// Returns an error if the remote path cannot be resolved or resolves outside
     /// `/nix/store`.
     pub fn resolve(
-        host: &RemoteHost,
+        host: &Host,
         path: &Path,
         ssh_config: &SshConfig,
     ) -> Result<Self> {
@@ -87,7 +87,7 @@ impl ResolvedRemoteStorePath {
     }
 
     fn new(
-        host: &RemoteHost,
+        host: &Host,
         path: PathBuf,
         original: &str,
     ) -> Result<Self> {
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn resolved_remote_store_path_preserves_direct_store_entry()
     -> Result<()> {
-        let host = RemoteHost::parse("target.example")?;
+        let host = Host::parse("target.example")?;
 
         let root = ResolvedRemoteStorePath::resolve(
             &host,

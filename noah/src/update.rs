@@ -5,7 +5,7 @@ use rootcause::{Result, bail};
 use tracing::{info, warn};
 
 #[derive(Debug, Args)]
-pub struct UpdateArgs {
+pub struct Update {
     #[arg(short = 'u', long = "update", conflicts_with = "update_input")]
     /// Update all flake inputs.
     pub update_all: bool,

@@ -5,7 +5,7 @@ const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
 /// Searches packages or NixOS options via search.nixos.org.
-pub struct SearchArgs {
+pub struct Search {
     /// Number of search results to display.
     #[arg(
         long,
@@ -79,20 +79,20 @@ pub struct SearchArgs {
 #[derive(Subcommand, Debug)]
 pub enum SearchMode {
     /// Search packages via search.nixos.org.
-    Packages(PackagesArgs),
+    Packages(Packages),
     /// Search NixOS options via search.nixos.org.
-    Options(OptionsArgs),
+    Options(Options),
 }
 
 #[derive(Args, Debug)]
-pub struct PackagesArgs {
+pub struct Packages {
     /// Name of the package to search.
     #[arg(required = true)]
     pub query: Vec<String>,
 }
 
 #[derive(Args, Debug)]
-pub struct OptionsArgs {
+pub struct Options {
     /// Name of the option to search.
     #[arg(required = true)]
     pub query: Vec<String>,
@@ -112,7 +112,7 @@ mod tests {
     use clap::{Parser, Subcommand, error::ErrorKind};
     use std::assert_matches;
 
-    use super::{SearchArgs, SearchKind, SearchMode};
+    use super::{Search, SearchKind, SearchMode};
 
     #[derive(Debug, Parser)]
     struct TestCli {
@@ -122,10 +122,10 @@ mod tests {
 
     #[derive(Debug, Subcommand)]
     enum TestCommand {
-        Search(SearchArgs),
+        Search(Search),
     }
 
-    fn parse_search(args: &[&str]) -> clap::error::Result<SearchArgs> {
+    fn parse_search(args: &[&str]) -> clap::error::Result<Search> {
         let cli = TestCli::try_parse_from(
             std::iter::once("nh").chain(args.iter().copied()),
         )?;

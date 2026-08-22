@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 
-use crate::args::{DiffType, NixBuildPassthroughArgs};
-use crate::remote::RemoteHost;
+use crate::args::{DiffType, NixBuildPassthrough};
+use crate::remote::Host;
 use clap::Args;
 use nh_installable::InstallableArgs;
 
 use crate::nixos::generations::Field;
 
 #[derive(Debug, Args)]
-pub struct RebuildArgs {
+pub struct Rebuild {
     #[command(flatten)]
-    pub common: CommonRebuildArgs,
+    pub common: CommonRebuild,
 
     #[command(flatten)]
-    pub update_args: crate::update::UpdateArgs,
+    pub update_args: crate::update::Update,
 
     /// When using a flake installable, select this hostname from
     /// nixosConfigurations.
@@ -46,11 +46,11 @@ pub struct RebuildArgs {
 
     /// Deploy the built configuration to a different host over SSH.
     #[arg(long)]
-    pub target_host: Option<RemoteHost>,
+    pub target_host: Option<Host>,
 
     /// Build the configuration on a different host over SSH.
     #[arg(long)]
-    pub build_host: Option<RemoteHost>,
+    pub build_host: Option<Host>,
 
     /// Skip pre-activation system validation checks.
     #[arg(long, env = "NH_NO_VALIDATE")]
@@ -58,9 +58,9 @@ pub struct RebuildArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct RebuildActivateArgs {
+pub struct RebuildActivate {
     #[command(flatten)]
-    pub rebuild: RebuildArgs,
+    pub rebuild: Rebuild,
 
     /// Show activation logs.
     #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
@@ -68,7 +68,7 @@ pub struct RebuildActivateArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct RollbackArgs {
+pub struct Rollback {
     /// Only print actions, without performing them.
     #[arg(long, short = 'n')]
     pub dry: bool,
@@ -105,7 +105,7 @@ pub struct RollbackArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct CommonRebuildArgs {
+pub struct CommonRebuild {
     /// Only print actions, without performing them.
     #[arg(long, short = 'n')]
     pub dry: bool,
@@ -135,11 +135,11 @@ pub struct CommonRebuildArgs {
     pub diff: DiffType,
 
     #[command(flatten)]
-    pub passthrough: NixBuildPassthroughArgs,
+    pub passthrough: NixBuildPassthrough,
 }
 
 #[derive(Debug, Args)]
-pub struct ReplArgs {
+pub struct Repl {
     #[command(flatten)]
     pub installable: InstallableArgs,
 
@@ -150,7 +150,7 @@ pub struct ReplArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct GenerationsArgs {
+pub struct Generations {
     /// Path to Nix' profiles directory.
     #[arg(
         long,

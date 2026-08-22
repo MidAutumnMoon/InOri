@@ -1,27 +1,35 @@
-use std::{ffi::OsString, io::Write, path::Path};
+use std::ffi::OsString;
+use std::io::Write;
+use std::path::Path;
 
-use crate::{
-    command::{
-        CommandKind, NixCommand, exec_with_streaming, exec_with_writers,
-    },
-    progress::{self, Spinner},
-};
-use rootcause::{Result, prelude::ResultExt as _};
+use crate::command::exec_with_streaming;
+use crate::command::exec_with_writers;
+use crate::progress;
+use crate::progress::Spinner;
+use nix_command::CommandKind;
+use nix_command::NixCommand;
+use rootcause::Result;
+use rootcause::prelude::ResultExt as _;
 use subprocess::Exec;
-use tracing::{debug, error, info};
+use tracing::debug;
+use tracing::error;
+use tracing::info;
 
-use super::{RemoteHost, SshConfig, get_flake_flags, get_nix_sshopts_env};
+use super::Host;
+use super::SshConfig;
+use super::get_flake_flags;
+use super::get_nix_sshopts_env;
 
 #[derive(Debug, Clone, Copy)]
 enum CopyDirection<'host> {
-    FromRemote(&'host RemoteHost),
+    FromRemote(&'host Host),
     ToRemote {
-        host: &'host RemoteHost,
+        host: &'host Host,
         use_substitutes: bool,
     },
     BetweenRemotes {
-        from_host: &'host RemoteHost,
-        to_host: &'host RemoteHost,
+        from_host: &'host Host,
+        to_host: &'host Host,
         use_substitutes: bool,
     },
 }
@@ -76,7 +84,7 @@ fn push_substitute_on_destination(
     }
 }
 
-fn store_uri(host: &RemoteHost) -> String {
+fn store_uri(host: &Host) -> String {
     host.nix_store_uri()
 }
 
@@ -93,8 +101,10 @@ fn build_nix_copy_command(
         .into_exec()
 }
 
+#[expect(clippy::module_name_repetitions, reason = "clearer naming")]
+#[expect(clippy::missing_errors_doc, reason = "internal")]
 pub fn copy_closure_from(
-    host: &RemoteHost,
+    host: &Host,
     path: &str,
     ssh_config: &SshConfig,
 ) -> Result<()> {
@@ -235,8 +245,9 @@ fn exec_with_spinner_streaming(
 /// - The `nix copy` command fails (e.g., insufficient disk space on remote,
 ///   network issues, authentication failures)
 /// - The path does not exist in the local store
+#[expect(clippy::module_name_repetitions, reason = "clearer naming")]
 pub fn copy_to_remote(
-    host: &RemoteHost,
+    host: &Host,
     path: &Path,
     use_substitutes: bool,
     ssh_config: &SshConfig,
@@ -277,9 +288,11 @@ pub fn copy_to_remote(
 }
 
 /// Copy a Nix closure from one remote host to another.
-pub fn copy_closure_between_remotes(
-    from_host: &RemoteHost,
-    to_host: &RemoteHost,
+#[expect(clippy::missing_errors_doc, reason = "internal")]
+#[expect(clippy::module_name_repetitions, reason = "clearer")]
+pub fn copy_closure_between_hosts(
+    from_host: &Host,
+    to_host: &Host,
     path: &str,
     use_substitutes: bool,
     ssh_config: &SshConfig,
@@ -324,7 +337,7 @@ mod tests {
 
     #[test]
     fn copy_direction_to_remote_args() {
-        let host = RemoteHost::parse("build.example").unwrap();
+        let host = Host::parse("build.example").unwrap();
 
         assert_eq!(
             CopyDirection::ToRemote {
@@ -343,7 +356,7 @@ mod tests {
 
     #[test]
     fn copy_direction_preserves_ssh_store_scheme() {
-        let host = RemoteHost::parse("ssh://build.example").unwrap();
+        let host = Host::parse("ssh://build.example").unwrap();
 
         assert_eq!(
             CopyDirection::ToRemote {
@@ -362,7 +375,7 @@ mod tests {
 
     #[test]
     fn copy_direction_from_remote_cannot_take_substitute_policy() {
-        let host = RemoteHost::parse("build.example").unwrap();
+        let host = Host::parse("build.example").unwrap();
 
         assert_eq!(
             CopyDirection::FromRemote(&host).args(),
@@ -372,8 +385,8 @@ mod tests {
 
     #[test]
     fn copy_direction_between_remotes_args() {
-        let from_host = RemoteHost::parse("build.example").unwrap();
-        let to_host = RemoteHost::parse("target.example").unwrap();
+        let from_host = Host::parse("build.example").unwrap();
+        let to_host = Host::parse("target.example").unwrap();
 
         assert_eq!(
             CopyDirection::BetweenRemotes {
@@ -395,7 +408,7 @@ mod tests {
 
     #[test]
     fn copy_direction_preserves_ipv6_store_uri_brackets() {
-        let host = RemoteHost::parse("user@[2001:db8::1]").unwrap();
+        let host = Host::parse("user@[2001:db8::1]").unwrap();
 
         assert_eq!(
             CopyDirection::ToRemote {
