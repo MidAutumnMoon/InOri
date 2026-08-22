@@ -287,7 +287,10 @@ impl InoError {
             && err.kind() == io::ErrorKind::NotFound
             && let Err(err) = cmd.sh.cwd.metadata()
         {
-            return Self::new_current_dir(err, Some(cmd.sh.cwd.clone()));
+            return Self::new_current_dir(
+                err,
+                Some(Arc::clone(&cmd.sh.cwd)),
+            );
         }
 
         let cmd = cmd.clone();

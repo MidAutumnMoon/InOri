@@ -424,7 +424,7 @@ impl Shell {
         fn inner(sh: &Shell, path: &OsStr) -> Shell {
             Shell {
                 cwd: sh.cwd.join(path).into(),
-                env: sh.env.clone(),
+                env: Arc::clone(&sh.env),
             }
         }
         inner(self, path.as_ref().as_os_str())
@@ -511,7 +511,7 @@ impl Shell {
             let mut env = Arc::clone(&sh.env);
             Arc::make_mut(&mut env).insert(key.into(), value.into());
             Shell {
-                cwd: sh.cwd.clone(),
+                cwd: Arc::clone(&sh.cwd),
                 env,
             }
         }
