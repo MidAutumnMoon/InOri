@@ -117,9 +117,7 @@ impl FromArgMatches for InstallableArgs {
             if let Ok(path) = canonical
                 && path.starts_with("/nix/store")
             {
-                return Ok(Self::Specified(Installable::Store {
-                    path: path,
-                }));
+                return Ok(Self::Specified(Installable::Store { path }));
             }
         }
 
