@@ -135,7 +135,7 @@ impl AsRef<Path> for RenderedPath {
 
 impl<'de> Deserialize<'de> for RenderedPath {
     #[tracing::instrument(skip_all)]
-    fn deserialize<D>(der: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -152,7 +152,7 @@ impl<'de> Deserialize<'de> for RenderedPath {
             );
             Ok(path)
         }
-        let raw = String::deserialize(der)?;
+        let raw = String::deserialize(deserializer)?;
         let inner = ren(&raw).map_err(serde::de::Error::custom)?;
         trace!(?inner);
         Ok(Self { inner })

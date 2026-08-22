@@ -118,3 +118,10 @@ separated-literal-suffix = "allow"
 
 # Useful in embedded environments, but annoying in general codes.
 float_arithmetic = "allow"
+
+# I prefer semicolon inside block style,
+# i.e.
+# {
+#     f();
+# }
+semicolon_outside_block = "allow"

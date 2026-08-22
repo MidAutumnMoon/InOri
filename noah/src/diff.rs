@@ -14,8 +14,8 @@ const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
 
 struct WriteFmt<W: io::Write>(W);
 impl<W: io::Write> fmt::Write for WriteFmt<W> {
-    fn write_str(&mut self, string: &str) -> fmt::Result {
-        self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0.write_all(s.as_bytes()).map_err(|_| fmt::Error)
     }
 }
 

@@ -1,3 +1,7 @@
+#![expect(clippy::unwrap_used, reason = "Tests")]
+#![expect(clippy::panic, reason = "Tests")]
+#![expect(clippy::missing_assert_message, reason = "Tests")]
+
 use std::path::PathBuf;
 
 use assert_fs::prelude::*;
@@ -9,7 +13,6 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-#[expect(clippy::unwrap_used)]
 fn fixture_bytes(name: &str) -> Vec<u8> {
     std::fs::read(fixture(name)).unwrap()
 }
@@ -24,7 +27,6 @@ struct Layout {
     dir: assert_fs::TempDir,
 }
 
-#[expect(clippy::unwrap_used)]
 impl Layout {
     fn new(version: Version) -> Self {
         let dir = assert_fs::TempDir::new().unwrap();
@@ -96,7 +98,6 @@ impl Layout {
     }
 }
 
-#[expect(clippy::panic)]
 fn assert_file_matches(path: &std::path::Path, expected: &[u8]) {
     let actual = std::fs::read(path).unwrap_or_else(|e| {
         panic!("expected file {} to exist: {e}", path.display())
@@ -109,7 +110,6 @@ fn assert_file_matches(path: &std::path::Path, expected: &[u8]) {
     );
 }
 
-#[expect(clippy::unwrap_used)]
 fn assert_file_not_exists(path: &std::path::Path) {
     assert!(
         !path.try_exists().unwrap(),
@@ -118,7 +118,6 @@ fn assert_file_not_exists(path: &std::path::Path) {
     );
 }
 
-#[expect(clippy::unwrap_used)]
 fn run_main_program(dir: &std::path::Path, mode: &str) {
     let exe_path = std::env!("CARGO_BIN_EXE_rpgdemake");
 
@@ -134,7 +133,6 @@ fn run_main_program(dir: &std::path::Path, mode: &str) {
     assert!(status.success());
 }
 
-#[expect(clippy::unwrap_used)]
 fn check_full_decrypt(version: Version) {
     let layout = Layout::new(version);
 
@@ -156,7 +154,6 @@ fn check_full_decrypt(version: Version) {
     assert!(layout.junk_path().try_exists().unwrap());
 }
 
-#[expect(clippy::unwrap_used)]
 fn check_light_decrypt(version: Version) {
     let layout = Layout::new(version);
 

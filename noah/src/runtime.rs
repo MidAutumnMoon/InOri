@@ -152,9 +152,8 @@ impl RuntimeEnv {
 }
 
 impl fmt::Debug for RuntimeEnv {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("RuntimeEnv")
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RuntimeEnv")
             .field("variable_count", &self.vars.len())
             .field("executable", &self.executable)
             .field("argument_count", &self.arguments.len())
