@@ -160,6 +160,7 @@ impl<'de> Deserialize<'de> for RenderedPath {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests")]
 mod test {
 
     use tracing::trace;
