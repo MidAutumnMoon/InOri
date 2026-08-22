@@ -1,6 +1,7 @@
 #![expect(
     clippy::unwrap_used,
     clippy::expect_used,
+    clippy::tests_outside_test_module,
     reason = "test code"
 )]
 
@@ -92,9 +93,8 @@ fn interpolation_splat() {
     // Splat of Option.
     let present = Some("hello");
     let absent: Option<&OsStr> = None;
-    let output = cmd!(sh, "xecho {absent...} {present...}")
-        .read()
-        .unwrap();
+    let output =
+        cmd!(sh, "xecho {absent...} {present...}").read().unwrap();
     assert_eq!(output, "hello");
 
     // Conditional splat idiom (Rust-side, but exercises the macro path).
@@ -165,10 +165,7 @@ fn unknown_command() {
     assert_eq!(err.to_string(), "command not found: `nope`");
 
     // `ignore_status` does not suppress command-not-found.
-    let err = cmd!(sh, "xecho-f")
-        .ignore_status()
-        .read()
-        .unwrap_err();
+    let err = cmd!(sh, "xecho-f").ignore_status().read().unwrap_err();
     assert_eq!(err.to_string(), "command not found: `xecho-f`");
 }
 
@@ -177,10 +174,7 @@ fn unknown_command() {
 fn ignore_status_signal() {
     let sh = setup();
 
-    let output = cmd!(sh, "xecho -s dead")
-        .ignore_status()
-        .read()
-        .unwrap();
+    let output = cmd!(sh, "xecho -s dead").ignore_status().read().unwrap();
     assert_eq!(output, "dead");
 }
 
@@ -231,10 +225,7 @@ fn escape() {
 
     // String-literal escapes preserved by `to_string()`.
     assert_eq!(cmd!(sh, "\"hello\"").to_string(), "\"hello\"");
-    assert_eq!(
-        cmd!(sh, "\"\"\"asdf\"\"\"").to_string(),
-        r#""""asdf""""#
-    );
+    assert_eq!(cmd!(sh, "\"\"\"asdf\"\"\"").to_string(), r#""""asdf""""#);
     assert_eq!(cmd!(sh, "\\\\").to_string(), r"\\");
 }
 

@@ -9,6 +9,9 @@ use clap::{
 use tracing::debug;
 use yansi::{Color, Paint};
 
+#[cfg(test)]
+mod tests;
+
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
 /// Flake selection settings supplied by the application.
@@ -299,30 +302,6 @@ fn parse_flake_reference(
     Ok((reference.to_owned(), attribute))
 }
 
-#[test]
-fn parse_attribute_works() {
-    assert_eq!(
-        parse_attribute("foo.bar"),
-        Ok(vec!["foo".to_owned(), "bar".to_owned()])
-    );
-    assert_eq!(
-        parse_attribute(r#"foo."bar.baz""#),
-        Ok(vec!["foo".to_owned(), "bar.baz".to_owned()])
-    );
-    assert_eq!(
-        parse_attribute(r#"foo."bar\"baz"."bar\\baz""#),
-        Ok(vec![
-            "foo".to_owned(),
-            "bar\"baz".to_owned(),
-            "bar\\baz".to_owned()
-        ])
-    );
-    let v: Vec<String> = vec![];
-    assert_eq!(parse_attribute(""), Ok(v));
-    parse_attribute(r#"foo."bar"#).unwrap_err();
-    parse_attribute(r#"foo."bar\"#).unwrap_err();
-}
-
 impl InstallableArgs {
     /// Returns whether the parsed CLI input or non-empty flake environment
     /// variables select flake mode for the command context.
@@ -522,33 +501,6 @@ impl Installable {
     }
 }
 
-#[test]
-fn installable_to_args() {
-    assert_eq!(
-        (Installable::Flake {
-            reference: String::from("w"),
-            attribute: ["x", "y.z"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        })
-        .to_args(),
-        vec![r#"w#x."y.z""#]
-    );
-
-    assert_eq!(
-        (Installable::File {
-            path: PathBuf::from("w"),
-            attribute: ["x", "y.z"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        })
-        .to_args(),
-        vec!["--file", "w", r#"x."y.z""#]
-    );
-}
-
 fn join_attribute<I>(attribute: I) -> String
 where
     I: IntoIterator,
@@ -611,17 +563,6 @@ fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
 
     None
 }
-
-#[test]
-fn join_attribute_works() {
-    assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
-    assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
-    assert_eq!(
-        join_attribute(vec!["foo", r#"bar"baz"#, r"bar\baz", ""]),
-        "foo.\"bar\\\"baz\".\"bar\\\\baz\".\"\""
-    );
-}
-
 enum FallbackError {
     NotFound,
     PermissionDenied(PathBuf),
@@ -759,7 +700,8 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
                             "Resolved path {} contains invalid UTF-8",
                             resolved.display()
                         )
-                    })?.to_owned(),
+                    })?
+                    .to_owned(),
                 attribute: vec![],
             })
         }
@@ -789,7 +731,3 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
         )),
     }
 }
-
-#[cfg(test)]
-#[expect(clippy::panic, clippy::unwrap_used, reason = "Fine in tests")]
-mod tests;

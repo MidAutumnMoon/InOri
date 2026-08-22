@@ -1,6 +1,10 @@
-#![expect(clippy::unwrap_used, reason = "Tests")]
-#![expect(clippy::panic, reason = "Tests")]
-#![expect(clippy::missing_assert_message, reason = "Tests")]
+#![expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::missing_assert_message,
+    clippy::tests_outside_test_module,
+    reason = "Tests"
+)]
 
 use std::path::PathBuf;
 

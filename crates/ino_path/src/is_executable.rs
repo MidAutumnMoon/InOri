@@ -50,6 +50,7 @@ mod unix {
     #[cfg(test)]
     use assert2::assert;
 
+    #[cfg(test)]
     #[test]
     fn unix_test() {
         use std::path::PathBuf;

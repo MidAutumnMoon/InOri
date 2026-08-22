@@ -1,6 +1,7 @@
 #![expect(
     clippy::unwrap_used,
     clippy::expect_used,
+    clippy::tests_outside_test_module,
     reason = "test code"
 )]
 

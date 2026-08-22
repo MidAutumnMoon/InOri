@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests"
+)]
+
 use std::fs;
 
 use super::*;
@@ -550,4 +556,65 @@ fn resolve_command_specific_isolation() {
         }
         _ => panic!("Expected Flake, got {resolved:?}"),
     }
+}
+
+#[test]
+fn parse_attribute_works() {
+    assert_eq!(
+        parse_attribute("foo.bar"),
+        Ok(vec!["foo".to_owned(), "bar".to_owned()])
+    );
+    assert_eq!(
+        parse_attribute(r#"foo."bar.baz""#),
+        Ok(vec!["foo".to_owned(), "bar.baz".to_owned()])
+    );
+    assert_eq!(
+        parse_attribute(r#"foo."bar\"baz"."bar\\baz""#),
+        Ok(vec![
+            "foo".to_owned(),
+            "bar\"baz".to_owned(),
+            "bar\\baz".to_owned()
+        ])
+    );
+    let buf: Vec<String> = vec![];
+    assert_eq!(parse_attribute(""), Ok(buf));
+    parse_attribute(r#"foo."bar"#).unwrap_err();
+    parse_attribute(r#"foo."bar\"#).unwrap_err();
+}
+
+#[test]
+fn installable_to_args() {
+    assert_eq!(
+        (Installable::Flake {
+            reference: String::from("w"),
+            attribute: ["x", "y.z"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        })
+        .to_args(),
+        vec![r#"w#x."y.z""#]
+    );
+
+    assert_eq!(
+        (Installable::File {
+            path: PathBuf::from("w"),
+            attribute: ["x", "y.z"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        })
+        .to_args(),
+        vec!["--file", "w", r#"x."y.z""#]
+    );
+}
+
+#[test]
+fn join_attribute_works() {
+    assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
+    assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
+    assert_eq!(
+        join_attribute(vec!["foo", r#"bar"baz"#, r"bar\baz", ""]),
+        "foo.\"bar\\\"baz\".\"bar\\\\baz\".\"\""
+    );
 }

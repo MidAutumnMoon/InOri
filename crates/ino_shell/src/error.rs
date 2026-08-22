@@ -306,6 +306,7 @@ impl InoError {
     }
 }
 
+#[cfg(test)]
 #[test]
 fn error_send_sync() {
     fn f<T>()

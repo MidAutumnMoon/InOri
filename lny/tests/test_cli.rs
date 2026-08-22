@@ -1,5 +1,9 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::tests_outside_test_module,
+    reason = "Tests"
+)]
 
 use assert_fs::TempDir;
 use assert_fs::prelude::*;

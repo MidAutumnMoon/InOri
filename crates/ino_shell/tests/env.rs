@@ -4,6 +4,7 @@
     clippy::panic,
     clippy::needless_pass_by_value,
     clippy::use_debug,
+    clippy::tests_outside_test_module,
     reason = "test code"
 )]
 
