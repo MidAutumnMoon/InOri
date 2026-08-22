@@ -11,10 +11,10 @@ use std::{
 use crate::{Cmd, STREAM_SUFFIX_SIZE};
 
 /// `Result` from std, with the error type defaulting to xshell's [`Error`].
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = InoError> = std::result::Result<T, E>;
 
 /// An error returned by an `xshell` operation.
-pub struct Error {
+pub struct InoError {
     kind: Box<ErrorKind>,
 }
 
@@ -61,7 +61,7 @@ enum ErrorKind {
     Cmd(CmdError),
 }
 
-impl From<ErrorKind> for Error {
+impl From<ErrorKind> for InoError {
     fn from(kind: ErrorKind) -> Self {
         let kind = Box::new(kind);
         Self { kind }
@@ -82,7 +82,7 @@ pub enum CmdErrorKind {
     Timeout,
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for InoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &*self.kind {
             ErrorKind::CurrentDir { err, path } => {
@@ -134,12 +134,12 @@ impl fmt::Display for Error {
     }
 }
 
-impl fmt::Debug for Error {
+impl fmt::Debug for InoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
-impl std::error::Error for Error {}
+impl std::error::Error for InoError {}
 
 impl fmt::Display for CmdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -220,7 +220,7 @@ impl fmt::Display for CmdError {
 }
 
 /// `pub(crate)` constructors, visible only in this crate.
-impl Error {
+impl InoError {
     pub(crate) fn new_current_dir(
         err: io::Error,
         path: Option<Arc<Path>>,
@@ -306,5 +306,5 @@ impl Error {
 #[test]
 fn error_send_sync() {
     fn f<T: Send + Sync>() {}
-    f::<Error>();
+    f::<InoError>();
 }

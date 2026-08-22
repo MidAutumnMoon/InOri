@@ -5,17 +5,17 @@ use std::{
 };
 
 use subprocess::{Capture, Exec, ExitStatus, Job, Redirection};
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum Error {
+#[derive(Debug, thiserror::Error)]
+pub enum NixCmdError {
     #[error("io: {0}")]
     Io(#[from] io::Error),
+
     #[error("command '{command}' timed out after {duration:?}")]
     Timeout { command: String, duration: Duration },
 }
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = NixCmdError> = std::result::Result<T, E>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -315,8 +315,8 @@ struct TimeoutContext {
 }
 
 impl TimeoutContext {
-    fn into_error(self) -> Error {
-        Error::Timeout {
+    fn into_error(self) -> NixCmdError {
+        NixCmdError::Timeout {
             command: self.command,
             duration: self.duration,
         }
@@ -335,7 +335,7 @@ fn wait_for_job(
             return Ok(status);
         }
         kill_and_wait(job)?;
-        return Err(Error::Timeout {
+        return Err(NixCmdError::Timeout {
             command: timeout.command.clone(),
             duration: timeout.duration,
         });
@@ -351,8 +351,8 @@ fn kill_and_wait(job: &Job) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn argv_is_deterministic_and_schema_driven() {
@@ -443,7 +443,7 @@ mod tests {
                 duration,
             }),
         );
-        assert_matches!(result, Err(Error::Timeout { .. }));
+        assert_matches!(result, Err(NixCmdError::Timeout { .. }));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
     #[cfg(unix)]
@@ -459,7 +459,7 @@ mod tests {
             Exec::cmd("sh").args(["-c", "exec sleep 5"]),
             Some(&timeout),
         );
-        assert_matches!(result, Err(Error::Timeout { .. }));
+        assert_matches!(result, Err(NixCmdError::Timeout { .. }));
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

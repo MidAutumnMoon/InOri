@@ -285,7 +285,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use crate::error::{Error, Result};
+pub use crate::error::{InoError, Result};
 use error::CmdErrorKind;
 #[doc(hidden)]
 pub use ino_shell_macros::__cmd;
@@ -387,7 +387,7 @@ impl Shell {
     /// Fails if [`std::env::current_dir`] returns an error.
     pub fn new() -> Result<Self> {
         let cwd = current_dir()
-            .map_err(|err| Error::new_current_dir(err, None))?;
+            .map_err(|err| InoError::new_current_dir(err, None))?;
         Ok(Self {
             cwd: cwd.into(),
             env: Arc::default(),
@@ -441,9 +441,9 @@ impl Shell {
             let env_os = sh
                 .var_os(key)
                 .ok_or(VarError::NotPresent)
-                .map_err(|err| Error::new_var(err, key.to_os_string()))?;
+                .map_err(|err| InoError::new_var(err, key.to_os_string()))?;
             env_os.into_string().map_err(|value| {
-                Error::new_var(
+                InoError::new_var(
                     VarError::NotUnicode(value),
                     key.to_os_string(),
                 )
@@ -524,7 +524,7 @@ impl Shell {
         fn inner(sh: &Shell, path: &Path) -> Result<String> {
             let path = sh.path(path);
             fs::read_to_string(&path)
-                .map_err(|err| Error::new_read_file(err, path))
+                .map_err(|err| InoError::new_read_file(err, path))
         }
         inner(self, path.as_ref())
     }
@@ -536,7 +536,7 @@ impl Shell {
     ) -> Result<Vec<u8>> {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<u8>> {
             let path = sh.path(path);
-            fs::read(&path).map_err(|err| Error::new_read_file(err, path))
+            fs::read(&path).map_err(|err| InoError::new_read_file(err, path))
         }
         inner(self, path.as_ref())
     }
@@ -557,7 +557,7 @@ impl Shell {
                 sh.create_dir(p)?;
             }
             fs::write(&path, contents)
-                .map_err(|err| Error::new_write_file(err, path))
+                .map_err(|err| InoError::new_write_file(err, path))
         }
         inner(self, path.as_ref(), contents.as_ref())
     }
@@ -576,7 +576,7 @@ impl Shell {
                 sh.create_dir(p)?;
             }
             std::fs::copy(&src, &dst).map_err(|err| {
-                Error::new_copy_file(err, src.clone(), dst.clone())
+                InoError::new_copy_file(err, src.clone(), dst.clone())
             })?;
             Ok(())
         }
@@ -594,7 +594,7 @@ impl Shell {
             let src = sh.path(src);
             let dst = sh.path(dst);
             let Some(file_name) = src.file_name() else {
-                return Err(Error::new_copy_file(
+                return Err(InoError::new_copy_file(
                     io::ErrorKind::InvalidData.into(),
                     src,
                     dst,
@@ -616,7 +616,7 @@ impl Shell {
             let src = sh.path(src);
             let dst = sh.path(dst);
             fs::hard_link(&src, &dst)
-                .map_err(|err| Error::new_hard_link(err, src, dst))
+                .map_err(|err| InoError::new_hard_link(err, src, dst))
         }
         inner(self, src.as_ref(), dst.as_ref())
     }
@@ -630,11 +630,11 @@ impl Shell {
         fn inner(sh: &Shell, path: &Path) -> Result<Vec<PathBuf>> {
             let path = sh.path(path);
             let dir = fs::read_dir(&path)
-                .map_err(|err| Error::new_read_dir(err, path.clone()))?;
+                .map_err(|err| InoError::new_read_dir(err, path.clone()))?;
             let mut res: Vec<PathBuf> = dir
                 .map(|entry| entry.map(|e| e.path()))
                 .collect::<Result<_, _>>()
-                .map_err(|err| Error::new_read_dir(err, path))?;
+                .map_err(|err| InoError::new_read_dir(err, path))?;
             // Sort to ensure determinism, and ease debugging of downstream programs!
             res.sort();
             Ok(res)
@@ -652,7 +652,7 @@ impl Shell {
             let path = sh.path(path);
             match fs::create_dir_all(&path) {
                 Ok(()) => Ok(path),
-                Err(err) => Err(Error::new_create_dir(err, path)),
+                Err(err) => Err(InoError::new_create_dir(err, path)),
             }
         }
         inner(self, path.as_ref())
@@ -680,7 +680,7 @@ impl Shell {
             match fs::create_dir_all(&path) {
                 Ok(()) => return Ok(TempDir { path }),
                 Err(err) if try_count == 1024 => {
-                    return Err(Error::new_create_dir(err, path));
+                    return Err(InoError::new_create_dir(err, path));
                 }
                 Err(_) => try_count += 1,
             }
@@ -690,7 +690,7 @@ impl Shell {
     /// Removes the file or directory at the given path.
     #[doc(alias("rm_rf", "rm"))]
     pub fn remove_path(&self, path: impl AsRef<Path>) -> Result<()> {
-        fn inner(sh: &Shell, path: &Path) -> Result<(), Error> {
+        fn inner(sh: &Shell, path: &Path) -> Result<(), InoError> {
             let path = sh.path(path);
             match path.metadata() {
                 Ok(meta) => if meta.is_dir() {
@@ -698,9 +698,9 @@ impl Shell {
                 } else {
                     fs::remove_file(&path)
                 }
-                .map_err(|err| Error::new_remove_path(err, path)),
+                .map_err(|err| InoError::new_remove_path(err, path)),
                 Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
-                Err(err) => Err(Error::new_remove_path(err, path)),
+                Err(err) => Err(InoError::new_remove_path(err, path)),
             }
         }
         inner(self, path.as_ref())
@@ -980,7 +980,7 @@ impl Cmd {
             && !status.success()
             && !self.ignore_status
         {
-            return Err(Error::new_cmd(
+            return Err(InoError::new_cmd(
                 self,
                 CmdErrorKind::Status(status),
                 mem::take(&mut result.stdout),
@@ -989,14 +989,14 @@ impl Cmd {
         }
         if let Some(err) = result.error.take() {
             if err.kind() == io::ErrorKind::TimedOut {
-                return Err(Error::new_cmd(
+                return Err(InoError::new_cmd(
                     self,
                     CmdErrorKind::Timeout,
                     mem::take(&mut result.stdout),
                     mem::take(&mut result.stderr),
                 ));
             }
-            return Err(Error::new_cmd(
+            return Err(InoError::new_cmd(
                 self,
                 CmdErrorKind::Io(err),
                 mem::take(&mut result.stdout),
@@ -1019,7 +1019,7 @@ impl Cmd {
         command.stderr(Stdio::inherit());
         eprintln!("$ {self}");
         let mut child = command.spawn().map_err(|err| {
-            Error::new_cmd(
+            InoError::new_cmd(
                 self,
                 CmdErrorKind::Io(err),
                 Vec::new(),
@@ -1028,7 +1028,7 @@ impl Cmd {
         })?;
         let status = exec::wait_deadline(&mut child, self.deadline)
             .map_err(|err| {
-                Error::new_cmd(
+                InoError::new_cmd(
                     self,
                     CmdErrorKind::Io(err),
                     Vec::new(),
@@ -1036,7 +1036,7 @@ impl Cmd {
                 )
             })?;
         if !status.success() {
-            return Err(Error::new_cmd(
+            return Err(InoError::new_cmd(
                 self,
                 CmdErrorKind::Status(status),
                 Vec::new(),
@@ -1057,7 +1057,7 @@ impl Cmd {
         command.stderr(Stdio::inherit());
         eprintln!("$ {self}");
         let mut child = command.spawn().map_err(|err| {
-            Error::new_cmd(
+            InoError::new_cmd(
                 self,
                 CmdErrorKind::Io(err),
                 Vec::new(),
@@ -1066,7 +1066,7 @@ impl Cmd {
         })?;
         let status = exec::wait_deadline(&mut child, self.deadline)
             .map_err(|err| {
-                Error::new_cmd(
+                InoError::new_cmd(
                     self,
                     CmdErrorKind::Io(err),
                     Vec::new(),
@@ -1074,7 +1074,7 @@ impl Cmd {
                 )
             })?;
         if !status.success() {
-            return Err(Error::new_cmd(
+            return Err(InoError::new_cmd(
                 self,
                 CmdErrorKind::Status(status),
                 Vec::new(),
@@ -1118,7 +1118,7 @@ impl Cmd {
 
     fn chomp(&self, stream: Vec<u8>) -> Result<String> {
         let mut text = String::from_utf8(stream).map_err(|err| {
-            Error::new_cmd(
+            InoError::new_cmd(
                 self,
                 CmdErrorKind::Utf8(err),
                 Vec::new(),
