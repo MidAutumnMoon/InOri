@@ -208,6 +208,20 @@ fn args_with_spaces() {
 }
 
 #[test]
+#[expect(
+    clippy::non_ascii_literal,
+    reason = "the command lexer must preserve UTF-8 token boundaries"
+)]
+fn unicode_words() {
+    let sh = setup();
+    let suffix = "世界";
+
+    let output = cmd!(sh, "xecho café 'naïve' {suffix}").read().unwrap();
+
+    assert_eq!(output, "café naïve 世界");
+}
+
+#[test]
 fn escape() {
     let sh = setup();
 

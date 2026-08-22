@@ -182,7 +182,10 @@ fn generate2d(
 /// `key = n · φ` (for any positive integer `n`) yields `offset = N`,
 /// which modulo `N` is `0` — i.e. the **identity**. A user who picks
 /// `key = 1.618` gets no scrambling with no indication.
-#[expect(clippy::indexing_slicing)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "curve positions and RGBA offsets are bounded by the pixel count"
+)]
 pub fn scramble_rgba(
     pixels: &mut [u8],
     width: u32,
@@ -191,7 +194,11 @@ pub fn scramble_rgba(
     encrypt: bool,
 ) {
     let pixel_count = width as usize * height as usize;
-    debug_assert_eq!(pixels.len(), pixel_count * 4);
+    debug_assert_eq!(
+        pixels.len(),
+        pixel_count * 4,
+        "RGBA dimensions must match the pixel buffer length"
+    );
     if pixel_count == 0 {
         return;
     }

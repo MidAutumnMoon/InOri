@@ -9,7 +9,7 @@ use imgo::magick::Denoise;
 use imgo::run_pipeline_external;
 use imgo::run_pipeline_pixel;
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Batch converting pictures between formats.
 #[derive(Debug)]
@@ -73,8 +73,15 @@ fn main() -> anyhow::Result<()> {
     let cliopts = <CliOpts as clap::Parser>::parse();
 
     // Raise nofile limit to max to avoid "too many open files" errors
-    if let Ok((_, hard)) = Resource::NOFILE.get() {
-        let _ = Resource::NOFILE.set(hard, hard);
+    match Resource::NOFILE.get() {
+        Ok((_, hard)) => {
+            if let Err(error) = Resource::NOFILE.set(hard, hard) {
+                warn!(%error, "Failed to raise the open-file limit");
+            }
+        }
+        Err(error) => {
+            warn!(%error, "Failed to query the open-file limit");
+        }
     }
 
     match &cliopts {

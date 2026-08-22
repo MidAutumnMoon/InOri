@@ -837,10 +837,12 @@ impl RollbackArgs {
                 "Comparing with target profile: {}",
                 generation_link.display()
             );
-            let _ = print_dix_diff(
+            if let Err(error) = print_dix_diff(
                 &PathBuf::from(CURRENT_PROFILE),
                 &generation_link,
-            );
+            ) {
+                warn!(%error, "Failed to compare the current and target profiles");
+            }
         }
 
         if self.dry {

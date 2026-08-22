@@ -644,20 +644,21 @@ impl RemoteHost {
         let hostname = self.hostname();
 
         // Check for bracketed IPv6 address
-        if hostname.starts_with('[') && hostname.ends_with(']') {
-            let inner = &hostname[1..hostname.len() - 1];
-
+        if let Some(inner) = hostname
+            .strip_prefix('[')
+            .and_then(|hostname| hostname.strip_suffix(']'))
+        {
             // Validate it's actually a valid IPv6 address
             // Split on '%' to validate only the address part (zone ID is
             // SSH-specific)
             let addr_part = inner.split('%').next().unwrap_or(inner);
             if addr_part.parse::<std::net::Ipv6Addr>().is_ok() {
                 // Reconstruct with user@ prefix if present
-                if let Some(at_pos) = self.host.find('@') {
-                    let user = &self.host[..at_pos];
+                if let Some((user, _hostname)) = self.host.split_once('@')
+                {
                     return format!("{user}@{inner}");
                 }
-                return inner.to_string();
+                return inner.to_owned();
             }
         }
 
@@ -1592,7 +1593,18 @@ pub fn build_remote(
                 out_path
             );
             // Remove existing symlink/file if present
-            let _ = std::fs::remove_file(link);
+            let removal = match std::fs::remove_file(link) {
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    Ok(())
+                }
+                result => result,
+            };
+            removal.context(format!(
+                "Failed to remove existing out-link {}",
+                link.display()
+            ))?;
             std::os::unix::fs::symlink(&out_path, link)
                 .context("Failed to create out-link")?;
         } else {

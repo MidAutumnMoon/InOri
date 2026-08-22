@@ -177,8 +177,8 @@ fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token>> + '_ {
         }
 
         match next_token(rest) {
-            Ok((len, text, kind)) => {
-                rest = &rest[len..];
+            Ok((remaining, text, kind)) => {
+                rest = remaining;
                 Some(Ok(Token {
                     joined_to_prev,
                     text,
@@ -193,43 +193,41 @@ fn tokenize(cmd: &str) -> impl Iterator<Item = Result<Token>> + '_ {
     })
 }
 
-/// Classifies the token at the start of `s`, returning how many bytes it
-/// consumes, its normalized text (quotes and braces already stripped), and its
-/// kind.
-fn next_token(s: &str) -> Result<(usize, String, TokenKind)> {
+/// Classifies the token at the start of `s`, returning the unconsumed suffix,
+/// its normalized text (quotes and braces already stripped), and its kind.
+fn next_token(s: &str) -> Result<(&str, String, TokenKind)> {
     // `{name}` or `{name...}` — whitespace inside the braces is tolerated.
-    if s.starts_with('{') {
-        let close = s
-            .find('}')
-            .ok_or_else(|| "unclosed `{` in command".to_string())?;
-        let inner = s[1..close].trim();
+    if let Some(after_open) = s.strip_prefix('{') {
+        let (inner, remaining) = after_open
+            .split_once('}')
+            .ok_or_else(|| "unclosed `{` in command".to_owned())?;
+        let inner = inner.trim();
         let kind = if inner.ends_with("...") {
             TokenKind::Splat
         } else {
             TokenKind::Interpolation
         };
-        return Ok((close + 1, inner.to_string(), kind));
+        return Ok((remaining, inner.to_owned(), kind));
     }
 
     // `'...'` — a quoted word; interpolation is disabled inside.
-    if let Some(rest) = s.strip_prefix('\'') {
-        let close = rest
-            .find('\'')
-            .ok_or_else(|| "unclosed `'` in command".to_string())?;
-        return Ok((
-            close + 2,
-            rest[..close].to_string(),
-            TokenKind::Quoted,
-        ));
+    if let Some(after_open) = s.strip_prefix('\'') {
+        let (text, remaining) = after_open
+            .split_once('\'')
+            .ok_or_else(|| "unclosed `'` in command".to_owned())?;
+        return Ok((remaining, text.to_owned(), TokenKind::Quoted));
     }
 
     // A bare word, running up to the next whitespace, quote or interpolation.
-    let len = s
-        .find(|it: char| {
-            it.is_ascii_whitespace() || it == '\'' || it == '{'
+    let split_index = s
+        .find(|character: char| {
+            character.is_ascii_whitespace()
+                || character == '\''
+                || character == '{'
         })
         .unwrap_or(s.len());
-    Ok((len, s[..len].to_string(), TokenKind::Word))
+    let (word, remaining) = s.split_at(split_index);
+    Ok((remaining, word.to_owned(), TokenKind::Word))
 }
 
 /// A single shell word.

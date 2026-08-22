@@ -125,3 +125,6 @@ float_arithmetic = "allow"
 #     f();
 # }
 semicolon_outside_block = "allow"
+
+# I like it
+impl_trait_in_params = "allow"
