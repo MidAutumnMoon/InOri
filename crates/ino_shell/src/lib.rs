@@ -677,7 +677,7 @@ impl Shell {
         loop {
             let cnt = CNT.fetch_add(1, Ordering::Relaxed);
             let path = base.join(format!("xshell-tmp-dir-{cnt}"));
-            match fs::create_dir(&path) {
+            match fs::create_dir_all(&path) {
                 Ok(()) => return Ok(TempDir { path }),
                 Err(err) if try_count == 1024 => {
                     return Err(Error::new_create_dir(err, path));

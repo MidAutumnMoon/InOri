@@ -13,39 +13,31 @@ fn resolve_non_unspecified_returns_unchanged() {
         reference: String::from("/path/to/flake"),
         attribute: vec![String::from("host")],
     };
-    let resolved = specified(flake.clone())
-        .resolve(&config)
-        .unwrap()
-        .unwrap();
+    let resolved =
+        specified(flake.clone()).resolve(&config).unwrap().unwrap();
     assert_eq!(flake.to_args(), resolved.to_args());
 
     let file = Installable::File {
         path: PathBuf::from("/path/to/file.nix"),
         attribute: vec![String::from("config")],
     };
-    let resolved = specified(file.clone())
-        .resolve(&config)
-        .unwrap()
-        .unwrap();
+    let resolved =
+        specified(file.clone()).resolve(&config).unwrap().unwrap();
     assert_eq!(file.to_args(), resolved.to_args());
 
     let store = Installable::Store {
         path: PathBuf::from("/nix/store/abc"),
     };
-    let resolved = specified(store.clone())
-        .resolve(&config)
-        .unwrap()
-        .unwrap();
+    let resolved =
+        specified(store.clone()).resolve(&config).unwrap().unwrap();
     assert_eq!(store.to_args(), resolved.to_args());
 
     let expr = Installable::Expression {
         expression: String::from("{ pkgs }: pkgs.hello"),
         attribute: vec![],
     };
-    let resolved = specified(expr.clone())
-        .resolve(&config)
-        .unwrap()
-        .unwrap();
+    let resolved =
+        specified(expr.clone()).resolve(&config).unwrap().unwrap();
     assert_eq!(expr.to_args(), resolved.to_args());
 }
 
@@ -100,9 +92,8 @@ fn resolve_or_default_accepts_existing_local_flake_path() {
         attribute: vec![],
     };
 
-    let resolved = specified(installable)
-        .resolve_or_default(&config)
-        .unwrap();
+    let resolved =
+        specified(installable).resolve_or_default(&config).unwrap();
 
     assert_eq!(
         resolved.to_args(),
@@ -160,7 +151,7 @@ fn resolve_or_default_rejects_subdir_inside_flake() {
     let flake_dir = tempfile::tempdir().unwrap();
     fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
     let subdir = flake_dir.path().join("modules");
-    fs::create_dir(&subdir).unwrap();
+    fs::create_dir_all(&subdir).unwrap();
 
     let installable = Installable::Flake {
         reference: subdir.to_string_lossy().into_owned(),
@@ -212,9 +203,8 @@ fn resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
             attribute: vec![],
         };
 
-        let resolved = specified(installable)
-            .resolve_or_default(&config)
-            .unwrap();
+        let resolved =
+            specified(installable).resolve_or_default(&config).unwrap();
 
         assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
     }
@@ -229,9 +219,7 @@ fn resolve_or_default_ignores_registry_and_url_refs() {
             attribute: vec![],
         };
 
-        specified(installable)
-            .resolve_or_default(&config)
-            .unwrap();
+        specified(installable).resolve_or_default(&config).unwrap();
     }
 }
 
@@ -421,8 +409,10 @@ fn resolve_os_context_uses_nh_os_flake() {
         ..Default::default()
     };
 
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -443,8 +433,10 @@ fn resolve_os_context_prefers_os_flake_over_generic() {
         ..Default::default()
     };
 
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -464,8 +456,10 @@ fn resolve_os_context_falls_back_to_nh_flake() {
         ..Default::default()
     };
 
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -493,8 +487,10 @@ fn resolve_with_empty_attribute() {
         ..Default::default()
     };
 
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -516,8 +512,10 @@ fn resolve_with_nested_attribute() {
         ..Default::default()
     };
 
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
@@ -538,8 +536,10 @@ fn resolve_command_specific_isolation() {
     };
 
     // OS-specific flake should be used by Os context
-    let resolved =
-        InstallableArgs::Unspecified.resolve(&config).unwrap().unwrap();
+    let resolved = InstallableArgs::Unspecified
+        .resolve(&config)
+        .unwrap()
+        .unwrap();
     match resolved {
         Installable::Flake {
             reference,
