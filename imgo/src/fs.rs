@@ -185,8 +185,8 @@ pub fn collect_images(
             "[BUG] walkdir did not yield an absolute path"
         );
 
-        if !entry.file_type().is_file() {
-            debug!("Not a file, next");
+        if entry.file_type().is_dir() {
+            debug!("Is a directory, next");
             continue;
         }
 

@@ -112,7 +112,7 @@ fn find(
     let assets = walkdir::WalkDir::new(toplevel)
         .into_iter()
         .filter_map(std::result::Result::ok)
-        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| !entry.file_type().is_dir())
         .filter_map(|entry| {
             let asset = EncryptedAsset::new(entry.path().to_owned())?;
             match mode {
@@ -133,7 +133,7 @@ fn find(
 fn find_system_json(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for entry in walkdir::WalkDir::new(root) {
         let entry = entry?;
-        if entry.file_type().is_file()
+        if !entry.file_type().is_dir()
             && entry.file_name() == "System.json"
         {
             return Ok(Some(entry.path().to_owned()));
