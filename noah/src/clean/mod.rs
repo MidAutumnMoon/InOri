@@ -647,7 +647,7 @@ fn cleanable_generations(
         }
     }
 
-    for (_, tbr) in result.iter_mut().rev().take(keep as _) {
+    for (_, tbr) in result.iter_mut().rev().take(keep as usize) {
         *tbr = false;
     }
 

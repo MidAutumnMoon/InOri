@@ -68,7 +68,10 @@ strip = false
 # Lints
 #
 
+# This serves dual purposes as both lint config and reminder for
+# when to use what lints.
 [workspace.lints.clippy]
+
 # Broad groups: lowest priority
 all = { level = "warn", priority = -2 }
 pedantic = { level = "warn", priority = -2 }
@@ -81,6 +84,7 @@ correctness = { level = "deny", priority = -1 }
 # Suppress Clippy's warning about enabling all restriction lints.
 blanket_clippy_restriction_lints = "allow"
 
+# Too annoying!
 cognitive_complexity = "allow"
 missing_const_for_fn = "allow" # has bug
 too_many_lines = "allow"
@@ -90,7 +94,8 @@ missing_errors_doc = "warn"
 # Noah allows
 struct_excessive_bools = "allow"
 
-# Allow quite few lints from correctness group
+# Allow quite few lints from correctness group, these can be useful
+# in some specific cases but generally they are dumb.
 implicit_return = "allow"
 default_numeric_fallback = "allow"
 question_mark_used = "allow"
@@ -102,3 +107,7 @@ arbitrary_source_item_ordering = "allow"
 missing_docs_in_private_items = "allow"
 missing_inline_in_public_items = "allow"
 missing_trait_methods = "allow"
+
+# Useful when writting no_std codes, but annoying in general codes.
+std_instead_of_alloc = "allow"
+std_instead_of_core = "allow"
