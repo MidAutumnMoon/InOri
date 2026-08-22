@@ -285,10 +285,10 @@ impl InoError {
         // case.
         if let CmdErrorKind::Io(err) = &kind
             && err.kind() == io::ErrorKind::NotFound
-            && let Err(err) = cmd.sh.cwd.metadata()
+            && let Err(cwd_err) = cmd.sh.cwd.metadata()
         {
             return Self::new_current_dir(
-                err,
+                cwd_err,
                 Some(Arc::clone(&cmd.sh.cwd)),
             );
         }

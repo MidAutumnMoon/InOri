@@ -357,7 +357,7 @@ fn orchestrate(
         return Ok(());
     }
 
-    let backup_dir = Arc::new({
+    let shared_backup_dir = Arc::new({
         let dir = workspace.join(BACKUP_DIR_NAME);
         if !no_backup {
             std::fs::create_dir_all(&dir)?;
@@ -389,14 +389,14 @@ fn orchestrate(
     };
 
     thread_pool.scope(|scope| -> anyhow::Result<()> {
-        let permit = Arc::new(Mutex::new(Permit::Go));
+        let shared_permit = Arc::new(Mutex::new(Permit::Go));
         let exec: &Work<'_> = &execute;
 
         for (image, permit, bar, backup_dir) in izip!(
             images,
-            repeat(permit),
+            repeat(shared_permit),
             repeat(progress_bar.clone()),
-            repeat(backup_dir),
+            repeat(shared_backup_dir),
         ) {
             scope.spawn(move |_| {
                 let _ = process_one(

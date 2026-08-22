@@ -33,12 +33,16 @@ fn interpolation() {
     let sh = setup();
 
     let hello = "hello";
-    let output = cmd!(sh, "xecho {hello}").read().unwrap();
-    assert_eq!(output, "hello");
+    {
+        let output = cmd!(sh, "xecho {hello}").read().unwrap();
+        assert_eq!(output, "hello");
+    }
 
     // Whitespace inside braces is tolerated by the macro.
-    let output = cmd!(sh, "xecho { hello }").read().unwrap();
-    assert_eq!(output, "hello");
+    {
+        let output = cmd!(sh, "xecho { hello }").read().unwrap();
+        assert_eq!(output, "hello");
+    }
 }
 
 #[test]
@@ -84,18 +88,22 @@ fn interpolation_splat() {
     let sh = setup();
 
     // Splat of slice, empty slice, and owned strings.
-    let words = &["hello", "world"];
-    let empty_words: &[&OsStr] = &[];
-    let bang_words = &["!".to_owned()];
-    let output = cmd!(sh, "xecho {words...} {empty_words...} {bang_words...}").read().unwrap();
-    assert_eq!(output, "hello world !");
+    {
+        let words = &["hello", "world"];
+        let empty_words: &[&OsStr] = &[];
+        let bang_words = &["!".to_owned()];
+        let output = cmd!(sh, "xecho {words...} {empty_words...} {bang_words...}").read().unwrap();
+        assert_eq!(output, "hello world !");
+    }
 
     // Splat of Option.
-    let present = Some("hello");
-    let absent: Option<&OsStr> = None;
-    let output =
-        cmd!(sh, "xecho {absent...} {present...}").read().unwrap();
-    assert_eq!(output, "hello");
+    {
+        let present = Some("hello");
+        let absent: Option<&OsStr> = None;
+        let output =
+            cmd!(sh, "xecho {absent...} {present...}").read().unwrap();
+        assert_eq!(output, "hello");
+    }
 
     // Conditional splat idiom (Rust-side, but exercises the macro path).
     let check = if true { &["--", "--check"][..] } else { &[] };
@@ -110,9 +118,11 @@ fn interpolation_splat() {
     );
 
     // Whitespace inside braces is tolerated.
-    let args = ["hello", "world"];
-    let output = cmd!(sh, "xecho { args... }").read().unwrap();
-    assert_eq!(output, "hello world");
+    {
+        let args = ["hello", "world"];
+        let output = cmd!(sh, "xecho { args... }").read().unwrap();
+        assert_eq!(output, "hello world");
+    }
 }
 
 #[test]
@@ -161,12 +171,16 @@ fn ignore_status() {
 fn unknown_command() {
     let sh = setup();
 
-    let err = cmd!(sh, "nope no way").read().unwrap_err();
-    assert_eq!(err.to_string(), "command not found: `nope`");
+    {
+        let err = cmd!(sh, "nope no way").read().unwrap_err();
+        assert_eq!(err.to_string(), "command not found: `nope`");
+    }
 
     // `ignore_status` does not suppress command-not-found.
-    let err = cmd!(sh, "xecho-f").ignore_status().read().unwrap_err();
-    assert_eq!(err.to_string(), "command not found: `xecho-f`");
+    {
+        let err = cmd!(sh, "xecho-f").ignore_status().read().unwrap_err();
+        assert_eq!(err.to_string(), "command not found: `xecho-f`");
+    }
 }
 
 #[test]

@@ -142,7 +142,9 @@ impl args::CleanMode {
                                                 std::result::Result::ok,
                                             )
                                             .map(|entry| entry.path())
-                                            .filter(|path| path.is_dir())
+                                            .filter(|entry_path| {
+                                                entry_path.is_dir()
+                                            })
                                             .flat_map(profiles_in_dir)
                                             .collect::<Vec<_>>()
                                     })
@@ -175,9 +177,9 @@ impl args::CleanMode {
                 }
 
                 // Check regular users in the expected range
-                for uid in uid_min..uid_max {
+                for candidate_uid in uid_min..uid_max {
                     if let Some(user) = nix::unistd::User::from_uid(
-                        nix::unistd::Uid::from_raw(uid),
+                        nix::unistd::Uid::from_raw(candidate_uid),
                     )? {
                         debug!(?user, "Adding XDG profiles for user");
                         let user_profiles_path =

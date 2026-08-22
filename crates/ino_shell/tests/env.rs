@@ -50,25 +50,25 @@ fn env() {
 
     let cloned_sh = sh.clone();
 
-    for sh in [&sh, &cloned_sh] {
+    for shell in [&sh, &cloned_sh] {
         assert_env(
-            cmd!(sh, "xecho -$ {v1}").env(v1, "123"),
+            cmd!(shell, "xecho -$ {v1}").env(v1, "123"),
             &[(v1, Some("123"))],
         );
 
         assert_env(
-            cmd!(sh, "xecho -$ {v1} {v2}")
+            cmd!(shell, "xecho -$ {v1} {v2}")
                 .envs([(v1, "123"), (v2, "456")].iter().copied()),
             &[(v1, Some("123")), (v2, Some("456"))],
         );
         assert_env(
-            cmd!(sh, "xecho -$ {v1} {v2}")
+            cmd!(shell, "xecho -$ {v1} {v2}")
                 .envs([(v1, "123"), (v2, "456")].iter().copied())
                 .env_remove(v2),
             &[(v1, Some("123")), (v2, None)],
         );
         assert_env(
-            cmd!(sh, "xecho -$ {v1} {v2}")
+            cmd!(shell, "xecho -$ {v1} {v2}")
                 .envs([(v1, "123"), (v2, "456")].iter().copied())
                 .env_remove("nothing"),
             &[(v1, Some("123")), (v2, Some("456"))],

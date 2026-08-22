@@ -16,36 +16,44 @@ fn specified(installable: Installable) -> InstallableArgs {
 #[test]
 fn resolve_non_unspecified_returns_unchanged() {
     let config = FlakeConfig::default();
-    let flake = Installable::Flake {
-        reference: String::from("/path/to/flake"),
-        attribute: vec![String::from("host")],
-    };
-    let resolved =
-        specified(flake.clone()).resolve(&config).unwrap().unwrap();
-    assert_eq!(flake.to_args(), resolved.to_args());
+    {
+        let flake = Installable::Flake {
+            reference: String::from("/path/to/flake"),
+            attribute: vec![String::from("host")],
+        };
+        let resolved =
+            specified(flake.clone()).resolve(&config).unwrap().unwrap();
+        assert_eq!(flake.to_args(), resolved.to_args());
+    }
 
-    let file = Installable::File {
-        path: PathBuf::from("/path/to/file.nix"),
-        attribute: vec![String::from("config")],
-    };
-    let resolved =
-        specified(file.clone()).resolve(&config).unwrap().unwrap();
-    assert_eq!(file.to_args(), resolved.to_args());
+    {
+        let file = Installable::File {
+            path: PathBuf::from("/path/to/file.nix"),
+            attribute: vec![String::from("config")],
+        };
+        let resolved =
+            specified(file.clone()).resolve(&config).unwrap().unwrap();
+        assert_eq!(file.to_args(), resolved.to_args());
+    }
 
-    let store = Installable::Store {
-        path: PathBuf::from("/nix/store/abc"),
-    };
-    let resolved =
-        specified(store.clone()).resolve(&config).unwrap().unwrap();
-    assert_eq!(store.to_args(), resolved.to_args());
+    {
+        let store = Installable::Store {
+            path: PathBuf::from("/nix/store/abc"),
+        };
+        let resolved =
+            specified(store.clone()).resolve(&config).unwrap().unwrap();
+        assert_eq!(store.to_args(), resolved.to_args());
+    }
 
-    let expr = Installable::Expression {
-        expression: String::from("{ pkgs }: pkgs.hello"),
-        attribute: vec![],
-    };
-    let resolved =
-        specified(expr.clone()).resolve(&config).unwrap().unwrap();
-    assert_eq!(expr.to_args(), resolved.to_args());
+    {
+        let expr = Installable::Expression {
+            expression: String::from("{ pkgs }: pkgs.hello"),
+            attribute: vec![],
+        };
+        let resolved =
+            specified(expr.clone()).resolve(&config).unwrap().unwrap();
+        assert_eq!(expr.to_args(), resolved.to_args());
+    }
 }
 
 #[test]
@@ -364,11 +372,11 @@ fn uses_flakes_checks_cli_and_env_inputs() {
     });
     assert!(flake.uses_flakes(&config));
 
-    let config = FlakeConfig {
+    let flake_config = FlakeConfig {
         flake: Some(String::from("github:user/repo")),
         ..Default::default()
     };
-    assert!(InstallableArgs::Unspecified.uses_flakes(&config));
+    assert!(InstallableArgs::Unspecified.uses_flakes(&flake_config));
 }
 
 #[test]
@@ -384,20 +392,22 @@ fn uses_flakes_respects_resolution_precedence() {
     });
     assert!(!file.uses_flakes(&config));
 
-    let config = FlakeConfig {
+    let flake_file_config = FlakeConfig {
         flake: Some(String::from("github:user/repo")),
         file: Some(String::from("/path/to/file.nix")),
         ..Default::default()
     };
-    assert!(!InstallableArgs::Unspecified.uses_flakes(&config));
+    assert!(!InstallableArgs::Unspecified.uses_flakes(
+        &flake_file_config
+    ));
 
-    let config = FlakeConfig {
+    let full_config = FlakeConfig {
         flake: Some(String::from("github:user/repo")),
         file: Some(String::from("/path/to/file.nix")),
         os_flake: Some(String::from("github:user/os")),
         ..Default::default()
     };
-    assert!(InstallableArgs::Unspecified.uses_flakes(&config));
+    assert!(InstallableArgs::Unspecified.uses_flakes(&full_config));
 }
 
 #[test]

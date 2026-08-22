@@ -72,10 +72,12 @@ impl StepQueue {
             };
             let mut found_old_symlink = None;
 
-            let _s = trace_span!("iter_new", ?new_symlink).entered();
+            let _iter_new_span =
+                trace_span!("iter_new", ?new_symlink).entered();
 
             for old_symlink in &mut old_blueprint_symlinks {
-                let _s = trace_span!("iter_old", ?old_symlink).entered();
+                let _iter_old_span =
+                    trace_span!("iter_old", ?old_symlink).entered();
                 if let Some(old) = old_symlink.as_ref()
                     && old.same_dst(&new_symlink)
                 {
@@ -799,6 +801,7 @@ mod test {
     #[test]
     fn create_symlink() {
         let top = make_tempdir!();
+
         let src =
             top.child(make_random_str!()).tap(|it| it.touch().unwrap());
         let dst = top.child(make_random_str!());
@@ -819,31 +822,37 @@ mod test {
         step.execute().unwrap();
 
         // 3. dst is symlink but not ours
-        let sym = make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
-        let step = Step::Create { new_symlink: sym };
+        let foreign_sym =
+            make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
+        let foreign_step = Step::Create { new_symlink: foreign_sym };
         remove_file(dst.path()).unwrap();
         symlink(src.path(), dst.path()).unwrap();
-        assert!(step.execute().is_err());
+        assert!(foreign_step.execute().is_err());
 
         // 4. create missing parent dirs
         {
             // don't create the dir
             let dir = top.child(make_random_str!());
-            let src = top
+            let nested_src = top
                 .child(make_random_str!())
                 .tap(|it| it.touch().unwrap());
-            let dst = dir.child(make_random_str!());
+            let nested_dst = dir.child(make_random_str!());
 
             let symlink = make_symlink!(
-                src.to_str().unwrap(),
-                dst.to_str().unwrap()
+                nested_src.to_str().unwrap(),
+                nested_dst.to_str().unwrap()
             );
-            let symlink = Step::Create { new_symlink: symlink };
+            let symlink = Step::Create {
+                new_symlink: symlink,
+            };
 
             symlink.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
-            assert_eq!(dst.read_link().unwrap(), src.path());
+            assert_eq!(
+                nested_dst.read_link().unwrap(),
+                nested_src.path()
+            );
         }
     }
 
@@ -891,20 +900,22 @@ mod test {
                 .child(make_random_str!())
                 .tap(|it| it.write_str(&no_touch_text).unwrap());
 
-            let src = top
+            let nested_src = top
                 .child(make_random_str!())
                 .tap(|it| it.touch().unwrap());
-            let dst = dir_dir_dir
+            let nested_dst = dir_dir_dir
                 .child(make_random_str!())
-                .tap(|it| it.symlink_to_file(&src).unwrap());
+                .tap(|it| it.symlink_to_file(&nested_src).unwrap());
 
             let symlink = make_symlink!(
-                src.to_str().unwrap(),
-                dst.to_str().unwrap()
+                nested_src.to_str().unwrap(),
+                nested_dst.to_str().unwrap()
             );
-            let step = Step::Remove { old_symlink: symlink };
+            let nested_step = Step::Remove {
+                old_symlink: symlink,
+            };
 
-            step.execute().unwrap();
+            nested_step.execute().unwrap();
 
             // Dir and dir_dir shouldn't be touched because
             // they are not empty
@@ -913,7 +924,7 @@ mod test {
             // but dir_dir_dir should be removed
             assert!(!dir_dir_dir.try_exists_no_traverse().unwrap());
 
-            assert!(!dst.try_exists_no_traverse().unwrap());
+            assert!(!nested_dst.try_exists_no_traverse().unwrap());
             assert_eq!(
                 std::fs::read_to_string(no_touch).unwrap(),
                 no_touch_text

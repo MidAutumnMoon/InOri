@@ -1324,7 +1324,7 @@ fn activate_nixos_remote(
             boot_ssh_cmd = boot_ssh_cmd.arg(host.ssh_host());
 
             // Build the remote command using helper function
-            let base_cmd = nixos_activation_command(
+            let boot_activation_cmd = nixos_activation_command(
                 switch_path_str,
                 "boot",
                 config.install_bootloader,
@@ -1332,7 +1332,7 @@ fn activate_nixos_remote(
             );
             let boot_remote_cmd = build_remote_command(
                 config.elevation.as_ref(),
-                &base_cmd,
+                &boot_activation_cmd,
                 runtime_env,
                 sudo_config,
             )?;

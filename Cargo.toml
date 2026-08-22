@@ -100,8 +100,6 @@ struct_excessive_bools = "allow"
 implicit_return = "allow"
 default_numeric_fallback = "allow"
 question_mark_used = "allow"
-shadow_same = "allow"
-shadow_reuse = "allow"
 print_stderr = "allow"
 print_stdout = "allow"
 arbitrary_source_item_ordering = "allow"
@@ -111,6 +109,12 @@ missing_trait_methods = "allow"
 single_call_fn = "allow"
 non_ascii_literal = "allow"
 inline_modules = "allow"
+
+# Shadow is useful, clippy's lints on shadow_same and shadow_reuse
+# are unreasonable, though shadow_unrelated can be useful.
+shadow_same = "allow"
+shadow_reuse = "allow"
+shadow_unrelated = "warn"
 
 # Useful when writting no_std codes, but annoying in general codes.
 std_instead_of_alloc = "allow"

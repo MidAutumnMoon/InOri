@@ -148,7 +148,7 @@ fn query_backend(
         .iter()
         .rposition(|byte| *byte == b'\n')
         .context("splitting curl's status code from the response body")?;
-    let (body, status) = output.stdout.split_at(separator);
+    let (response_body, status) = output.stdout.split_at(separator);
     let status = status.get(1..).context("reading curl's status code")?;
     let status = std::str::from_utf8(status)
         .context("reading curl's status code")?
@@ -167,7 +167,7 @@ fn query_backend(
         );
     }
 
-    let response = serde_json::from_slice(body)
+    let response = serde_json::from_slice(response_body)
         .context("parsing response into the elasticsearch format")?;
     Ok(Some(response))
 }
