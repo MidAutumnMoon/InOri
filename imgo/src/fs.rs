@@ -59,7 +59,11 @@ impl FromStr for BaseSeqExt {
                 debug!("Part is all digits, use it as seq");
 
                 seq = NonZeroU64::from_str_radix(part, 10)
-                    .with_context(|| format!(r#"Sequence must be > 0 in filename "{s}""#))?
+                    .with_context(|| {
+                        format!(
+                            r#"Sequence must be > 0 in filename "{s}""#
+                        )
+                    })?
                     .tap(|num| debug!(?num))
                     .pipe(Some);
                 seq_index = Some(idx);

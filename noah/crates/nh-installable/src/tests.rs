@@ -397,9 +397,7 @@ fn uses_flakes_respects_resolution_precedence() {
         file: Some(String::from("/path/to/file.nix")),
         ..Default::default()
     };
-    assert!(!InstallableArgs::Unspecified.uses_flakes(
-        &flake_file_config
-    ));
+    assert!(!InstallableArgs::Unspecified.uses_flakes(&flake_file_config));
 
     let full_config = FlakeConfig {
         flake: Some(String::from("github:user/repo")),

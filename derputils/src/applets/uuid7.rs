@@ -28,8 +28,8 @@ pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
 
 #[cfg(test)]
 mod test {
-    use std::assert_matches;
     use super::*;
+    use std::assert_matches;
 
     fn parse(args: &[&str]) -> Result<(), bpaf::ParseFailure> {
         cli().run_inner(Args::from(args).set_name(NAME))
@@ -37,9 +37,6 @@ mod test {
 
     #[test]
     fn stray_argument_rejected() {
-        assert_matches!(
-            parse(&["x"]),
-            Err(bpaf::ParseFailure::Stderr(_))
-        );
+        assert_matches!(parse(&["x"]), Err(bpaf::ParseFailure::Stderr(_)));
     }
 }

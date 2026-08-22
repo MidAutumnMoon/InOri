@@ -92,7 +92,10 @@ fn interpolation_splat() {
         let words = &["hello", "world"];
         let empty_words: &[&OsStr] = &[];
         let bang_words = &["!".to_owned()];
-        let output = cmd!(sh, "xecho {words...} {empty_words...} {bang_words...}").read().unwrap();
+        let output =
+            cmd!(sh, "xecho {words...} {empty_words...} {bang_words...}")
+                .read()
+                .unwrap();
         assert_eq!(output, "hello world !");
     }
 

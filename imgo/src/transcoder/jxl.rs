@@ -29,7 +29,10 @@ impl Meta for Jxl {
     }
 
     fn default_jobs(&self) -> std::num::NonZeroU64 {
-        #[expect(clippy::unwrap_used, reason = "literal 1 is non-zero by construction")]
+        #[expect(
+            clippy::unwrap_used,
+            reason = "literal 1 is non-zero by construction"
+        )]
         NonZeroU64::new(1).unwrap()
     }
 }

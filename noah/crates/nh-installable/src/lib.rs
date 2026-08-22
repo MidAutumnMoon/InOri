@@ -618,7 +618,8 @@ fn resolve_fallback_flake_dir(
         return match fs::metadata(&flake_path) {
             Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(err) => {
+            Err(err) =>
+            {
                 #[expect(
                     clippy::wildcard_enum_match_arm,
                     reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
@@ -649,7 +650,8 @@ fn resolve_fallback_flake_dir(
                         Ok(parent.to_path_buf())
                     })
             }
-            Err(err) => {
+            Err(err) =>
+            {
                 #[expect(
                     clippy::wildcard_enum_match_arm,
                     reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"
@@ -668,7 +670,8 @@ fn resolve_fallback_flake_dir(
         match fs::metadata(&flake_path) {
             Ok(metadata) if metadata.is_file() => Ok(resolved_dir),
             Ok(_) => Err(FallbackError::NotFound),
-            Err(err) => {
+            Err(err) =>
+            {
                 #[expect(
                     clippy::wildcard_enum_match_arm,
                     reason = "io::ErrorKind has many variants; all other errors are wrapped as Io"

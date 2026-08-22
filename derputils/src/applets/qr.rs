@@ -130,8 +130,8 @@ fn open_viewer(svg_path: &Path) -> rootcause::Result<()> {
 
 #[cfg(test)]
 mod test {
-    use std::assert_matches;
     use super::*;
+    use std::assert_matches;
 
     fn parse(args: &[&str]) -> Result<Source, bpaf::ParseFailure> {
         cli().run_inner(Args::from(args).set_name(NAME))

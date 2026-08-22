@@ -2,7 +2,8 @@ use std::time::{Duration, Instant};
 
 use elasticsearch_dsl::{Search, SearchResponse};
 use rootcause::{
-    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _, report,
+    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _,
+    report,
 };
 use serde::de::DeserializeOwned;
 use subprocess::Exec;

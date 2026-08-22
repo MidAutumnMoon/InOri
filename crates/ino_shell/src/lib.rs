@@ -477,11 +477,9 @@ impl Shell {
     pub fn vars_os(&self) -> HashMap<OsString, OsString> {
         let mut result: HashMap<OsString, OsString> = HashMap::default();
         result.extend(env::vars_os());
-        result.extend(
-            self.env
-                .iter()
-                .map(|(key, value)| (OsString::from(key), OsString::from(value))),
-        );
+        result.extend(self.env.iter().map(|(key, value)| {
+            (OsString::from(key), OsString::from(value))
+        }));
         result
     }
 
@@ -870,10 +868,9 @@ impl Cmd {
         K: AsRef<OsStr>,
         V: AsRef<OsStr>,
     {
-        Arc::make_mut(&mut self.sh.env).extend(
-            vars.into_iter()
-                .map(|(key, value)| (key.as_ref().into(), value.as_ref().into())),
-        );
+        Arc::make_mut(&mut self.sh.env).extend(vars.into_iter().map(
+            |(key, value)| (key.as_ref().into(), value.as_ref().into()),
+        ));
         self
     }
 
@@ -1209,7 +1206,7 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = remove_dir_all(&self.path);
+        _ = remove_dir_all(&self.path);
     }
 }
 

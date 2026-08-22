@@ -88,7 +88,9 @@ pub fn run(
         ProgressStyle::with_template(
             "{spinner:.blue} {pos}/{len} [{wide_bar:.cyan/blue}] {msg}",
         )
-        .map_err(|err| anyhow::anyhow!("invalid progress template: {err}"))?
+        .map_err(|err| {
+            anyhow::anyhow!("invalid progress template: {err}")
+        })?
         .progress_chars("█▓░"),
     );
 

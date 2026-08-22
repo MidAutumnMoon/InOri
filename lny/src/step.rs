@@ -824,7 +824,9 @@ mod test {
         // 3. dst is symlink but not ours
         let foreign_sym =
             make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
-        let foreign_step = Step::Create { new_symlink: foreign_sym };
+        let foreign_step = Step::Create {
+            new_symlink: foreign_sym,
+        };
         remove_file(dst.path()).unwrap();
         symlink(src.path(), dst.path()).unwrap();
         assert!(foreign_step.execute().is_err());
@@ -849,10 +851,7 @@ mod test {
             symlink.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
-            assert_eq!(
-                nested_dst.read_link().unwrap(),
-                nested_src.path()
-            );
+            assert_eq!(nested_dst.read_link().unwrap(), nested_src.path());
         }
     }
 

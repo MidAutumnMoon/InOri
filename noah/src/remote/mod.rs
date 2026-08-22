@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::OsString,
-    io::Read as _,
+    io::{self, Read as _},
     path::{Path, PathBuf},
     sync::{
         Arc, LazyLock, Mutex, OnceLock,
@@ -17,7 +17,7 @@ use crate::{
 use nh_installable::Installable;
 use rootcause::{Report, Result, bail, prelude::ResultExt as _, report};
 use secrecy::{ExposeSecret as _, SecretString};
-use subprocess::{Exec, Redirection};
+use subprocess::{Exec, Job, Redirection};
 use tracing::{debug, info, warn};
 
 mod copy;
@@ -281,7 +281,7 @@ fn register_interrupt_handler() -> Result<()> {
     // Mark as registered
     // The race condition here is benign. Worst case, we register twice, but both
     // handlers will set the same flag which is fine
-    let _ = HANDLER_REGISTERED.set(());
+    _ = HANDLER_REGISTERED.set(());
 
     Ok(())
 }
@@ -535,7 +535,10 @@ impl RemoteHost {
     /// exists).
     #[must_use]
     pub fn hostname(&self) -> &str {
-        #[expect(clippy::unwrap_used, reason = "`rsplit('@')` always yields at least one element")]
+        #[expect(
+            clippy::unwrap_used,
+            reason = "`rsplit('@')` always yields at least one element"
+        )]
         self.host.rsplit('@').next().unwrap()
     }
 
@@ -745,6 +748,12 @@ fn should_cleanup_remote(config: &SshConfig) -> bool {
     config.cleanup_remote
 }
 
+fn kill_and_wait(job: &Job) -> io::Result<()> {
+    let kill_result = job.kill();
+    job.wait()?;
+    kill_result
+}
+
 /// Attempt to clean up a remote process using pkill.
 ///
 /// This is a best-effort (and opt-in) operation called when the user interrupts
@@ -795,63 +804,63 @@ fn attempt_remote_cleanup(
 
     // Wait up to 5 seconds for cleanup to complete
     let timeout = Duration::from_secs(5);
-    match job.wait_timeout(timeout) {
-        Ok(Some(_)) => {
-            // Process exited, check status below
-        }
+    let exit_status = match job.wait_timeout(timeout) {
+        Ok(Some(exit_status)) => exit_status,
         Ok(None) => {
-            // Timeout - kill the process and continue
-            let _ = job.kill();
-            let _ = job.wait();
+            if let Err(error) = kill_and_wait(&job) {
+                info!(
+                    "Failed to stop timed-out remote cleanup on '{host}': {error}"
+                );
+            }
             info!("Remote cleanup on '{host}' timed out after 5 seconds");
             return;
         }
-        Err(err) => {
-            info!("Error waiting for remote cleanup on '{host}': {err}");
+        Err(error) => {
+            info!("Error waiting for remote cleanup on '{host}': {error}");
             return;
         }
-    }
+    };
 
     // Check exit status
-    let exit_status = job.wait().ok();
-    if let Some(exit_status) = exit_status {
-        if exit_status.success() {
-            info!("Cleaned up remote process on '{}'", host);
-        } else {
-            // Capture stderr for error diagnosis
-            let stderr =
-                job.stderr.take().map_or_else(String::new, |mut stderr_reader| {
-                    let mut stderr_text = String::new();
-                    let _ = stderr_reader.read_to_string(&mut stderr_text);
-                    stderr_text
-                });
-            let stderr_lower = stderr.to_lowercase();
+    if exit_status.success() {
+        info!("Cleaned up remote process on '{}'", host);
+    } else {
+        // Capture stderr for error diagnosis
+        let stderr =
+            job.stderr.take().map_or_else(String::new, |stderr| {
+                io::read_to_string(stderr).unwrap_or_else(|error| {
+                    info!(
+                        "Failed to read remote cleanup stderr on '{host}': {error}"
+                    );
+                    String::new()
+                })
+            });
+        let stderr_lower = stderr.to_lowercase();
 
-            if stderr.contains("No matching processes")
-                || stderr_lower.contains("0 processes")
-            {
-                debug!(
-                    "No matching process found on '{host}' during cleanup (may have \
+        if stderr.contains("No matching processes")
+            || stderr_lower.contains("0 processes")
+        {
+            debug!(
+                "No matching process found on '{host}' during cleanup (may have \
            already exited)"
-                );
-            } else if stderr_lower.contains("not found")
-                || stderr_lower.contains("command not found")
-            {
-                info!(
-                    "pkill not available on '{}', skipping remote cleanup",
-                    host
-                );
-            } else if stderr_lower.contains("permission denied")
-                || stderr_lower.contains("operation not permitted")
-            {
-                info!(
-                    "Permission denied for pkill on '{host}', skipping remote cleanup",
-                );
-            } else {
-                info!(
-                    "Remote cleanup on '{host}' returned non-zero exit status"
-                );
-            }
+            );
+        } else if stderr_lower.contains("not found")
+            || stderr_lower.contains("command not found")
+        {
+            info!(
+                "pkill not available on '{}', skipping remote cleanup",
+                host
+            );
+        } else if stderr_lower.contains("permission denied")
+            || stderr_lower.contains("operation not permitted")
+        {
+            info!(
+                "Permission denied for pkill on '{host}', skipping remote cleanup",
+            );
+        } else {
+            info!(
+                "Remote cleanup on '{host}' returned non-zero exit status"
+            );
         }
     }
 }
@@ -1710,11 +1719,13 @@ fn build_on_remote_simple(
                 if get_interrupt_flag().load(Ordering::Relaxed) {
                     debug!("Interrupt detected, killing SSH process");
 
-                    let _ = job.kill();
-                    let _ = job.wait(); // reap zombie
+                    let stop_result = kill_and_wait(&job);
 
-                    // Attempt remote cleanup if enabled
+                    // Attempt remote cleanup even if local cleanup failed.
                     attempt_remote_cleanup(host, &remote_cmd, ssh_config);
+                    stop_result.context(
+                        "Failed to stop interrupted SSH process",
+                    )?;
 
                     bail!("Operation interrupted by user");
                 }
@@ -1729,7 +1740,10 @@ fn build_on_remote_simple(
             .take()
             .and_then(|mut stderr_reader| {
                 let mut stderr_text = String::new();
-                stderr_reader.read_to_string(&mut stderr_text).ok().map(|_| stderr_text)
+                stderr_reader
+                    .read_to_string(&mut stderr_text)
+                    .ok()
+                    .map(|_| stderr_text)
             })
             .unwrap_or_else(|| String::from("(no stderr)"));
         bail!("Remote command failed: {}", stderr);
@@ -1749,7 +1763,8 @@ fn build_on_remote_simple(
         .lines()
         .next()
         .ok_or_else(|| report!("Remote build returned empty output"))?
-        .trim().to_owned();
+        .trim()
+        .to_owned();
 
     debug!("Remote build output: {}", out_path);
     Ok(out_path)
@@ -1819,14 +1834,14 @@ fn build_on_remote_with_nom(
             if get_interrupt_flag().load(Ordering::Relaxed) {
                 debug!("Interrupt detected during build with nom");
                 // Kill remaining local processes. This will cause SSH to terminate
-                // the remote command automatically
-                for process in &job.processes {
-                    let _ = process.kill();
-                    let _ = process.wait(); // reap zombie
-                }
+                // the remote command automatically.
+                let stop_result = kill_and_wait(&job);
 
-                // Attempt remote cleanup if enabled
+                // Attempt remote cleanup even if local cleanup failed.
                 attempt_remote_cleanup(host, &remote_cmd, ssh_config);
+                stop_result.context(
+                    "Failed to stop interrupted remote build processes",
+                )?;
 
                 bail!("Operation interrupted by user");
             }
@@ -1879,7 +1894,8 @@ fn build_on_remote_with_nom(
         .lines()
         .next()
         .ok_or_else(|| report!("Output path query returned empty"))?
-        .trim().to_owned();
+        .trim()
+        .to_owned();
 
     debug!("Remote build output: {}", out_path);
     Ok(out_path)

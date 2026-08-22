@@ -46,7 +46,10 @@ impl AbsolutePath {
     /// directory and cleaned, producing an absolute path.
     fn resolve_target(&self, target: &Path) -> Self {
         let resolved = if target.is_relative() {
-            #[expect(clippy::expect_used, reason = "absolute paths always have a parent")]
+            #[expect(
+                clippy::expect_used,
+                reason = "absolute paths always have a parent"
+            )]
             let parent_dir =
                 self.0.parent().expect("symlink path always has a parent");
             path_clean::PathClean::clean(&parent_dir.join(target))

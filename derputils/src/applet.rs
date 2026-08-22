@@ -56,10 +56,13 @@ pub fn usage() -> String {
     use std::fmt::Write as _;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
-    let width = APPLETS.iter().map(|applet| applet.name.len()).max().unwrap_or(0);
+    let width = APPLETS
+        .iter()
+        .map(|applet| applet.name.len())
+        .max()
+        .unwrap_or(0);
     for applet in APPLETS {
-        let _ =
-            writeln!(out, "  {:<width$}  {}", applet.name, applet.descr);
+        _ = writeln!(out, "  {:<width$}  {}", applet.name, applet.descr);
     }
     out
 }

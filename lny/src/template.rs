@@ -15,7 +15,10 @@ use tracing::debug;
 use tracing::trace;
 
 // Constructing an [`Environment`] is expensive.
-#[expect(clippy::unwrap_used, reason = "single global init; failure is a programmer error")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "single global init; failure is a programmer error"
+)]
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
     use minijinja::UndefinedBehavior;
 

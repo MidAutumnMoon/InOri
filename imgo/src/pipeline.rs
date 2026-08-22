@@ -149,8 +149,8 @@ fn resolve_dest(
 }
 
 /// Processes a single image: temp → work → warnings → backup →
-/// resolve dest → finalize. Returns `None` if the task was cancelled
-/// or failed (in which case `fail()` has already been called).
+/// resolve dest → finalize. Cancellation and failures are reported
+/// before returning early.
 fn process_one(
     permit: &Arc<Mutex<Permit>>,
     bar: &ProgressBar,
@@ -159,10 +159,10 @@ fn process_one(
     backup_dir: &Path,
     no_backup: bool,
     output_ext: &str,
-) -> Option<()> {
+) {
     if matches!(*permit.lock(), Permit::Cancel) {
         debug!("Job cancelled");
-        return None;
+        return;
     }
     let _g = debug_span!("processing", ?image).entered();
     let input_path = image.path.original_path();
@@ -183,20 +183,28 @@ fn process_one(
                         input_path.display()
                     ),
                 );
-                return None;
+                return;
             }
         };
 
-    let warnings = run_work(exec, permit, bar, image, temp_output.path())?;
+    let Some(warnings) =
+        run_work(exec, permit, bar, image, temp_output.path())
+    else {
+        return;
+    };
     print_warnings(bar, &warnings);
 
-    let dest_dir = image.path.parent_dir().or_else(|| {
+    let Some(dest_dir) = image.path.parent_dir().or_else(|| {
         fail(permit, bar, "[BUG] Failed to get parent directory");
         None
-    })?;
+    }) else {
+        return;
+    };
 
-    if !no_backup {
-        backup(permit, bar, image, &input_path, backup_dir)?;
+    if !no_backup
+        && backup(permit, bar, image, &input_path, backup_dir).is_none()
+    {
+        return;
     }
 
     let dest_path = resolve_dest(&dest_dir, image, output_ext);
@@ -210,11 +218,10 @@ fn process_one(
                 dest_path.display()
             ),
         );
-        return None;
+        return;
     }
 
     bar.inc(1);
-    Some(())
 }
 
 /// Shared CLI options common to every transcoder subcommand.
@@ -399,7 +406,7 @@ fn orchestrate(
             repeat(shared_backup_dir),
         ) {
             scope.spawn(move |_| {
-                let _ = process_one(
+                process_one(
                     &permit,
                     &bar,
                     exec,

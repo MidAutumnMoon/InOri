@@ -20,7 +20,8 @@ use nix::{
 };
 use regex::Regex;
 use rootcause::{
-    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _, report,
+    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _,
+    report,
 };
 use tracing::{Level, debug, info, instrument, span, warn};
 use walkdir::WalkDir;
@@ -30,19 +31,28 @@ use yansi::{Color, Paint};
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
     Regex::new(r".*/(?:\.direnv|direnv/layouts)/.*")
         .expect("Failed to compile direnv regex")
 });
 
 static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
     Regex::new(r"^(.*)-(\d+)-link$")
         .expect("Failed to compile generation regex")
 });
 
 static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used, reason = "static regex literal; compilation failure is a programmer error")]
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
     Regex::new("^result(-.*)?$")
         .expect("Failed to compile result link regex")
 });
@@ -253,10 +263,11 @@ impl args::CleanMode {
                 .same_file_system(!args.cross_filesystems)
                 .into_iter()
                 .filter_map(|entry| {
-                    entry.map_err(|err| {
-                        warn!(?err, "gcroot walk error");
-                    })
-                    .ok()
+                    entry
+                        .map_err(|err| {
+                            warn!(?err, "gcroot walk error");
+                        })
+                        .ok()
                 })
                 .filter(|entry| entry.path().is_symlink())
             {
@@ -558,7 +569,9 @@ where
                         let path = err.path();
 
                         if let Ok(dst) = path.read_link() {
-                            let name = if let Some(file_name) = dst.file_name() {
+                            let name = if let Some(file_name) =
+                                dst.file_name()
+                            {
                                 file_name.to_string_lossy()
                             } else {
                                 warn!(

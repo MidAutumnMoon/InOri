@@ -97,9 +97,7 @@ impl EncryptedAsset {
     /// Compute the decrypted output path
     /// (same path with the extension replaced).
     pub fn decrypted_path(&self) -> PathBuf {
-        let mut out = self.path.clone();
-        let _ = out.set_extension(self.kind.decrypted_extension());
-        out
+        self.path.with_extension(self.kind.decrypted_extension())
     }
 
     /// Whether this is a PNG asset.

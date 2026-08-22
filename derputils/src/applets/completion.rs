@@ -101,10 +101,12 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
     // Resolve up front so an unknown applet fails before any script is printed.
     let targets: Vec<&'static str> = match args.applet.as_deref() {
         Some(name) => {
-            let applet =
-                APPLETS.iter().find(|entry| entry.name == name).ok_or_else(
-                    || rootcause::report!("unknown applet '{name}'"),
-                )?;
+            let applet = APPLETS
+                .iter()
+                .find(|entry| entry.name == name)
+                .ok_or_else(|| {
+                rootcause::report!("unknown applet '{name}'")
+            })?;
             vec![applet.name]
         }
         None => APPLETS.iter().map(|applet| applet.name).collect(),
@@ -145,8 +147,8 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests")]
 mod test {
-    use std::assert_matches;
     use super::*;
+    use std::assert_matches;
 
     fn parse(args: &[&str]) -> Result<CompletionArgs, bpaf::ParseFailure> {
         cli().run_inner(Args::from(args).set_name(NAME))

@@ -344,8 +344,9 @@ fn wait_for_job(
 }
 
 fn kill_and_wait(job: &Job) -> Result<()> {
-    let _ = job.kill();
+    let kill_result = job.kill();
     job.wait()?;
+    kill_result?;
     Ok(())
 }
 

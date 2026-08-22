@@ -147,7 +147,9 @@ pub fn get_closure_sizes_batch(
 
     let store_paths: Vec<PathBuf> = generation_dirs
         .iter()
-        .map(|path| path.read_link().unwrap_or_else(|_| path.to_path_buf()))
+        .map(|path| {
+            path.read_link().unwrap_or_else(|_| path.to_path_buf())
+        })
         .collect();
 
     let output = match NixCommand::new(CommandKind::PathInfo)
@@ -206,7 +208,9 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
     {
         Ok(out) => out,
         Err(err) => {
-            debug!("get_closure_size: failed to run nix path-info: {err:?}");
+            debug!(
+                "get_closure_size: failed to run nix path-info: {err:?}"
+            );
             return "Unknown".to_owned();
         }
     };
@@ -329,7 +333,9 @@ pub fn describe(
                 .map(|entries| {
                     entries
                         .filter_map(std::result::Result::ok)
-                        .filter_map(|entry| entry.file_name().into_string().ok())
+                        .filter_map(|entry| {
+                            entry.file_name().into_string().ok()
+                        })
                         .collect::<Vec<String>>()
                 })
                 .unwrap_or_default();
@@ -391,7 +397,10 @@ pub fn describe(
 /// # Errors
 ///
 /// Returns an error if output or formatting fails.
-#[expect(clippy::too_many_lines, reason = "field formatters stay together; splitting scatters the table layout")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "field formatters stay together; splitting scatters the table layout"
+)]
 pub fn print_info(
     mut generations: Vec<GenerationInfo>,
     fields: Option<&[Field]>,
@@ -436,7 +445,9 @@ pub fn print_info(
     let has_confrev = generations
         .iter()
         .any(|generation| generation.configuration_revision.is_some());
-    let has_spec = generations.iter().any(|generation| generation.specialisations.is_some());
+    let has_spec = generations
+        .iter()
+        .any(|generation| generation.specialisations.is_some());
 
     let visible_fields: Vec<Field> = fields.map_or_else(
         || {

@@ -59,8 +59,9 @@ pub fn wait_deadline(
             return Ok(status);
         }
         if Instant::now() > deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            let kill_result = child.kill();
+            child.wait()?;
+            kill_result?;
             return Err(io::ErrorKind::TimedOut.into());
         }
         std::thread::sleep(Duration::from_millis(sleep_ms));

@@ -107,14 +107,18 @@ fn splat_concat_error(name: &str) -> String {
 fn into_literal(ts: &TokenTree) -> Option<Literal> {
     match ts {
         TokenTree::Literal(literal) => Some(literal.clone()),
-        TokenTree::Group(group) if group.delimiter() == Delimiter::None => {
+        TokenTree::Group(group)
+            if group.delimiter() == Delimiter::None =>
+        {
             let mut it = group.stream().into_iter();
             match (it.next(), it.next()) {
                 (Some(TokenTree::Literal(literal)), None) => Some(literal),
                 _ => None,
             }
         }
-        TokenTree::Group(_) | TokenTree::Ident(_) | TokenTree::Punct(_) => None,
+        TokenTree::Group(_)
+        | TokenTree::Ident(_)
+        | TokenTree::Punct(_) => None,
     }
 }
 
@@ -291,7 +295,10 @@ fn validate_ident(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err("empty interpolation in command".to_owned());
     }
-    if !name.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
+    if !name
+        .chars()
+        .all(|char| char.is_ascii_alphanumeric() || char == '_')
+    {
         return Err(format!(
             "can only interpolate simple variables, got this expression instead: `{name}`"
         ));

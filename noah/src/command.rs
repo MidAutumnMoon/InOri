@@ -97,7 +97,7 @@ impl<W: Write> Write for CaptureWriter<W> {
 ///
 /// Returns an error if the command cannot start, communication fails, or the
 /// process cannot be reaped.
-pub(crate) fn exec_with_writers(
+pub fn exec_with_writers(
     cmd: Exec,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -113,8 +113,8 @@ pub(crate) fn exec_with_writers(
         .context("Failed to open command pipes")?
         .read_to(stdout, stderr);
     if let Err(error) = communication {
-        let _ = job.kill();
-        let _ = job.wait();
+        job.kill()?;
+        job.wait()?;
         return Err(error)
             .context("Failed to stream command output")
             .map_err(Into::into);
@@ -130,7 +130,7 @@ pub(crate) fn exec_with_writers(
 /// # Errors
 ///
 /// Returns an error if command execution or output streaming fails.
-pub(crate) fn exec_with_streaming(
+pub fn exec_with_streaming(
     cmd: Exec,
 ) -> Result<(subprocess::ExitStatus, String, String)> {
     let mut stdout = CaptureWriter::new(io::stdout());
