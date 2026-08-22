@@ -1738,13 +1738,7 @@ fn build_on_remote_simple(
         let stderr = job
             .stderr
             .take()
-            .and_then(|mut stderr_reader| {
-                let mut stderr_text = String::new();
-                stderr_reader
-                    .read_to_string(&mut stderr_text)
-                    .ok()
-                    .map(|_| stderr_text)
-            })
+            .and_then(|stderr_reader| io::read_to_string(stderr_reader).ok())
             .unwrap_or_else(|| String::from("(no stderr)"));
         bail!("Remote command failed: {}", stderr);
     }
