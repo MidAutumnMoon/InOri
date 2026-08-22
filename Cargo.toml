@@ -77,6 +77,7 @@ suspicious = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 perf = { level = "warn", priority = -1 }
 style = { level = "warn", priority = -1 }
+restriction = { level = "warn", priority = -1 }
 
 cognitive_complexity = "allow"
 missing_const_for_fn = "allow" # has bug
@@ -85,12 +86,11 @@ too_many_lines = "allow"
 # Noah allows
 struct_excessive_bools = "allow"
 
-unwrap_used = "warn"
-panic = "warn"
-indexing_slicing = "warn"
-unreachable = "warn"
-undocumented_unsafe_blocks = "warn"
-unwrap_in_result = "warn"
-expect_used = "warn"
-todo = "warn"
-unimplemented = "warn"
+# Allow quite few lints from correctness group
+implicit_return = "allow"
+default_numeric_fallback = "allow"
+question_mark_used = "allow"
+shadow_same = "allow"
+shadow_reuse = "allow"
+print_stderr = "allow"
+print_stdout = "allow"
