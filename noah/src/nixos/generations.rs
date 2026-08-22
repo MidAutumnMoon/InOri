@@ -183,7 +183,7 @@ pub fn get_closure_sizes_batch(
         .map(|(gen_dir, store_path)| {
             let store_path_str = store_path.to_string_lossy();
             let size_str = closure_size_from_json(&json, &store_path_str)
-                .map_or_else(|| "Unknown".to_string(), bytes_to_gb_string);
+                .map_or_else(|| "Unknown".to_owned(), bytes_to_gb_string);
             (gen_dir.to_path_buf(), size_str)
         })
         .collect()
@@ -204,7 +204,7 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
         Ok(out) => out,
         Err(e) => {
             debug!("get_closure_size: failed to run nix path-info: {e:?}");
-            return "Unknown".to_string();
+            return "Unknown".to_owned();
         }
     };
 
@@ -219,7 +219,7 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
             debug!(
                 "get_closure_size: failed to parse JSON: {e} output: {output_str}"
             );
-            return "Unknown".to_string();
+            return "Unknown".to_owned();
         }
     };
 
@@ -229,7 +229,7 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
         "get_closure_size: store_path not found or closureSize missing. \
          store_path: {store_path_str}, output: {output_str}"
       );
-      "Unknown".to_string()
+      "Unknown".to_owned()
     },
     bytes_to_gb_string,
   )
@@ -257,7 +257,7 @@ pub fn describe(
 
     let nixos_version =
         fs::read_to_string(generation_dir.join("nixos-version"))
-            .unwrap_or_else(|_| "Unknown".to_string());
+            .unwrap_or_else(|_| "Unknown".to_owned());
 
     // XXX: Nixpkgs appears to have changed where kernel modules are stored in a
     // recent change. I do not care to track which, but we should try the new path
@@ -275,12 +275,12 @@ pub fn describe(
 
     let kernel_version = if kernel_modules_dir_new.exists() {
         fs::read_dir(&kernel_modules_dir_new).map_or_else(
-            |_| "Unknown".to_string(),
+            |_| "Unknown".to_owned(),
             |entries| {
                 let mut versions = Vec::with_capacity(4);
                 for entry in entries.filter_map(std::result::Result::ok) {
                     if let Some(name) = entry.file_name().to_str() {
-                        versions.push(name.to_string());
+                        versions.push(name.to_owned());
                     }
                 }
                 versions.join(", ")
@@ -288,19 +288,19 @@ pub fn describe(
         )
     } else if kernel_modules_dir_old.exists() {
         fs::read_dir(&kernel_modules_dir_old).map_or_else(
-            |_| "Unknown".to_string(),
+            |_| "Unknown".to_owned(),
             |entries| {
                 let mut versions = Vec::with_capacity(4);
                 for entry in entries.filter_map(std::result::Result::ok) {
                     if let Some(name) = entry.file_name().to_str() {
-                        versions.push(name.to_string());
+                        versions.push(name.to_owned());
                     }
                 }
                 versions.join(", ")
             },
         )
     } else {
-        "Unknown".to_string()
+        "Unknown".to_owned()
     };
 
     let configuration_revision = {
@@ -312,7 +312,7 @@ pub fn describe(
                 .output()
                 .ok()
                 .and_then(|output| String::from_utf8(output.stdout).ok())
-                .map(|s| s.trim().to_string())
+                .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty())
         } else {
             None
@@ -421,7 +421,7 @@ pub fn print_info(
         // This can happen if a previous switch failed during activation
         let fallback_version =
             fs::read_to_string("/run/current-system/nixos-version")
-                .unwrap_or_else(|_| "unknown".to_string());
+                .unwrap_or_else(|_| "unknown".to_owned());
         warn!(
             "Profile is out of sync with /run/current-system. This may happen if a \
        previous switch failed during activation."
@@ -496,7 +496,7 @@ pub fn print_info(
         let formatted_date = parsed_dates
             .get(&generation.date)
             .cloned()
-            .unwrap_or_else(|| "Unknown".to_string());
+            .unwrap_or_else(|| "Unknown".to_owned());
 
         let specialisations =
             generation.specialisations.as_ref().map(|specs| {

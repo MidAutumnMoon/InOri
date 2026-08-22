@@ -215,7 +215,7 @@ fn resolve_or_default_ignores_registry_and_url_refs() {
     let config = FlakeConfig::default();
     for reference in ["nixpkgs", "github:NixOS/nixpkgs"] {
         let installable = Installable::Flake {
-            reference: reference.to_string(),
+            reference: reference.to_owned(),
             attribute: vec![],
         };
 

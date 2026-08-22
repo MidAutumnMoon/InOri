@@ -4,7 +4,7 @@ use std::ffi::OsString;
 
 use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser;
+use bpaf::Parser as _;
 
 use crate::applet::RunFailure;
 

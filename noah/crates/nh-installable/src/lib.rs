@@ -303,24 +303,24 @@ fn parse_flake_reference(
 fn parse_attribute_works() {
     assert_eq!(
         parse_attribute("foo.bar"),
-        Ok(vec!["foo".to_string(), "bar".to_string()])
+        Ok(vec!["foo".to_owned(), "bar".to_owned()])
     );
     assert_eq!(
         parse_attribute(r#"foo."bar.baz""#),
-        Ok(vec!["foo".to_string(), "bar.baz".to_string()])
+        Ok(vec!["foo".to_owned(), "bar.baz".to_owned()])
     );
     assert_eq!(
         parse_attribute(r#"foo."bar\"baz"."bar\\baz""#),
         Ok(vec![
-            "foo".to_string(),
-            "bar\"baz".to_string(),
-            "bar\\baz".to_string()
+            "foo".to_owned(),
+            "bar\"baz".to_owned(),
+            "bar\\baz".to_owned()
         ])
     );
     let v: Vec<String> = vec![];
     assert_eq!(parse_attribute(""), Ok(v));
-    assert!(parse_attribute(r#"foo."bar"#).is_err());
-    assert!(parse_attribute(r#"foo."bar\"#).is_err());
+    parse_attribute(r#"foo."bar"#).unwrap_err();
+    parse_attribute(r#"foo."bar\"#).unwrap_err();
 }
 
 impl InstallableArgs {
@@ -446,7 +446,7 @@ impl Installable {
             Self::File { path, attribute } => {
                 if let Some(path_str) = path.to_str() {
                     res.push(String::from("--file"));
-                    res.push(path_str.to_string());
+                    res.push(path_str.to_owned());
                     res.push(join_attribute(attribute));
                 } else {
                     // Return empty args if path contains invalid UTF-8
@@ -463,7 +463,7 @@ impl Installable {
             }
             Self::Store { path } => {
                 if let Some(path_str) = path.to_str() {
-                    res.push(path_str.to_string());
+                    res.push(path_str.to_owned());
                 } else {
                     // Return empty args if path contains invalid UTF-8
                     return Vec::new();
@@ -529,7 +529,7 @@ fn installable_to_args() {
             reference: String::from("w"),
             attribute: ["x", "y.z"]
                 .into_iter()
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect(),
         })
         .to_args(),
@@ -541,7 +541,7 @@ fn installable_to_args() {
             path: PathBuf::from("w"),
             attribute: ["x", "y.z"]
                 .into_iter()
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect(),
         })
         .to_args(),
@@ -759,8 +759,7 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
                             "Resolved path {} contains invalid UTF-8",
                             resolved.display()
                         )
-                    })?
-                    .to_string(),
+                    })?.to_owned(),
                 attribute: vec![],
             })
         }

@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result as AnyResult;
 use anyhow::ensure;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use serdev::Deserialize;
-use tap::Tap;
+use tap::Tap as _;
 use tracing::debug;
 use tracing::trace;
 
@@ -111,8 +111,8 @@ impl Symlink {
 mod test {
 
     use super::*;
-    use serde::de::IntoDeserializer;
-    use tap::Tap;
+    use serde::de::IntoDeserializer as _;
+    use tap::Tap as _;
 
     #[test]
     #[expect(clippy::unwrap_used)]
@@ -145,7 +145,7 @@ mod test {
         } );
         let der = json.into_deserializer();
         let res = Blueprint::deserialize(der);
-        assert!(res.is_err());
+        res.unwrap_err();
     }
 
     #[test]

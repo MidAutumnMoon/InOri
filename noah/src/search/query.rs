@@ -25,7 +25,7 @@ pub fn packages(query: &str, limit: u64) -> Search {
                             "flake_name^0.5",
                             "flake_name.*^0.3",
                         ],
-                        query.to_string(),
+                        query.to_owned(),
                     )
                     .r#type(TextQueryType::CrossFields)
                     .analyzer("whitespace")
@@ -66,7 +66,7 @@ pub fn options(query: &str, limit: u64) -> Search {
                                 "service_packages^3",
                                 "service_packages.*^1.8",
                             ],
-                            query.to_string(),
+                            query.to_owned(),
                         )
                         .r#type(TextQueryType::CrossFields)
                         .analyzer("whitespace")

@@ -134,5 +134,5 @@ fn print_wrapped_field(label: &str, value: &str) {
 }
 
 fn strip_html(html: &str) -> String {
-    HTML_TAG.replace_all(html, "").trim().to_string()
+    HTML_TAG.replace_all(html, "").trim().to_owned()
 }

@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, Write as _};
 
 fn main() {
     if let Err(err) = try_main() {

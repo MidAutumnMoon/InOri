@@ -53,7 +53,7 @@ pub fn update(
                 inputs.join(", ")
             )
         }
-        _ => "Updating all flake inputs".to_string(),
+        _ => "Updating all flake inputs".to_owned(),
     };
 
     info!("{message}");

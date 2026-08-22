@@ -8,14 +8,14 @@ use std::path::PathBuf;
 use crate::blueprint::Blueprint;
 use crate::blueprint::Symlink;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result as AnyResult;
 use anyhow::bail;
 use anyhow::ensure;
-use ino_path::PathExt;
-use itertools::Itertools;
-use rand::RngExt;
-use tap::Tap;
+use ino_path::PathExt as _;
+use itertools::Itertools as _;
+use rand::RngExt as _;
+use tap::Tap as _;
 use tracing::debug;
 use tracing::info;
 use tracing::trace;
@@ -535,7 +535,7 @@ mod test {
 
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
-    use tap::Tap;
+    use tap::Tap as _;
 
     use std::fs::remove_file;
     use std::os::unix::fs::symlink;
@@ -746,7 +746,7 @@ mod test {
         // 1. parent exists and is a dir
         {
             let dst = top.child(make_random_str!());
-            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+            Step::ensure_creatable_topology(dst.path()).unwrap();
         }
 
         // 2. partial chain missing, no obstacle
@@ -755,7 +755,7 @@ mod test {
             let parent = grandparent.child(make_random_str!());
             let dst = parent.child(make_random_str!());
             // parent and grandparent don't exist yet
-            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+            Step::ensure_creatable_topology(dst.path()).unwrap();
         }
 
         // 3. ancestor is a regular file — the bug we're catching
@@ -775,7 +775,7 @@ mod test {
             let link = top.child(make_random_str!());
             symlink(real_dir.path(), link.path()).unwrap();
             let dst = link.child(make_random_str!());
-            assert!(Step::ensure_creatable_topology(dst.path()).is_ok());
+            Step::ensure_creatable_topology(dst.path()).unwrap();
         }
     }
 
@@ -791,7 +791,7 @@ mod test {
         let step = Step::Create { new_symlink: sym };
 
         // 1. create symlink normally
-        assert!(step.clone().execute().is_ok());
+        step.clone().execute().unwrap();
         // TODO structural error
         assert!(
             dst.path().is_symlink()
@@ -799,7 +799,7 @@ mod test {
         );
 
         // 2. Our symlinks (it has been executed once, dst now is to src)
-        assert!(step.execute().is_ok());
+        step.execute().unwrap();
 
         // 3. dst is symlink but not ours
         let sym = make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
@@ -823,7 +823,7 @@ mod test {
             );
             let s = Step::Create { new_symlink: s };
 
-            assert!(s.execute().is_ok());
+            s.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
             assert_eq!(dst.read_link().unwrap(), src.path());
@@ -842,7 +842,7 @@ mod test {
 
         // 1. normal case
         symlink(&src, &dst).unwrap();
-        assert!(step.clone().execute().is_ok());
+        step.clone().execute().unwrap();
         assert!(!dst.try_exists().unwrap());
 
         // 2. Not our symlinks
@@ -854,7 +854,7 @@ mod test {
 
         // 3. dst already deleted
         remove_file(&dst).unwrap();
-        assert!(step.execute().is_ok());
+        step.execute().unwrap();
 
         // 4. clean up the remaining dirs
         {
@@ -887,7 +887,7 @@ mod test {
             );
             let s = Step::Remove { old_symlink: s };
 
-            assert!(s.execute().is_ok());
+            s.execute().unwrap();
 
             // Dir and dir_dir shouldn't be touched because
             // they are not empty
@@ -943,7 +943,7 @@ mod test {
                 old_symlink,
             };
 
-            assert!(s.execute().is_ok());
+            s.execute().unwrap();
             assert_eq!(dst.read_link().unwrap().as_path(), new_src.path());
         }
         // 2. not ours
@@ -1004,7 +1004,7 @@ mod test {
                 old_symlink,
             };
 
-            assert!(s.execute().is_ok());
+            s.execute().unwrap();
             assert!(dir.symlink_metadata().unwrap().is_dir());
         }
         // 4. parent dir doesn't exist (regression for BUGS.md #1)
@@ -1032,7 +1032,7 @@ mod test {
                 old_symlink,
             };
 
-            assert!(s.execute().is_ok());
+            s.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir.symlink_metadata().unwrap().is_dir());
             assert!(

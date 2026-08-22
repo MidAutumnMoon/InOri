@@ -38,16 +38,16 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
         let cmd = iter.next().ok_or("expected command expression")?;
         let literal = iter.next().ok_or("expected string literal")?;
         if iter.next().is_some() {
-            return Err("expected exactly two arguments".to_string());
+            return Err("expected exactly two arguments".to_owned());
         }
         (cmd, literal)
     };
 
     let literal = into_literal(&literal)
-        .ok_or_else(|| "expected a plain string literal".to_string())?;
+        .ok_or_else(|| "expected a plain string literal".to_owned())?;
     let literal_text = literal.to_string();
     if !literal_text.starts_with('"') {
-        return Err("expected a plain string literal".to_string());
+        return Err("expected a plain string literal".to_owned());
     }
 
     let call_site = literal.span();
@@ -62,9 +62,9 @@ fn try_cmd(macro_arg: TokenStream) -> Result<TokenStream> {
         let program = words
             .next()
             .transpose()?
-            .ok_or_else(|| "command can't be empty".to_string())?;
+            .ok_or_else(|| "command can't be empty".to_owned())?;
         if program.splat_name.is_some() {
-            return Err("can't splat program name".to_string());
+            return Err("can't splat program name".to_owned());
         }
         res.extend(Some(cmd));
         res.extend(program.ts);
@@ -148,7 +148,7 @@ fn emit(token: &Token, call_site: Span) -> Result<Fragment> {
                 .unwrap_or(token.text.as_str());
             validate_ident(name)?;
             let ts = respan(parse_ts(&format!("({name})")), call_site);
-            (ts, Some(name.to_string()))
+            (ts, Some(name.to_owned()))
         }
     };
 
@@ -289,7 +289,7 @@ fn strip_outer_quotes(s: &str) -> &str {
 /// underscores). Interpolation targets must be simple variables.
 fn validate_ident(name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err("empty interpolation in command".to_string());
+        return Err("empty interpolation in command".to_owned());
     }
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(format!(

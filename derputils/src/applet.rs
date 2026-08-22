@@ -53,7 +53,7 @@ fn find_applet(name: &str) -> Option<&'static Applet> {
 /// Usage text listing all applets.
 #[must_use]
 pub fn usage() -> String {
-    use std::fmt::Write;
+    use std::fmt::Write as _;
     let mut out =
         format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
     let width = APPLETS.iter().map(|a| a.name.len()).max().unwrap_or(0);

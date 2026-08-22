@@ -20,7 +20,7 @@ use nix::{
 };
 use regex::Regex;
 use rootcause::{
-    Result, bail, option_ext::OptionExt, prelude::ResultExt, report,
+    Result, bail, option_ext::OptionExt as _, prelude::ResultExt as _, report,
 };
 use tracing::{Level, debug, info, instrument, span, warn};
 use walkdir::WalkDir;

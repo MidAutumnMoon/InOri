@@ -64,7 +64,7 @@ fn publish(sh: &Shell) -> Result<()> {
         // Could also just use `CARGO_REGISTRY_TOKEN` environmental variable.
         let token = sh
             .var("CRATES_IO_TOKEN")
-            .unwrap_or("DUMMY_TOKEN".to_string());
+            .unwrap_or("DUMMY_TOKEN".to_owned());
         cmd!(sh, "git tag v{version}").run_echo()?;
         cmd!(
             sh,

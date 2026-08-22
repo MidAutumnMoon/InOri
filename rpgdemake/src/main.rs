@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use tap::Pipe;
+use tap::Pipe as _;
 use tracing::debug;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::ensure;
-use clap::Parser;
+use clap::Parser as _;
 
 mod key;
 mod lore;

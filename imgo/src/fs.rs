@@ -4,10 +4,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::ensure;
-use tap::Pipe;
-use tap::Tap;
+use tap::Pipe as _;
+use tap::Tap as _;
 use tracing::debug;
 use tracing::debug_span;
 use tracing::instrument;
@@ -136,7 +136,7 @@ impl BaseSeqExt {
         Self {
             base: self.base.clone(),
             seq: self.seq,
-            ext: Some(ext.to_string()),
+            ext: Some(ext.to_owned()),
         }
     }
 }
@@ -291,10 +291,10 @@ mod tests {
     #[test]
     fn filename() {
         let f = BaseSeqExt::from_str(".hide");
-        assert!(f.is_err());
+        f.unwrap_err();
 
         let f = BaseSeqExt::from_str("raw");
-        assert!(f.is_err());
+        f.unwrap_err();
 
         let f = BaseSeqExt::from_str("example.123.jpg").unwrap();
         assert_eq!(f.base, "example");

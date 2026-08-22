@@ -30,7 +30,7 @@
 #![expect(clippy::unwrap_used, clippy::indexing_slicing)]
 use std::{
     collections::VecDeque,
-    io::{self, Read, Write},
+    io::{self, Read as _, Write as _},
     process::{Child, ExitStatus, Stdio},
     time::{Duration, Instant},
 };

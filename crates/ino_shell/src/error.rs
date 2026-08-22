@@ -159,7 +159,7 @@ impl fmt::Display for CmdError {
                 )?,
                 #[cfg(unix)]
                 None => {
-                    use std::os::unix::process::ExitStatusExt;
+                    use std::os::unix::process::ExitStatusExt as _;
                     match status.signal() {
                         Some(sig) => {
                             write!(

@@ -1,6 +1,6 @@
 mod is_executable;
 pub use is_executable::IsExecutable;
-use tap::Pipe;
+use tap::Pipe as _;
 
 use std::io;
 use std::io::ErrorKind;

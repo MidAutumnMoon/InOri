@@ -22,7 +22,7 @@ pub fn lookup_executable_in_path(program: &str) -> Vec<PathBuf> {
     let mut accu = Vec::with_capacity(10);
 
     for dir in std::env::split_paths(&env_path) {
-        use ino_path::IsExecutable;
+        use ino_path::IsExecutable as _;
 
         trace!(?dir, "Look into directory");
         let full_path = dir.join(program);

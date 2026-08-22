@@ -53,7 +53,7 @@ mod unix {
     #[test]
     fn unix_test() {
         use std::path::PathBuf;
-        use tap::Pipe;
+        use tap::Pipe as _;
 
         let binsh = Path::new("/bin/sh");
         assert!(binsh.is_executable());

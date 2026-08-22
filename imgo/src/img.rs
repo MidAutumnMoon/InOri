@@ -34,7 +34,7 @@ impl ImageFormat {
     #[inline]
     #[must_use]
     pub fn from_path(path: &impl AsRef<Path>) -> Option<Self> {
-        use strum::IntoEnumIterator;
+        use strum::IntoEnumIterator as _;
         if let Some(ext) = path.as_ref().extension()
             && let Some(ext) = ext.to_str()
         {

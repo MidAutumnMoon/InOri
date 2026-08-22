@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rootcause::{Result, prelude::ResultExt, report};
+use rootcause::{Result, prelude::ResultExt as _, report};
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",

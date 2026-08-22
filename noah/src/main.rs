@@ -6,7 +6,7 @@ use nh::{
 };
 use nh_installable::FlakeConfig;
 use rootcause::Result;
-use rootcause::prelude::ResultExt;
+use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 mod interface;

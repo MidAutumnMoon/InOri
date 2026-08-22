@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::ensure;
 
 use tracing::debug;
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn from_hex_invalid() {
-        assert!(Key::from_hex(KEY_STR_INVALID).is_err());
+        Key::from_hex(KEY_STR_INVALID).unwrap_err();
     }
 
     #[test]

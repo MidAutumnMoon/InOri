@@ -6,7 +6,7 @@ use crate::{
     },
     progress::{self, Spinner},
 };
-use rootcause::{Result, prelude::ResultExt};
+use rootcause::{Result, prelude::ResultExt as _};
 use subprocess::Exec;
 use tracing::{debug, error, info};
 
@@ -31,8 +31,8 @@ impl CopyDirection<'_> {
         match self {
             Self::FromRemote(host) => {
                 vec![
-                    "--no-check-sigs".to_string(),
-                    "--from".to_string(),
+                    "--no-check-sigs".to_owned(),
+                    "--from".to_owned(),
                     store_uri(host),
                 ]
             }
@@ -41,8 +41,8 @@ impl CopyDirection<'_> {
                 use_substitutes,
             } => {
                 let mut args = vec![
-                    "--no-check-sigs".to_string(),
-                    "--to".to_string(),
+                    "--no-check-sigs".to_owned(),
+                    "--to".to_owned(),
                     store_uri(host),
                 ];
                 push_substitute_on_destination(&mut args, use_substitutes);
@@ -54,10 +54,10 @@ impl CopyDirection<'_> {
                 use_substitutes,
             } => {
                 let mut args = vec![
-                    "--no-check-sigs".to_string(),
-                    "--from".to_string(),
+                    "--no-check-sigs".to_owned(),
+                    "--from".to_owned(),
                     store_uri(from_host),
-                    "--to".to_string(),
+                    "--to".to_owned(),
                     store_uri(to_host),
                 ];
                 push_substitute_on_destination(&mut args, use_substitutes);
@@ -72,7 +72,7 @@ fn push_substitute_on_destination(
     use_substitutes: bool,
 ) {
     if use_substitutes {
-        args.push("--substitute-on-destination".to_string());
+        args.push("--substitute-on-destination".to_owned());
     }
 }
 

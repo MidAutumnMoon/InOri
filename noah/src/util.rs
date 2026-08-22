@@ -1,9 +1,9 @@
 use std::{
-    os::unix::process::CommandExt,
+    os::unix::process::CommandExt as _,
     process::{Command as StdCommand, Stdio},
 };
 
-use rootcause::{Result, prelude::ResultExt, report};
+use rootcause::{Result, prelude::ResultExt as _, report};
 use tracing::debug;
 
 use crate::{

@@ -9,7 +9,7 @@ pub fn init_tracing_subscriber() {
 
     use tracing_subscriber::{fmt, registry};
 
-    use std::io::IsTerminal;
+    use std::io::IsTerminal as _;
 
     let output = std::io::stderr;
 

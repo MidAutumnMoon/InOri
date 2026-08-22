@@ -17,7 +17,7 @@ use crate::{
     util::{ensure_ssh_key_login, get_hostname},
 };
 use nh_installable::{FlakeConfig, Installable};
-use rootcause::{Result, bail, prelude::ResultExt, report};
+use rootcause::{Result, bail, prelude::ResultExt as _, report};
 use tracing::{debug, info, warn};
 
 use crate::nixos::{
@@ -1006,7 +1006,7 @@ fn validate_system_closure_remote(
     // Build context string for error messages
     let context = build_host.map(|build| {
         if build.hostname() == target_host.hostname() {
-            "also build host".to_string()
+            "also build host".to_owned()
         } else {
             format!("built on '{build}'")
         }

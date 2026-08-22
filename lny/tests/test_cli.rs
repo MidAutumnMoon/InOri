@@ -3,9 +3,9 @@
 
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
-use ino_path::PathExt;
-use rand::RngExt;
-use tap::Tap;
+use ino_path::PathExt as _;
+use rand::RngExt as _;
+use tap::Tap as _;
 
 const VERSION: usize = 1;
 

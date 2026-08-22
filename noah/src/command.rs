@@ -9,7 +9,7 @@ use std::{
 
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
-use rootcause::{Result, bail, prelude::ResultExt, report};
+use rootcause::{Result, bail, prelude::ResultExt as _, report};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -379,7 +379,7 @@ impl<'env> Command<'env> {
     /// Set a message to display before running the command.
     #[must_use]
     pub fn message(mut self, message: impl AsRef<str>) -> Self {
-        self.message = Some(message.as_ref().to_string());
+        self.message = Some(message.as_ref().to_owned());
         self
     }
 
@@ -572,7 +572,7 @@ impl<'env> Command<'env> {
         let msg = self
             .message
             .clone()
-            .unwrap_or_else(|| "Command failed".to_string());
+            .unwrap_or_else(|| "Command failed".to_owned());
 
         if self.show_output {
             let exit_status = cmd.join().context(msg.clone())?;
@@ -627,7 +627,7 @@ impl Build {
 
     #[must_use]
     pub fn message(mut self, message: impl AsRef<str>) -> Self {
-        self.message = Some(message.as_ref().to_string());
+        self.message = Some(message.as_ref().to_owned());
         self
     }
 

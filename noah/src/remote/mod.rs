@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::OsString,
-    io::Read,
+    io::Read as _,
     path::{Path, PathBuf},
     sync::{
         Arc, LazyLock, Mutex, OnceLock,
@@ -15,8 +15,8 @@ use crate::{
     runtime::RuntimeEnv,
 };
 use nh_installable::Installable;
-use rootcause::{Report, Result, bail, prelude::ResultExt, report};
-use secrecy::{ExposeSecret, SecretString};
+use rootcause::{Report, Result, bail, prelude::ResultExt as _, report};
+use secrecy::{ExposeSecret as _, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, info, warn};
 
@@ -137,7 +137,7 @@ fn build_remote_command(
 ) -> Result<String> {
     if let Some(strategy) = strategy {
         if matches!(strategy, ElevationStrategy::None) {
-            return Ok(base_cmd.to_string());
+            return Ok(base_cmd.to_owned());
         }
 
         let program = strategy.resolve(runtime_env)?;
@@ -215,7 +215,7 @@ fn build_remote_command(
             }
         }
     } else {
-        Ok(base_cmd.to_string())
+        Ok(base_cmd.to_owned())
     }
 }
 
@@ -247,7 +247,7 @@ fn nixos_activation_command(
     let mut parts = Vec::new();
 
     if install_bootloader {
-        parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
+        parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_owned());
     }
 
     if let Some(no_check) = &ssh_config.nixos_no_check {
@@ -623,7 +623,7 @@ impl RemoteHost {
         }
 
         Ok(Self {
-            host: host.to_string(),
+            host: host.to_owned(),
             store_scheme,
         })
     }
@@ -693,12 +693,12 @@ fn get_default_ssh_opts(config: &SshConfig) -> Vec<String> {
     let control_path = config.control_dir.join("ssh-%n");
 
     vec![
-        "-o".to_string(),
-        "ControlMaster=auto".to_string(),
-        "-o".to_string(),
+        "-o".to_owned(),
+        "ControlMaster=auto".to_owned(),
+        "-o".to_owned(),
         format!("ControlPath={}", control_path.display()),
-        "-o".to_string(),
-        "ControlPersist=60".to_string(),
+        "-o".to_owned(),
+        "ControlPersist=60".to_owned(),
     ]
 }
 
@@ -933,7 +933,7 @@ fn run_remote_command(
     }
 
     if capture_stdout {
-        Ok(Some(capture.stdout_str().trim().to_string()))
+        Ok(Some(capture.stdout_str().trim().to_owned()))
     } else {
         Ok(None)
     }
@@ -1379,7 +1379,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
             attribute,
         } => {
             let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_string());
+            drv_attr.push("drvPath".to_owned());
             Installable::Flake {
                 reference: reference.clone(),
                 attribute: drv_attr,
@@ -1387,7 +1387,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
         }
         Installable::File { path, attribute } => {
             let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_string());
+            drv_attr.push("drvPath".to_owned());
             Installable::File {
                 path: path.clone(),
                 attribute: drv_attr,
@@ -1398,7 +1398,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
             attribute,
         } => {
             let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_string());
+            drv_attr.push("drvPath".to_owned());
             Installable::Expression {
                 expression: expression.clone(),
                 attribute: drv_attr,
@@ -1433,7 +1433,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
         );
     }
 
-    let drv_path = PathBuf::from(capture.stdout_str().trim().to_string());
+    let drv_path = PathBuf::from(capture.stdout_str().trim().to_owned());
     if !drv_path.is_file() {
         bail!(
             "nix eval returned invalid derivation path: {}",
@@ -1749,8 +1749,7 @@ fn build_on_remote_simple(
         .lines()
         .next()
         .ok_or_else(|| report!("Remote build returned empty output"))?
-        .trim()
-        .to_string();
+        .trim().to_owned();
 
     debug!("Remote build output: {}", out_path);
     Ok(out_path)
@@ -1880,8 +1879,7 @@ fn build_on_remote_with_nom(
         .lines()
         .next()
         .ok_or_else(|| report!("Output path query returned empty"))?
-        .trim()
-        .to_string();
+        .trim().to_owned();
 
     debug!("Remote build output: {}", out_path);
     Ok(out_path)
@@ -2001,17 +1999,17 @@ mod tests {
 
     #[test]
     fn parse_empty_fails() {
-        assert!(RemoteHost::parse("").is_err());
+        RemoteHost::parse("").unwrap_err();
     }
 
     #[test]
     fn parse_empty_user_fails() {
-        assert!(RemoteHost::parse("@hostname").is_err());
+        RemoteHost::parse("@hostname").unwrap_err();
     }
 
     #[test]
     fn parse_empty_hostname_fails() {
-        assert!(RemoteHost::parse("user@").is_err());
+        RemoteHost::parse("user@").unwrap_err();
     }
 
     #[test]
@@ -2099,28 +2097,28 @@ mod tests {
 
     #[test]
     fn parse_ipv6_mismatched_brackets_rejected() {
-        assert!(RemoteHost::parse("[2001:db8::1").is_err());
-        assert!(RemoteHost::parse("2001:db8::1]").is_err());
+        RemoteHost::parse("[2001:db8::1").unwrap_err();
+        RemoteHost::parse("2001:db8::1]").unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_extra_brackets_rejected() {
-        assert!(RemoteHost::parse("[[2001:db8::1]]").is_err());
-        assert!(RemoteHost::parse("[2001:db8::[1]]").is_err());
+        RemoteHost::parse("[[2001:db8::1]]").unwrap_err();
+        RemoteHost::parse("[2001:db8::[1]]").unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_with_port_rejected() {
         // IPv6 with port syntax should be rejected (use NIX_SSHOPTS)
         let result = RemoteHost::parse("[2001:db8::1]:22");
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
     fn parse_ipv6_chars_after_bracket_rejected() {
         // Characters after closing bracket should be rejected
         let result = RemoteHost::parse("[2001:db8::1]extra");
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]

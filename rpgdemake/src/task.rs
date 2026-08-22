@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::ensure;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;

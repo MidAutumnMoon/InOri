@@ -14,10 +14,10 @@ use std::str::FromStr;
 
 use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser;
+use bpaf::Parser as _;
 use bpaf::construct;
 use bpaf::positional;
-use rootcause::prelude::ResultExt;
+use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 use crate::APPLETS;
@@ -188,6 +188,6 @@ mod test {
         assert_eq!(Shell::from_str("zsh").unwrap(), Shell::Zsh);
         assert_eq!(Shell::from_str("fish").unwrap(), Shell::Fish);
         assert_eq!(Shell::from_str("elvish").unwrap(), Shell::Elvish);
-        assert!(Shell::from_str("nope").is_err());
+        Shell::from_str("nope").unwrap_err();
     }
 }

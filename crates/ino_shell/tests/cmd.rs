@@ -72,7 +72,7 @@ fn program_concatenation() {
 fn interpolation_move() {
     let sh = setup();
 
-    let hello = "hello".to_string();
+    let hello = "hello".to_owned();
     let output1 = cmd!(sh, "xecho {hello}").read().unwrap();
     let output2 = cmd!(sh, "xecho {hello}").read().unwrap();
     assert_eq!(output1, output2);
@@ -85,7 +85,7 @@ fn interpolation_splat() {
     // Splat of slice, empty slice, and owned strings.
     let a = &["hello", "world"];
     let b: &[&OsStr] = &[];
-    let c = &["!".to_string()];
+    let c = &["!".to_owned()];
     let output = cmd!(sh, "xecho {a...} {b...} {c...}").read().unwrap();
     assert_eq!(output, "hello world !");
 

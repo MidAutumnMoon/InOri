@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::bail;
 use anyhow::ensure;
 use indicatif::ProgressBar;

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 use std::thread::available_parallelism;
 
-use tap::Pipe;
+use tap::Pipe as _;
 
 use crate::External;
 use crate::ImageFormat;

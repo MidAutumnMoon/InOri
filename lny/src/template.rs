@@ -3,13 +3,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result as AnyResult;
 use anyhow::ensure;
-use ino_path::PathExt;
+use ino_path::PathExt as _;
 use minijinja::Environment;
 use serde::Deserialize;
-use tap::Tap;
+use tap::Tap as _;
 
 use tracing::debug;
 use tracing::trace;
@@ -70,7 +70,7 @@ impl ContextOfTemplate {
     // most dirs, so failures here are rare in practice.
     #[tracing::instrument(name = "template_context_new")]
     pub fn new() -> AnyResult<Self> {
-        use etcetera::BaseStrategy;
+        use etcetera::BaseStrategy as _;
         use etcetera::choose_base_strategy;
 
         debug!("Initialize context for template");
@@ -112,7 +112,7 @@ impl RenderedPath {
     #[tracing::instrument(skip_all)]
     #[cfg(test)]
     pub fn from_unrendered(input: &str) -> AnyResult<Self> {
-        use serde::de::IntoDeserializer;
+        use serde::de::IntoDeserializer as _;
         use serde::de::value::Error as DeError;
         use serde::de::value::StrDeserializer;
         let der: StrDeserializer<DeError> = input.into_deserializer();
@@ -190,12 +190,12 @@ mod test {
         for t in tmpls_to_ok {
             let p = RenderedPath::from_unrendered(t);
             trace!(?p);
-            assert!(p.is_ok());
+            p.unwrap();
         }
         for t in tmpls_to_err {
             let p = RenderedPath::from_unrendered(t);
             trace!(?p);
-            assert!(p.is_err());
+            p.unwrap_err();
         }
     }
 }

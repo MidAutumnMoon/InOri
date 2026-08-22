@@ -5,9 +5,9 @@ mod template;
 use crate::blueprint::Blueprint;
 use crate::step::StepQueue;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use anyhow::Result as AnyResult;
-use tap::Tap;
+use tap::Tap as _;
 use tracing::debug;
 use tracing::info;
 use tracing::trace;

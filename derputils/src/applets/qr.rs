@@ -6,12 +6,12 @@ use std::path::PathBuf;
 
 use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser;
+use bpaf::Parser as _;
 use bpaf::construct;
 use bpaf::short;
 use ino_shell::Shell;
 use ino_shell::cmd;
-use rootcause::prelude::ResultExt;
+use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 use crate::applet::RunFailure;

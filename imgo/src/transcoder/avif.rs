@@ -1,4 +1,4 @@
-use tap::Pipe;
+use tap::Pipe as _;
 
 use crate::External;
 use crate::ImageFormat;
