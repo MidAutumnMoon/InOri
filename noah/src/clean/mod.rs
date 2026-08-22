@@ -450,6 +450,11 @@ impl args::CleanMode {
             }
             println!();
         }
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Don't care about the ordering"
+        )]
         for (profile, generations_tagged) in &profiles_tagged {
             println!(
                 "{}",
@@ -495,6 +500,10 @@ impl args::CleanMode {
                 remove_path_nofail(path);
             }
 
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Don't care about the ordering"
+            )]
             for generations_tagged in profiles_tagged.values() {
                 for (generation, tbr) in generations_tagged.iter().rev() {
                     if *tbr {
