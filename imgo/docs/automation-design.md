@@ -1,5 +1,8 @@
 # imgo automation workflow
 
+For parameter-selection lessons and measurement practice, see
+[tuning-experience.md](tuning-experience.md).
+
 ## Goal
 
 `imgo` minimizes downloaded manga, doujinshi, and illustrations without applying one destructive filter to every page.
