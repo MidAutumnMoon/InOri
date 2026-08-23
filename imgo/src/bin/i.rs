@@ -22,6 +22,9 @@ use tracing::warn;
 /// Content-aware image planning, review, and batch conversion.
 #[derive(Debug, clap::Parser)]
 #[command(disable_help_subcommand = true)]
+// clap creates an implicit ArgGroup for both struct variants and `Args`
+// structs. Every options struct used here disables that group; otherwise
+// same-named pairs such as `CleanScan` collide. The schema test guards this.
 enum CliOpts {
     /// Analyze a directory, group similar images, and write a reviewable plan.
     Plan(PlanOpts),
@@ -143,5 +146,17 @@ fn main() -> anyhow::Result<()> {
             );
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory as _;
+
+    use super::*;
+
+    #[test]
+    fn command_schema_has_no_argument_collisions() {
+        CliOpts::command().debug_assert();
     }
 }

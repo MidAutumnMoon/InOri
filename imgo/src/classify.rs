@@ -23,6 +23,19 @@ const GRAY_TEXTURE_TILE_PERCENT: f64 = 20.0;
 const SMALL_EDGE_LIMIT: u32 = 1800;
 const MEDIUM_EDGE_LIMIT: u32 = 3000;
 
+const CLEAN_SCAN_WHITE_CUTOFF: usize = 140;
+const THRESHOLD_STABILITY_MIN: usize = 115;
+const THRESHOLD_STABILITY_MAX: usize = 165;
+const SMOOTH_MIDTONE_MIN: u8 = 32;
+const SMOOTH_MIDTONE_MAX: u8 = 223;
+const SMOOTH_MIDTONE_GRADIENT_MAX: u16 = 6;
+const SMOOTH_MIDTONE_LAPLACIAN_MAX: u32 = 12;
+
+const THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT: f64 = 68.0;
+const THRESHOLD_STABLE_MAX_BAND_PERCENT: f64 = 5.0;
+const THRESHOLD_STABLE_MAX_BINARY_ERROR: f64 = 16.0;
+const THRESHOLD_STABLE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 1.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ImageFeatures {
     pub width: u32,
@@ -35,6 +48,9 @@ pub struct ImageFeatures {
     pub detail_percent: f64,
     pub soft_noise_percent: f64,
     pub max_tile_soft_noise_percent: f64,
+    pub threshold_stability_percent: f64,
+    pub binary_error_mean: f64,
+    pub smooth_midtone_percent: f64,
 }
 
 impl ImageFeatures {
@@ -75,10 +91,17 @@ pub enum ScaleClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BinarizationClass {
+    General,
+    ThresholdStable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GroupKey {
     pub palette: PaletteClass,
     pub texture: TextureClass,
     pub scale: ScaleClass,
+    pub binarization: BinarizationClass,
 }
 
 impl GroupKey {
@@ -121,10 +144,26 @@ impl GroupKey {
             SMALL_EDGE_LIMIT..MEDIUM_EDGE_LIMIT => ScaleClass::Medium,
             _ => ScaleClass::Large,
         };
+        let binarization = if palette == PaletteClass::Gray
+            && scale != ScaleClass::Small
+            && features.near_bw_percent
+                >= THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT
+            && features.threshold_stability_percent
+                <= THRESHOLD_STABLE_MAX_BAND_PERCENT
+            && features.binary_error_mean
+                <= THRESHOLD_STABLE_MAX_BINARY_ERROR
+            && features.smooth_midtone_percent
+                <= THRESHOLD_STABLE_MAX_SMOOTH_MIDTONE_PERCENT
+        {
+            BinarizationClass::ThresholdStable
+        } else {
+            BinarizationClass::General
+        };
         Self {
             palette,
             texture,
             scale,
+            binarization,
         }
     }
 
@@ -150,7 +189,11 @@ impl fmt::Display for GroupKey {
             ScaleClass::Medium => "medium",
             ScaleClass::Large => "large",
         };
-        write!(f, "{palette}-{texture}-{scale}")
+        write!(f, "{palette}-{texture}-{scale}")?;
+        if self.binarization == BinarizationClass::ThresholdStable {
+            f.write_str("-threshold-stable")?;
+        }
+        Ok(())
     }
 }
 
@@ -209,6 +252,7 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     let mut local_samples = 0_u32;
     let mut detail = 0_u32;
     let mut soft_noise = 0_u32;
+    let mut smooth_midtone = 0_u32;
     let mut tile_soft = [0_u32; TILE_TOTAL];
     let mut tile_samples = [0_u32; TILE_TOTAL];
     for y in (0..height).step_by(stride) {
@@ -241,6 +285,13 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
             if is_soft_noise {
                 soft_noise += 1;
             }
+            if center > SMOOTH_MIDTONE_MIN
+                && center < SMOOTH_MIDTONE_MAX
+                && gradient <= SMOOTH_MIDTONE_GRADIENT_MAX
+                && laplacian <= SMOOTH_MIDTONE_LAPLACIAN_MAX
+            {
+                smooth_midtone += 1;
+            }
             local_samples += 1;
 
             let tile_x = x
@@ -265,13 +316,29 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     let local_f64 = f64::from(local_samples.max(1));
     let mut entropy = 0.0;
     let mut levels = 0_u16;
-    for count in histogram {
+    let mut threshold_stability_pixels = 0_u64;
+    let mut binary_error_sum = 0.0;
+    for (level, count) in histogram.iter().copied().enumerate() {
         if count == 0 {
             continue;
         }
         levels += 1;
-        let probability = count_as_f64(count) / total_f64;
+        let count_f64 = count_as_f64(count);
+        let probability = count_f64 / total_f64;
         entropy -= probability * probability.log2();
+        if (THRESHOLD_STABILITY_MIN..=THRESHOLD_STABILITY_MAX)
+            .contains(&level)
+        {
+            threshold_stability_pixels += count;
+        }
+        let binary_error = if level >= CLEAN_SCAN_WHITE_CUTOFF {
+            255 - level
+        } else {
+            level
+        };
+        binary_error_sum +=
+            f64::from(u32::try_from(binary_error).unwrap_or_default())
+                * count_f64;
     }
     let exact_bilevel = total_pixels > 0
         && colorful_pixels == 0
@@ -297,6 +364,13 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         detail_percent: f64::from(detail) * 100.0 / local_f64,
         soft_noise_percent: f64::from(soft_noise) * 100.0 / local_f64,
         max_tile_soft_noise_percent,
+        threshold_stability_percent: count_as_f64(
+            threshold_stability_pixels,
+        ) * 100.0
+            / total_f64,
+        binary_error_mean: binary_error_sum / total_f64,
+        smooth_midtone_percent: f64::from(smooth_midtone) * 100.0
+            / local_f64,
     }
 }
 
@@ -456,6 +530,38 @@ mod tests {
             GroupKey::from_features(analyze_rgba(&image)).palette,
             PaletteClass::Color
         );
+    }
+
+    #[test]
+    fn threshold_stability_separates_scan_noise_from_smooth_grayscale() {
+        let degraded = RgbaImage::from_fn(1800, 20, |x, _| {
+            let value = if x % 20 == 0 {
+                10
+            } else if x % 2 == 0 {
+                0
+            } else {
+                255
+            };
+            Rgba([value, value, value, 255])
+        });
+        let degraded_key =
+            GroupKey::from_features(analyze_rgba(&degraded));
+        assert_eq!(
+            degraded_key.binarization,
+            BinarizationClass::ThresholdStable
+        );
+
+        let smooth_gray = RgbaImage::from_fn(1800, 20, |x, _| {
+            let value = match x {
+                0..720 => 0,
+                720..1440 => 255,
+                _ => 128,
+            };
+            Rgba([value, value, value, 255])
+        });
+        let smooth_key =
+            GroupKey::from_features(analyze_rgba(&smooth_gray));
+        assert_eq!(smooth_key.binarization, BinarizationClass::General);
     }
 
     #[test]

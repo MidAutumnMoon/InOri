@@ -54,6 +54,7 @@ impl Chroma {
 /// controls and made content-dependent grain synthesis unconditional.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(clap::Args, Serialize, Deserialize)]
+#[group(skip)]
 #[serde(default, deny_unknown_fields)]
 pub struct Avif {
     /// libavif color quality in 0..=100. At 100 quantization is lossless;
@@ -141,6 +142,7 @@ impl Operation for Avif {
         // ICC profile cannot be discarded safely without first converting it.
         command.arg("--ignore-exif");
         command.arg("--ignore-xmp");
+        command.arg("--ignore-icc");
         if self.grain {
             // In libaom all-intra mode, a positive value acts as the switch for
             // automatic source-noise estimation; the numeric magnitude is not

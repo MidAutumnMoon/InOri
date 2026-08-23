@@ -35,6 +35,7 @@ pub enum Mode {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[derive(clap::Args, Serialize, Deserialize)]
+#[group(skip)]
 #[serde(default, deny_unknown_fields)]
 pub struct Denoise {
     #[arg(long, short, value_enum, default_value_t = Self::default().mode)]
@@ -123,10 +124,15 @@ impl Operation for Denoise {
 /// Convert degraded near-bilevel pages to crisp one-bit grayscale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(clap::Args, Serialize, Deserialize)]
+#[group(skip)]
 #[serde(default, deny_unknown_fields)]
 pub struct CleanScan {
-    /// Fixed global threshold percentage. Ignored when `--otsu` is set.
-    #[arg(long, default_value_t = Self::default().threshold)]
+    /// Fixed global threshold percentage. Cannot be supplied with `--otsu`.
+    #[arg(
+        long,
+        default_value_t = Self::default().threshold,
+        conflicts_with = "otsu"
+    )]
     pub threshold: u8,
 
     /// Select a global threshold from the image histogram.

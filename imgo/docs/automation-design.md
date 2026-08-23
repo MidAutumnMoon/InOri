@@ -66,21 +66,35 @@ This deliberately does **not** treat JPEG extension or 8-pixel block-boundary en
 ### Automatic choices
 
 - An image containing only decoded black/white grayscale values selects mathematically lossless JPEG XL directly.
+- Threshold-stable medium/large grayscale pages select `clean-scan-jxl`.
 - Other grayscale images select direct monochrome AVIF.
 - Color images select direct AVIF with automatic chroma sampling.
 - Larger canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
 
-### Review-only alternatives
+### Destructive candidates
 
-These are generated but never selected automatically:
+`clean-scan-jxl` is selected only when each page independently has:
 
-- fixed-threshold one-bit conversion followed by lossless JXL;
+- at least 68% near-black/white pixels;
+- mean error to its thresholded binary value at most 16/255;
+- at most 5% of pixels in the threshold-sensitive 45–65% luminance band;
+- at most 1% locally smooth midtone pixels;
+- a longest edge of at least 1800 pixels.
+
+This separates the noisy but threshold-stable scan references from clean pages
+with meaningful smooth grayscale. The strong class gets its own group, so one
+page cannot make an averaged mixed group destructive. It still has
+`review_required = true`, and direct AVIF remains a candidate.
+
+Other destructive operations remain unselected candidates:
+
 - bilateral or light adaptive denoise followed by AVIF;
 - despeckle for broad pencil-like grayscale texture;
 - AOM denoise/grain synthesis for densely textured color images;
 - lower-quality and, for color, 4:2:0 compact AVIF variants.
 
-Sharp clean screentone and degraded near-bilevel scans can have nearly identical histograms. Thresholding either one automatically would be unsafe. The representative preview makes that ambiguity visible without requiring inspection of every page.
+Near-black/white percentage or histogram shape alone is insufficient: sharp
+clean screentone and degraded scans overlap on both.
 
 ## Encoder policy
 

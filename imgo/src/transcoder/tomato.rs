@@ -13,7 +13,7 @@ use crate::transcoder::Pixel;
 /// permutation. Output is always PNG (lossless).
 #[derive(Debug)]
 #[derive(clap::Args)]
-#[group(id = "TomatoTranscoder")]
+#[group(skip)]
 pub struct Tomato {
     /// Scramble (obfuscate) the image. Exactly one of `--encrypt` /
     /// `--decrypt` must be given.

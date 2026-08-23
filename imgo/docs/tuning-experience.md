@@ -312,27 +312,35 @@ Current 8-bit feature rules include:
 - an image is color when at least 1% of pixels are chromatic;
 - exact bilevel means no chromatic pixels and only grayscale values 0 and 255;
 - sampled “soft noise” uses Laplacian magnitude 4–20 with local gradient at most 24;
+- sampled smooth midtones use luminance 33–222, gradient at most 6, and Laplacian at most 12;
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
 - scale buckets use longest edges below 1800, below 3000, and 3000 or above;
-- near-bilevel grayscale gets a clean-scan alternative at group average 68%; it is never auto-selected.
+- near-bilevel grayscale gets a clean-scan candidate at 68%;
+- `clean-scan-jxl` is selected only for medium/large pages whose mean binary error is at most 16/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
 
-Palette/color facts scan the full image. Only local edge/texture analysis samples at most two million coordinates and divides each image into an 8×8 tile grid. Tiny localized defects can still be diluted. Group averages and a medoid representative can also hide one exceptional page.
+Palette/color and threshold-band facts scan the full image. Local
+edge/texture analysis samples at most two million coordinates and divides each
+image into an 8×8 tile grid. Threshold-stable pages get a distinct group before
+group metrics are averaged, preventing one damaged page from routing clean
+grayscale neighbors destructively. Tiny localized defects can still be diluted.
 
 When tuning routing thresholds, measure two costs:
 
-- false positive: extra preview work;
-- false negative: a useful alternative is not offered.
+- false positive on a review-only candidate: extra preview work;
+- false negative: a useful candidate is not offered;
+- false positive on an automatically selected destructive recipe: damaged output.
 
-Because destructive alternatives remain unselected, routing may favor recall slightly. Do not let that create dozens of nearly identical groups, which simply recreates the original manual labor.
-
-Never promote a destructive action from blockiness, entropy, file extension, or near-bilevel percentage alone. Clean sharp screentone and damaged scans overlap on all of those signals.
+Review-only routing may favor recall slightly. Automatic destructive routing
+must favor precision and require independent signals. Never promote from
+blockiness, entropy, extension, or near-black/white percentage alone: clean
+sharp screentone and damaged scans overlap on all of them.
 
 ## Checklist for a new or changed preset
 
 1. State the target content and an explicit anti-target.
 2. Decide whether the change is encoder-only, preprocessing, or both.
-3. Add it as an unselected alternative first if it can erase information.
+3. Add it as an unselected candidate first; promote it only after independent signals separate the target from its anti-target.
 4. Freeze representative and worst-case inputs.
 5. Sweep one parameter around a control.
 6. Record exact commands, versions, bytes, bpp, time, native metric, view metric, and visual notes.

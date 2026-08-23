@@ -15,12 +15,17 @@ use crate::transcoder::run_command;
 /// Mathematically lossless JPEG XL encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(clap::Args, Serialize, Deserialize)]
+#[group(skip)]
 #[serde(default, deny_unknown_fields)]
 pub struct Jxl {
     /// Try two lossless modular strategies and retain the smaller output. This
     /// costs an extra encode but avoids content-specific expert settings
     /// making some bilevel pages larger.
-    #[arg(long = "no-optimize", action = clap::ArgAction::SetFalse)]
+    #[arg(
+        long = "no-optimize",
+        action = clap::ArgAction::SetFalse,
+        help = "Skip the second expert lossless strategy and use effort 9 only"
+    )]
     pub optimize: bool,
 }
 

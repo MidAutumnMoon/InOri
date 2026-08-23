@@ -36,6 +36,7 @@ use crate::transcoder::Pixel;
 
 /// Shared CLI options for direct, single-recipe commands.
 #[derive(clap::Args, Debug)]
+#[group(skip)]
 pub struct SharedOpts {
     /// Starting point for discovery and the `.backup` tree. Defaults to PWD.
     #[arg(long, short = 'W')]
