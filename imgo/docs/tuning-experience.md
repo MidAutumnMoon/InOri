@@ -271,6 +271,67 @@ Under the current AVIF recipe, this mode did not improve the stylized-noise samp
 
 `-despeckle` has no numeric parameter. `imgo` rejects a `strength` value in this mode rather than silently ignoring it. Repeating the operation would create a stronger, different preset, so repetition count must be treated as a parameter. On the stylized-noise reference it saved about 8% but visibly altered texture and reduced the reference metric. It remains review-only.
 
+### Noise/sand tone: mean-shift
+
+Clip Studio calls this intentional manga texture `砂目ノイズトーン`
+(noise/sand tone) and exposes it as tone type `ノイズ`. It behaves like
+spatially varying stochastic dithering: local dot density represents gray, so
+AVIF sees expensive unpredictable high-frequency detail rather than a smooth
+tone. See [Clip Studio's tone guide](https://tips.clip-studio.com/en-us/articles/9181).
+
+The project policy explicitly values storage and preservation of the main
+subject over this styling. A high-confidence noise-tone group therefore
+selects destructive preprocessing by default:
+
+```text
+-mean-shift 5x5+15%
+AVIF quality = normal scale quality
+AVIF speed = 2
+AVIF depth = 10
+```
+
+ImageMagick mean-shift performs iterative spatial/color clustering. Unlike a
+Gaussian blur, it simplified one-pixel noise tone while keeping panel borders,
+text, hair, and other large edges sharp in the measured crops.
+
+The generated candidate set is:
+
+| Role | Mean-shift | Purpose |
+|---|---|---|
+| selected | `5x5+15%` | measured storage/focus balance |
+| mild | `3x3+10%` | retain more tone texture |
+| aggressive | `5x5+20%` | remove more styling |
+| fallback | none, AVIF speed 5 | preserve the source style |
+
+On the 1980x1572 reference at quality 65:
+
+| Recipe | Bytes | Saving | Native score | 1200px score |
+|---|---:|---:|---:|---:|
+| direct, speed 5 | 243,236 | — | 87.91 | 92.10 |
+| direct, speed 2 | 227,227 | 6.6% | 87.73 | 91.96 |
+| mild, speed 2 | 206,617 | 15.1% | 82.49 | 89.60 |
+| selected, speed 2 | 181,239 | 25.5% | 70.22 | 81.90 |
+| aggressive, speed 2 | 173,046 | 28.9% | 65.14 | 79.08 |
+
+Across the three references, the selected preset saved 10–29% versus direct
+speed-5 AVIF. Speed 2 alone saved 6.6% on the full page at about six times the
+encode time; speed 0 bought only another 0.7% while taking 2.4 times as long as
+speed 2. Speed 2 is scoped to noise-tone recipes rather than changing every
+AVIF route.
+
+Twelve-bit output saved another 2–3% in this corpus, but remains manual because
+decoder compatibility is a separate policy. AOM grain synthesis saved less
+than 0.2%; bilateral blur preserved the costly dots; adaptive blur increased
+size; wavelet/Kuwahara/G'MIC denoise were dominated; lossy JPEG XL was much
+larger at comparable or worse quality.
+
+This classification is heuristic, not proof of authoring intent. It requires
+grayscale texture, entropy at least 4.5, near-black/white occupancy at least
+25%, worst-tile soft noise at least 20%, and smooth midtones from 25% through
+35%. Those independent signals encode the observed pattern: noisy
+corners/backgrounds surrounding smooth grayscale focus regions. The plan still
+marks the group for review and retains direct AVIF as a one-field override.
+
 ### Clean scan: unsharp plus threshold
 
 The current one-bit conversion is:
@@ -316,6 +377,9 @@ Current 8-bit feature rules include:
 - sampled smooth midtones use luminance 33–222, gradient at most 6, and Laplacian at most 12;
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
+- noise-tone is a grayscale-textured subset requiring entropy at least 4.5,
+  near-black/white occupancy at least 25%, worst-tile soft noise at least 20%,
+  and smooth midtones from 25% through 35%;
 - scale buckets use longest edges below 1800, below 3000, and 3000 or above;
 - ambiguous near-bilevel grayscale gets a review-only clean-scan candidate at 68%;
 - `clean-scan-jxl` is selected for medium/large pages at 65% near-black/white when mean binary error is at most 18/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.

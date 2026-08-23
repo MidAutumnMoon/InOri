@@ -16,7 +16,8 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which_in;
 
-use crate::{args::NixBuildPassthrough, runtime::RuntimeEnv};
+use crate::args::NixBuildPassthrough;
+use crate::runtime::RuntimeEnv;
 
 /// Privilege-elevation configuration captured from environment variables.
 ///

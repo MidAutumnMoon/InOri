@@ -92,9 +92,10 @@ A flat label such as `screentone` is not enough. The analyzer measures orthogona
 - grayscale entropy and near-black/white occupancy;
 - edge/detail energy;
 - low-amplitude fine variation globally and in local tiles;
+- locally smooth midtone occupancy;
 - canvas scale.
 
-It groups images by measured properties such as `color-textured-small` or `gray-quiet-large`. The plan stores relative file paths, source size and nanosecond-mtime guards, group metrics, one representative, a conservative selected recipe, and an explicit candidate catalog.
+It groups images by measured properties such as `color-textured-small`, `gray-noise-tone-medium`, or `gray-quiet-large`. The plan stores relative file paths, source size and nanosecond-mtime guards, group metrics, one representative, a selected recipe, and an explicit candidate catalog.
 
 This deliberately does **not** treat JPEG extension or 8-pixel block-boundary energy as proof of JPEG damage. On the reference corpus, the strongest 8-pixel signal came from a clean grayscale/halftone image, while the clean JPEG had a much weaker signal. Deliberate panel geometry and screentone make blockiness heuristics unreliable.
 
@@ -102,11 +103,12 @@ This deliberately does **not** treat JPEG extension or 8-pixel block-boundary en
 
 - An image containing only decoded black/white grayscale values selects mathematically lossless JPEG XL directly.
 - Threshold-stable medium/large grayscale pages select `clean-scan-jxl`.
+- Noise/sand-tone grayscale pages select destructive mean-shift followed by AVIF speed 2.
 - Other grayscale images select direct monochrome AVIF.
 - Color images select direct AVIF with automatic chroma sampling.
 - Larger canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
 
-### Destructive candidates
+### Destructive routing
 
 `clean-scan-jxl` is selected only when each page independently has:
 
@@ -120,6 +122,14 @@ This separates the noisy but threshold-stable scan references from clean pages
 with meaningful smooth grayscale. The strong class gets its own group, so one
 page cannot make an averaged mixed group destructive. It still has
 `review_required = true`, and direct AVIF remains a candidate.
+
+Noise-tone routing is also automatic because the storage policy explicitly
+does not preserve that styling. It requires a grayscale textured page with
+entropy at least 4.5, near-black/white occupancy at least 25%, worst-tile soft
+noise at least 20%, and smooth midtones from 25% through 35%. The selected
+recipe is mean-shift `5x5+15%` followed by the scale's normal AVIF quality at
+speed 2. Mild `3x3+10%`, aggressive `5x5+20%`, and unprocessed direct AVIF
+remain candidates.
 
 Other destructive operations remain unselected candidates:
 
@@ -144,6 +154,9 @@ The AVIF recipe uses libavif's documented quality control rather than combining 
 - 4:2:0 plus SharpYUV is an explicit compact color alternative;
 - Exif/XMP are stripped, but ICC profiles are retained;
 - AOM grain synthesis is opt-in per recipe, never global.
+- speed 5 remains the general default; measured noise-tone recipes use speed 2
+  because it saved 6.6% on the full-page reference without additional
+  preprocessing damage;
 
 The old global grain switch was the largest proven defect. On the sharp-screentone reference, the old settings produced 102,274 bytes with SSIMULACRA2 42.7; disabling grain produced 99,600 bytes with score 90.2. It was simultaneously larger, slower, and much more distorted.
 

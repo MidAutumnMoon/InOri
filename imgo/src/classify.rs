@@ -20,6 +20,11 @@ const COLOR_TEXTURE_GLOBAL_PERCENT: f64 = 20.0;
 const COLOR_TEXTURE_TILE_PERCENT: f64 = 35.0;
 const GRAY_TEXTURE_GLOBAL_PERCENT: f64 = 8.0;
 const GRAY_TEXTURE_TILE_PERCENT: f64 = 20.0;
+const NOISE_TONE_MIN_GRAY_ENTROPY: f64 = 4.5;
+const NOISE_TONE_MIN_TILE_SOFT_NOISE_PERCENT: f64 = 20.0;
+const NOISE_TONE_MIN_NEAR_BW_PERCENT: f64 = 25.0;
+const NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT: f64 = 25.0;
+const NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 35.0;
 const SMALL_EDGE_LIMIT: u32 = 1800;
 const MEDIUM_EDGE_LIMIT: u32 = 3000;
 
@@ -81,6 +86,9 @@ pub enum PaletteClass {
 pub enum TextureClass {
     Quiet,
     Textured,
+    /// Heuristic match for grayscale noise/sand tone: localized stochastic
+    /// texture surrounding substantial smooth midtone regions.
+    NoiseTone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -127,14 +135,25 @@ impl GroupKey {
                 }
             }
             PaletteClass::Gray => {
-                if features.soft_noise_percent
+                let is_textured = features.soft_noise_percent
                     >= GRAY_TEXTURE_GLOBAL_PERCENT
                     || features.max_tile_soft_noise_percent
-                        >= GRAY_TEXTURE_TILE_PERCENT
-                {
-                    TextureClass::Textured
-                } else {
+                        >= GRAY_TEXTURE_TILE_PERCENT;
+                if !is_textured {
                     TextureClass::Quiet
+                } else if features.gray_entropy
+                    >= NOISE_TONE_MIN_GRAY_ENTROPY
+                    && features.near_bw_percent
+                        >= NOISE_TONE_MIN_NEAR_BW_PERCENT
+                    && features.max_tile_soft_noise_percent
+                        >= NOISE_TONE_MIN_TILE_SOFT_NOISE_PERCENT
+                    && (NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT
+                        ..=NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT)
+                        .contains(&features.smooth_midtone_percent)
+                {
+                    TextureClass::NoiseTone
+                } else {
+                    TextureClass::Textured
                 }
             }
             PaletteClass::Bilevel => TextureClass::Quiet,
@@ -183,6 +202,7 @@ impl fmt::Display for GroupKey {
         let texture = match self.texture {
             TextureClass::Quiet => "quiet",
             TextureClass::Textured => "textured",
+            TextureClass::NoiseTone => "noise-tone",
         };
         let scale = match self.scale {
             ScaleClass::Small => "small",
@@ -596,6 +616,67 @@ mod tests {
         assert_eq!(
             GroupKey::from_features(intentional_texture).binarization,
             BinarizationClass::General
+        );
+    }
+
+    #[test]
+    fn noise_tone_requires_local_texture_and_smooth_midtone_regions() {
+        let measured_noise_tone = ImageFeatures {
+            width: 1980,
+            height: 1572,
+            color_percent: 0.0,
+            exact_bilevel: false,
+            gray_entropy: 5.08,
+            gray_levels: 256,
+            near_bw_percent: 54.3,
+            detail_percent: 10.0,
+            soft_noise_percent: 7.0,
+            max_tile_soft_noise_percent: 45.1,
+            threshold_stability_percent: 9.8,
+            binary_error_mean: 35.2,
+            smooth_midtone_percent: 30.5,
+        };
+        let key = GroupKey::from_features(measured_noise_tone);
+        assert_eq!(key.texture, TextureClass::NoiseTone);
+        assert_eq!(key.id(), "gray-noise-tone-medium");
+
+        let texture_without_smooth_regions = ImageFeatures {
+            smooth_midtone_percent: NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT
+                - 0.1,
+            ..measured_noise_tone
+        };
+        assert_eq!(
+            GroupKey::from_features(texture_without_smooth_regions)
+                .texture,
+            TextureClass::Textured
+        );
+
+        let low_entropy_texture = ImageFeatures {
+            gray_entropy: NOISE_TONE_MIN_GRAY_ENTROPY - 0.1,
+            ..measured_noise_tone
+        };
+        assert_eq!(
+            GroupKey::from_features(low_entropy_texture).texture,
+            TextureClass::Textured
+        );
+
+        let low_black_white_texture = ImageFeatures {
+            near_bw_percent: NOISE_TONE_MIN_NEAR_BW_PERCENT - 0.1,
+            ..measured_noise_tone
+        };
+        assert_eq!(
+            GroupKey::from_features(low_black_white_texture).texture,
+            TextureClass::Textured
+        );
+
+        let broadly_smooth_texture = ImageFeatures {
+            smooth_midtone_percent: NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT
+                + 0.1,
+            ..measured_noise_tone
+        };
+        assert_eq!(
+            GroupKey::from_features(broadly_smooth_texture).texture,
+            TextureClass::Textured
         );
     }
 

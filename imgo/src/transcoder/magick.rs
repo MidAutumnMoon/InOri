@@ -15,9 +15,9 @@ use crate::transcoder::run_command;
 
 const DEFAULT_CLEAN_SCAN_THRESHOLD: u8 = 55;
 
-/// `ImageMagick` preprocessing modes. Destructive modes remain explicit
-/// recipe steps: image statistics cannot reliably distinguish intentional
-/// texture from disposable noise.
+/// `ImageMagick` preprocessing modes. Each destructive transformation is an
+/// explicit recipe step; classifier policy chooses whether that recipe is a
+/// default or a review-only candidate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[derive(clap::ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -27,6 +27,9 @@ pub enum Mode {
     Artifact,
     /// Stronger legacy adaptive blur. The default geometry is `2x0.8`.
     AdaptiveBlur,
+    /// Edge-preserving local clustering for noise/sand tone. The default
+    /// geometry is the measured destructive preset `5x5+15%`.
+    MeanShift,
     /// Median 3x3 followed by contrast stretch. The default stretch is `5%x0%`.
     FakePencil,
     /// `ImageMagick`'s hull-based speckle reduction.
@@ -98,6 +101,12 @@ impl Operation for Denoise {
                 command.args([
                     "-adaptive-blur",
                     self.strength.as_deref().unwrap_or("2x0.8"),
+                ]);
+            }
+            Mode::MeanShift => {
+                command.args([
+                    "-mean-shift",
+                    self.strength.as_deref().unwrap_or("5x5+15%"),
                 ]);
             }
             Mode::FakePencil => {

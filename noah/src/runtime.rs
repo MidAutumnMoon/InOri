@@ -1,12 +1,14 @@
-use std::{
-    collections::HashMap,
-    env,
-    ffi::{OsStr, OsString},
-    fmt,
-    path::{Path, PathBuf},
-};
+use std::collections::HashMap;
+use std::env;
+use std::ffi::OsStr;
+use std::ffi::OsString;
+use std::fmt;
+use std::path::Path;
+use std::path::PathBuf;
 
-use rootcause::{Result, prelude::ResultExt as _, report};
+use rootcause::Result;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",

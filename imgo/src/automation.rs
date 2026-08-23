@@ -60,6 +60,9 @@ const NEAR_BILEVEL_REVIEW_PERCENT: f64 = 68.0;
 const PENCIL_MAX_NEAR_BW_PERCENT: f64 = 40.0;
 const PENCIL_MIN_GRAY_ENTROPY: f64 = 5.5;
 const PENCIL_MIN_SOFT_NOISE_PERCENT: f64 = 8.0;
+const NOISE_TONE_AVIF_SPEED: u8 = 2;
+const NOISE_TONE_MILD_STRENGTH: &str = "3x3+10%";
+const NOISE_TONE_AGGRESSIVE_STRENGTH: &str = "5x5+20%";
 
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -1055,6 +1058,17 @@ fn recipes_for_group(
     let scale = scale_name(key.scale);
     let safe_name = format!("avif-safe-{scale}");
     let safe_recipe = avif_recipe(quality, Chroma::Auto, false);
+    if key.palette == PaletteClass::Gray
+        && key.texture == TextureClass::NoiseTone
+    {
+        return noise_tone_recommendation(
+            quality,
+            scale,
+            safe_name,
+            safe_recipe,
+            metrics,
+        );
+    }
     let compact_quality = quality.saturating_sub(COMPACT_QUALITY_DELTA);
     let (compact_name, compact_chroma) =
         if key.palette == PaletteClass::Color {
@@ -1193,15 +1207,93 @@ fn recipes_for_group(
     recommendation
 }
 
+fn noise_tone_recommendation(
+    quality: u8,
+    scale: &str,
+    safe_name: String,
+    safe_recipe: Recipe,
+    metrics: GroupMetrics,
+) -> Recommendation {
+    let balanced_name = format!("gray-noise-tone-balanced-{scale}");
+    let mild_name = format!("gray-noise-tone-mild-{scale}");
+    let aggressive_name = format!("gray-noise-tone-aggressive-{scale}");
+    Recommendation {
+        selected: balanced_name.clone(),
+        alternatives: vec![
+            safe_name.clone(),
+            mild_name.clone(),
+            aggressive_name.clone(),
+        ],
+        review_required: true,
+        reasons: vec![
+            format!(
+                "Noise-tone evidence: {:.2} entropy, {:.1}% near black/white, {:.1}% smooth midtones, {:.1}% worst-tile fine texture.",
+                metrics.gray_entropy,
+                metrics.near_bw_percent,
+                metrics.smooth_midtone_percent,
+                metrics.max_tile_soft_noise_percent,
+            ),
+            "Noise/sand tone is intentionally simplified by default: measured mean-shift 5x5+15% preserves structural lines while reducing final AVIF size."
+                .to_owned(),
+        ],
+        recipes: vec![
+            (
+                balanced_name,
+                mean_shift_avif_recipe(quality, None),
+            ),
+            (safe_name, safe_recipe),
+            (
+                mild_name,
+                mean_shift_avif_recipe(
+                    quality,
+                    Some(NOISE_TONE_MILD_STRENGTH),
+                ),
+            ),
+            (
+                aggressive_name,
+                mean_shift_avif_recipe(
+                    quality,
+                    Some(NOISE_TONE_AGGRESSIVE_STRENGTH),
+                ),
+            ),
+        ],
+    }
+}
+
+fn mean_shift_avif_recipe(quality: u8, strength: Option<&str>) -> Recipe {
+    Recipe::pair(
+        Step::Denoise(Denoise {
+            mode: Mode::MeanShift,
+            strength: strength.map(str::to_owned),
+        }),
+        Step::Avif(avif_options_with_speed(
+            quality,
+            Chroma::Auto,
+            false,
+            NOISE_TONE_AVIF_SPEED,
+        )),
+    )
+}
+
 fn avif_recipe(quality: u8, chroma: Chroma, grain: bool) -> Recipe {
     Recipe::single(Step::Avif(avif_options(quality, chroma, grain)))
 }
 
 fn avif_options(quality: u8, chroma: Chroma, grain: bool) -> Avif {
+    avif_options_with_speed(quality, chroma, grain, Avif::default().speed)
+}
+
+fn avif_options_with_speed(
+    quality: u8,
+    chroma: Chroma,
+    grain: bool,
+    speed: u8,
+) -> Avif {
     Avif {
         quality,
         chroma,
         grain,
+        speed,
         ..Avif::default()
     }
 }
@@ -1471,6 +1563,51 @@ mod tests {
                 .iter()
                 .any(|name| name == "avif-color-grain-small")
         );
+    }
+
+    #[test]
+    fn measured_noise_tone_selects_destructive_mean_shift() {
+        let mut noise_metrics = metrics(54.3);
+        noise_metrics.gray_entropy = 5.08;
+        noise_metrics.soft_noise_percent = 7.0;
+        noise_metrics.max_tile_soft_noise_percent = 45.1;
+        noise_metrics.smooth_midtone_percent = 30.5;
+        let recommendation = recipes_for_group(
+            GroupKey {
+                palette: PaletteClass::Gray,
+                texture: TextureClass::NoiseTone,
+                scale: ScaleClass::Medium,
+                binarization: BinarizationClass::General,
+            },
+            noise_metrics,
+        );
+
+        assert_eq!(
+            recommendation.selected,
+            "gray-noise-tone-balanced-medium"
+        );
+        assert!(recommendation.review_required);
+        assert!(
+            recommendation
+                .alternatives
+                .iter()
+                .any(|name| name == "avif-safe-medium")
+        );
+        let expected = Recipe::pair(
+            Step::Denoise(Denoise {
+                mode: Mode::MeanShift,
+                strength: None,
+            }),
+            Step::Avif(Avif {
+                quality: MEDIUM_AVIF_QUALITY,
+                speed: NOISE_TONE_AVIF_SPEED,
+                ..Avif::default()
+            }),
+        );
+        assert!(recommendation.recipes.iter().any(|(name, recipe)| {
+            name == "gray-noise-tone-balanced-medium"
+                && recipe == &expected
+        }));
     }
 
     #[test]
