@@ -1,11 +1,8 @@
 use std::path::Path;
+use std::path::PathBuf;
 
-use crate::fs::BaseSeqExt;
-use crate::fs::RelAbs;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(strum::EnumIter)]
-#[derive(strum::VariantArray)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(strum::EnumIter, strum::VariantArray)]
 pub enum ImageFormat {
     PNG,
     JPG,
@@ -16,10 +13,10 @@ pub enum ImageFormat {
 }
 
 impl ImageFormat {
-    /// Extensions of each image format.
+    /// Extensions accepted for this format.
     #[inline]
     #[must_use]
-    pub fn exts(&self) -> &'static [&'static str] {
+    pub const fn exts(self) -> &'static [&'static str] {
         match self {
             Self::PNG => &["png"],
             Self::JPG => &["jpg", "jpeg"],
@@ -30,25 +27,31 @@ impl ImageFormat {
         }
     }
 
-    /// Guess the picture's format based on the extension of the path.
+    #[must_use]
+    pub fn primary_extension(self) -> Option<&'static str> {
+        self.exts().first().copied()
+    }
+
+    /// Guess the picture format from a case-insensitive extension.
     #[inline]
     #[must_use]
-    pub fn from_path(path: &impl AsRef<Path>) -> Option<Self> {
+    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
         use strum::IntoEnumIterator as _;
-        if let Some(ext) = path.as_ref().extension()
-            && let Some(ext) = ext.to_str()
-        {
-            Self::iter().find(|fmt| fmt.exts().contains(&ext))
-        } else {
-            None
-        }
+
+        let extension = path.as_ref().extension()?.to_str()?;
+        Self::iter().find(|format| {
+            format
+                .exts()
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(extension))
+        })
     }
 }
 
-/// Represents an input image.
-#[derive(Debug)]
+/// A discovered source image. `path` is absolute so execution never depends
+/// on a worker thread's ambient current directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Image {
-    pub path: RelAbs,
+    pub path: PathBuf,
     pub format: ImageFormat,
-    pub extra: BaseSeqExt,
 }

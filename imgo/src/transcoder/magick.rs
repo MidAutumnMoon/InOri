@@ -1,48 +1,51 @@
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
 use std::thread::available_parallelism;
 
-use tap::Pipe as _;
+use anyhow::ensure;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::img::ImageFormat;
-use crate::transcoder::External;
 use crate::transcoder::Meta;
+use crate::transcoder::Operation;
+use crate::transcoder::Tool;
+use crate::transcoder::run_command;
 
-pub const MAGICK_PATH: Option<&str> = std::option_env!("CFG_MAGICK_PATH");
-
-/// Various imagemagick tricks to remove various kinds of noise.
-#[derive(Debug, clap::Args)]
-#[group(id = "DenoiseTranscoder")]
-pub struct Denoise {
-    #[arg(long, short)]
-    #[arg(default_value = "artifact")]
-    mode: Mode,
-
-    /// The strength of the denoise. Different mode has different settings.
-    /// Read the doc of imagemagick.
-    #[arg(long, short)]
-    strength: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-#[derive(Default)]
-#[derive(clap::ValueEnum)]
+/// `ImageMagick` preprocessing modes. Destructive modes remain explicit
+/// recipe steps: image statistics cannot reliably distinguish intentional
+/// texture from disposable noise.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(clap::ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Mode {
-    /// Use `-adaptive-blue` to remove artifacts resulted from JPEG compression.
-    /// The default strength is `2x0.8`.
+    /// Edge-preserving bilateral filtering. The default geometry is `3x3`.
     #[default]
     Artifact,
-
-    ///  Use `-contrast-stretch` to remove fake pencil-style noise
-    /// (black strokes consist of noise pixels).
-    /// The default strength is `5%x0%`.
+    /// Stronger legacy adaptive blur. The default geometry is `2x0.8`.
+    AdaptiveBlur,
+    /// Median 3x3 followed by contrast stretch. The default stretch is `5%x0%`.
     FakePencil,
+    /// `ImageMagick`'s hull-based speckle reduction.
+    Despeckle,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(clap::Args, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Denoise {
+    #[arg(long, short, value_enum, default_value_t = Self::default().mode)]
+    pub mode: Mode,
+
+    /// `ImageMagick` geometry or percentage used by the chosen mode.
+    #[arg(long, short)]
+    pub strength: Option<String>,
 }
 
 impl Meta for Denoise {
     fn id(&self) -> &'static str {
-        "magick despeckle"
+        "magick denoise"
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
@@ -62,35 +65,76 @@ impl Meta for Denoise {
     }
 }
 
-impl External for Denoise {
-    fn transcode(&self, input: &Path, output: &Path) -> Command {
-        let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
-
-        cmd.arg("-verbose");
-        cmd.arg(input);
-
+impl Operation for Denoise {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> anyhow::Result<Vec<String>> {
+        let mut command = Tool::Magick.command();
+        command.arg(input);
         match self.mode {
             Mode::Artifact => {
-                let strength = self.strength.as_deref().unwrap_or("2x0.8");
-                cmd.args(["-adaptive-blur", strength]);
+                command.args([
+                    "-bilateral-blur",
+                    self.strength.as_deref().unwrap_or("3x3"),
+                ]);
+            }
+            Mode::AdaptiveBlur => {
+                command.args([
+                    "-adaptive-blur",
+                    self.strength.as_deref().unwrap_or("2x0.8"),
+                ]);
             }
             Mode::FakePencil => {
-                let strength = self.strength.as_deref().unwrap_or("5%x0%");
-                cmd.args(["-statistic", "median", "3x3"]);
-                cmd.args(["-contrast-stretch", strength]);
+                command.args(["-statistic", "median", "3x3"]);
+                command.args([
+                    "-contrast-stretch",
+                    self.strength.as_deref().unwrap_or("5%x0%"),
+                ]);
+            }
+            Mode::Despeckle => {
+                command.arg("-despeckle");
             }
         }
+        command.args(["-define", "png:compression-level=1"]);
+        command.arg(output);
+        run_command(self.id(), input, &mut command)?;
+        Ok(Vec::new())
+    }
 
-        // Images later to be processed by avifenc
-        cmd.args(["-define", "png:compression-level=1"]);
-        cmd.arg(output);
-        cmd
+    fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
+        tools.insert(Tool::Magick);
     }
 }
 
-#[derive(Debug, clap::Args)]
-#[group(id = "CleanScanTranscoder")]
-pub struct CleanScan;
+/// Convert degraded near-bilevel pages to crisp one-bit grayscale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(clap::Args, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CleanScan {
+    /// Fixed global threshold percentage. Ignored when `--otsu` is set.
+    #[arg(long, default_value_t = Self::default().threshold)]
+    pub threshold: u8,
+
+    /// Select a global threshold from the image histogram.
+    #[arg(long, default_value_t = Self::default().otsu)]
+    pub otsu: bool,
+
+    /// Disable the mild pre-threshold unsharp mask.
+    #[arg(long = "no-sharpen", action = clap::ArgAction::SetFalse)]
+    pub sharpen: bool,
+}
+
+impl Default for CleanScan {
+    fn default() -> Self {
+        Self {
+            threshold: 55,
+            otsu: false,
+            sharpen: true,
+        }
+    }
+}
 
 impl Meta for CleanScan {
     fn id(&self) -> &'static str {
@@ -98,7 +142,7 @@ impl Meta for CleanScan {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        eighth_of_total_cores()
+        available_cores()
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
@@ -110,36 +154,49 @@ impl Meta for CleanScan {
     }
 }
 
-impl External for CleanScan {
-    fn transcode(&self, input: &Path, output: &Path) -> Command {
-        let mut cmd = MAGICK_PATH.unwrap_or("magick").pipe(Command::new);
-        cmd.arg("-verbose");
-        cmd.arg(input);
-        cmd.args(["-colorspace", "Gray"]);
-        cmd.arg("-strip");
-        cmd.args(["-unsharp", "0x2+1+0.4"]);
-        cmd.args(["-threshold", "55%"]);
-        cmd.args(["-background", "black", "-alpha", "remove"]);
-        cmd.args(["-depth", "1", "-colors", "2"]);
-        cmd.args(["-define", "png:compression-level=1"]);
-        cmd.arg(output);
-        cmd
+impl Operation for CleanScan {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> anyhow::Result<Vec<String>> {
+        ensure!(
+            self.threshold <= 100,
+            "clean-scan threshold must be in 0..=100"
+        );
+
+        let mut command = Tool::Magick.command();
+        command.arg(input);
+        command.args(["-background", "white", "-alpha", "remove"]);
+        command.arg("-alpha").arg("off");
+        command.args(["-colorspace", "Gray"]);
+        command.arg("-strip");
+        if self.sharpen {
+            command.args(["-unsharp", "0x2+1+0.4"]);
+        }
+        if self.otsu {
+            command.args(["-auto-threshold", "OTSU"]);
+        } else {
+            command.args(["-threshold", &format!("{}%", self.threshold)]);
+        }
+        command.args(["-depth", "1", "-colors", "2"]);
+        command.args(["-define", "png:compression-level=1"]);
+        command.arg(output);
+        run_command(self.id(), input, &mut command)?;
+        Ok(Vec::new())
+    }
+
+    fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
+        tools.insert(Tool::Magick);
     }
 }
 
-#[inline]
-#[expect(
-    clippy::unwrap_used,
-    reason = "the `.max(1)` clamp guarantees a non-zero result"
-)]
-#[expect(
-    clippy::expect_used,
-    reason = "`available_parallelism` failure is an unexpected OS error"
-)]
-fn eighth_of_total_cores() -> NonZeroU64 {
-    let cores = available_parallelism()
-        .expect("Failed to get core numbers")
-        .get();
-    #[expect(clippy::integer_division, reason = "don't care")]
-    NonZeroU64::new(((cores as u64 * 80) / 100).max(1)).unwrap()
+fn available_cores() -> NonZeroU64 {
+    let cores = available_parallelism().map_or(1, usize::from);
+    let selected = u64::try_from(cores).unwrap_or(1);
+    #[expect(
+        clippy::unwrap_used,
+        reason = "available parallelism is always at least one"
+    )]
+    NonZeroU64::new(selected).unwrap()
 }

@@ -1,74 +1,115 @@
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
+
+use anyhow::Context as _;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::img::ImageFormat;
-use crate::transcoder::External;
 use crate::transcoder::Meta;
+use crate::transcoder::Operation;
+use crate::transcoder::Tool;
+use crate::transcoder::run_command;
 
-const CJXL_PATH: Option<&str> = std::option_env!("CFG_CJXL_PATH");
+/// Mathematically lossless JPEG XL encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(clap::Args, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Jxl {
+    /// Try two lossless modular strategies and retain the smaller output. This
+    /// costs an extra encode but avoids content-specific expert settings
+    /// making some bilevel pages larger.
+    #[arg(long = "no-optimize", action = clap::ArgAction::SetFalse)]
+    pub optimize: bool,
+}
 
-#[derive(Debug)]
-#[derive(clap::Args)]
-#[group(id = "JxlTranscoder")]
-pub struct Jxl;
+impl Default for Jxl {
+    fn default() -> Self {
+        Self { optimize: true }
+    }
+}
 
 impl Meta for Jxl {
     fn id(&self) -> &'static str {
-        "jxl"
+        "cjxl"
     }
 
-    #[inline]
     fn input_formats(&self) -> &'static [ImageFormat] {
         &[ImageFormat::PNG, ImageFormat::JPG, ImageFormat::GIF]
     }
 
-    #[inline]
     fn output_format(&self) -> ImageFormat {
         ImageFormat::JXL
     }
 
-    fn default_jobs(&self) -> std::num::NonZeroU64 {
-        #[expect(
-            clippy::unwrap_used,
-            reason = "literal 1 is non-zero by construction"
-        )]
-        NonZeroU64::new(1).unwrap()
+    fn default_jobs(&self) -> NonZeroU64 {
+        NonZeroU64::MIN
     }
 }
 
-impl External for Jxl {
-    /// JPEG XL has a superior lossless encoding algorithm which also
-    /// doesn't need too much tweaking. These options are used for squashing
-    /// out more savings on spaces.
-    #[tracing::instrument(name = "jxl_transcode")]
-    fn transcode(&self, input: &Path, output: &Path) -> Command {
-        let mut cjxl = Command::new(CJXL_PATH.unwrap_or("cjxl"));
+impl Operation for Jxl {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> anyhow::Result<Vec<String>> {
+        let directory =
+            tempfile::tempdir().context("create JXL work directory")?;
+        let standard_path = directory.path().join("standard.jxl");
+        encode_standard(input, &standard_path)?;
 
-        // Allow tweaking more parameters.
-        cjxl.arg("--allow_expert_options");
-        // Increase the encoding time A LOT
-        // (30s in e9 comparing to few seconds
-        // in default) but also saves a lot more spaces.
-        cjxl.args(["--effort", "8"]);
-        // Following 3 options force cjxl to the lossless algorithm
-        // called modular, loosely speaking.
-        cjxl.args(["--modular", "1"]);
-        cjxl.args(["--lossless_jpeg", "1"]);
-        cjxl.args(["--distance", "0.0"]);
-        // Premultiply alpha
-        cjxl.args(["--premultiply", "1"]);
-        // Controls the generation of some internal tree thing.
-        // The bigger the memory it uses, but also save more spaces.
-        cjxl.args(["--iterations", "100"]);
-        // Tweak the modular algorithm to save even more spaces.
-        cjxl.args(["--modular_nb_prev_channels", "6"]);
-        cjxl.args(["--modular_group_size", "2"]);
-        cjxl.args(["--modular_predictor", "15"]);
-        // Use all threads
-        cjxl.args(["--num_threads", "-1"]);
+        let selected = if self.optimize {
+            let expert_path = directory.path().join("expert.jxl");
+            encode_expert(input, &expert_path)?;
+            let standard_len = std::fs::metadata(&standard_path)
+                .context("read standard JXL output metadata")?
+                .len();
+            let expert_len = std::fs::metadata(&expert_path)
+                .context("read expert JXL output metadata")?
+                .len();
+            if expert_len < standard_len {
+                expert_path
+            } else {
+                standard_path
+            }
+        } else {
+            standard_path
+        };
 
-        cjxl.args([input, output]);
-        cjxl
+        std::fs::copy(&selected, output).with_context(|| {
+            format!("copy selected JXL output to {}", output.display())
+        })?;
+        Ok(Vec::new())
     }
+
+    fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
+        tools.insert(Tool::Cjxl);
+    }
+}
+
+fn encode_standard(input: &Path, output: &Path) -> anyhow::Result<()> {
+    let mut command = Tool::Cjxl.command();
+    command.args(["--distance", "0"]);
+    command.args(["--effort", "9"]);
+    command.args(["--num_threads", "-1"]);
+    command.args([input, output]);
+    run_command("cjxl lossless", input, &mut command)
+}
+
+fn encode_expert(input: &Path, output: &Path) -> anyhow::Result<()> {
+    let mut command = Tool::Cjxl.command();
+    command.arg("--allow_expert_options");
+    command.args(["--effort", "8"]);
+    command.args(["--modular", "1"]);
+    command.args(["--lossless_jpeg", "1"]);
+    command.args(["--distance", "0"]);
+    command.args(["--premultiply", "1"]);
+    command.args(["--iterations", "100"]);
+    command.args(["--modular_nb_prev_channels", "6"]);
+    command.args(["--modular_group_size", "2"]);
+    command.args(["--modular_predictor", "15"]);
+    command.args(["--num_threads", "-1"]);
+    command.args([input, output]);
+    run_command("cjxl expert lossless", input, &mut command)
 }

@@ -1,58 +1,106 @@
-use tap::Pipe as _;
-
-use crate::img::ImageFormat;
-use crate::transcoder::External;
-use crate::transcoder::Meta;
-
+use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
 
-const AVIFENC_PATH: Option<&str> = std::option_env!("CFG_AVIFENC_PATH");
+use anyhow::ensure;
+use serde::Deserialize;
+use serde::Serialize;
 
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(clap::Args)]
-#[group(id = "AvifTranscoderOpts")]
+use crate::img::ImageFormat;
+use crate::transcoder::Meta;
+use crate::transcoder::Operation;
+use crate::transcoder::Tool;
+use crate::transcoder::run_command;
+
+/// Chroma sampling requested from `avifenc`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(clap::ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Chroma {
+    /// Let libavif retain grayscale and JPEG sampling, and use 4:4:4 for
+    /// other PNGs. This is the safe choice for colored line art.
+    #[default]
+    Auto,
+    #[value(name = "444")]
+    #[serde(rename = "444")]
+    Yuv444,
+    #[value(name = "422")]
+    #[serde(rename = "422")]
+    Yuv422,
+    #[value(name = "420")]
+    #[serde(rename = "420")]
+    Yuv420,
+    #[value(name = "400")]
+    #[serde(rename = "400")]
+    Yuv400,
+}
+
+impl Chroma {
+    const fn as_arg(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::Yuv444 => Some("444"),
+            Self::Yuv422 => Some("422"),
+            Self::Yuv420 => Some("420"),
+            Self::Yuv400 => Some("400"),
+        }
+    }
+}
+
+/// Stable libavif controls used by manual commands and automation recipes.
+///
+/// Advanced libaom controls are intentionally avoided: the old mix of
+/// `qcolor`, quantizer bounds, and `cq-level` exposed two competing quality
+/// controls and made content-dependent grain synthesis unconditional.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(clap::Args, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Avif {
-    /// Opt-out of constant quality mode.
-    /// Will result in worse visual quality but save extra spaces.
-    #[arg(long, short)]
-    #[arg(default_value_t=Avif::default().no_cq)]
-    pub no_cq: bool,
+    /// libavif quality in 0..=100. Higher is better; 100 is lossless.
+    #[arg(long, short = 'q', default_value_t = Self::default().quality)]
+    pub quality: u8,
 
-    /// Custom constant quality value. Has no effect if "--no-cq"
-    /// is supplied.
-    #[arg(long, short)]
-    #[arg(default_value_t=Avif::default().cq_level)]
-    pub cq_level: u8,
+    /// Encoded channel depth: 8, 10, or 12.
+    #[arg(long, default_value_t = Self::default().depth)]
+    pub depth: u8,
 
-    /// Apply a preset when transcoding. Has no effect on "--no-cq"
-    /// is supplied.
-    #[arg(long, short = 'p')]
-    #[arg(default_value_t=Avif::default().quality_preset)]
-    pub quality_preset: QualityPreset,
+    /// Chroma sampling. `auto` keeps grayscale monochrome and color PNGs 4:4:4.
+    #[arg(long, value_enum, default_value_t = Self::default().chroma)]
+    pub chroma: Chroma,
+
+    /// Enable libaom's all-intra noise estimation, denoising, and grain
+    /// synthesis. Useful for genuinely grainy color art; harmful to crisp
+    /// screentone, so it is opt-in.
+    #[arg(long, default_value_t = Self::default().grain)]
+    pub grain: bool,
+
+    /// Encoder speed in 0..=10. Lower is slower.
+    #[arg(long, default_value_t = Self::default().speed)]
+    pub speed: u8,
 }
 
 impl Default for Avif {
     fn default() -> Self {
         Self {
-            no_cq: false,
-            cq_level: 22,
-            quality_preset: QualityPreset::Medium,
+            quality: 65,
+            depth: 10,
+            chroma: Chroma::Auto,
+            grain: false,
+            speed: 5,
         }
     }
 }
 
-#[derive(Debug, Clone, clap::ValueEnum)]
-#[derive(strum::Display)]
-pub enum QualityPreset {
-    #[strum(to_string = "low")]
-    Low,
-    #[strum(to_string = "medium")]
-    Medium,
-    #[strum(to_string = "high")]
-    High,
+impl Avif {
+    fn validate(&self) -> anyhow::Result<()> {
+        ensure!(self.quality <= 100, "AVIF quality must be in 0..=100");
+        ensure!(
+            matches!(self.depth, 8 | 10 | 12),
+            "AVIF depth must be 8, 10, or 12"
+        );
+        ensure!(self.speed <= 10, "AVIF speed must be in 0..=10");
+        Ok(())
+    }
 }
 
 impl Meta for Avif {
@@ -61,11 +109,7 @@ impl Meta for Avif {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        #[expect(
-            clippy::unwrap_used,
-            reason = "literal 1 is non-zero by construction"
-        )]
-        NonZeroU64::new(1).unwrap()
+        NonZeroU64::MIN
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
@@ -77,54 +121,44 @@ impl Meta for Avif {
     }
 }
 
-impl External for Avif {
-    fn transcode(&self, input: &Path, output: &Path) -> Command {
-        let mut cmd = AVIFENC_PATH.unwrap_or("avifenc").pipe(Command::new);
+impl Operation for Avif {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> anyhow::Result<Vec<String>> {
+        self.validate()?;
 
-        let quality = match self.quality_preset {
-            QualityPreset::Low => "28",
-            QualityPreset::Medium => "48",
-            QualityPreset::High => "78",
-        };
-        cmd.args(["--qcolor", quality, "--qalpha", quality]);
-
-        // All following arguments are tuned for AOM encoder
-        cmd.args(["--codec", "aom"]);
-        // Let it use all cores.
-        cmd.args(["--jobs", "all"]);
-        // Effects the size of output.
-        // However, speed < 3 increases the encoding time
-        // considerably and has no almost no gain.
-        cmd.args(["--speed", "5"]);
-        // AVIF can save extra, and normally a lot, spaces
-        // at higher bit depth.
-        cmd.args(["--depth", "12"]);
-        cmd.arg("--premultiply");
-        cmd.arg("--autotiling");
-        // Better RGB-YUV processing
-        cmd.arg("--sharpyuv");
-        cmd.args(["--yuv", "420"]);
-        cmd.args(["--cicp", "1/13/1"]);
-        cmd.arg("--ignore-icc");
-        cmd.arg("--ignore-exif");
-        // Advanced options.
-        // This poke into the heart of AOM encoder,
-        // which effects the output every so slightly.
-        cmd.args(["-a", "color:deltaq-mode=3"]);
-        cmd.args(["-a", "color:enable-chroma-deltaq=1"]);
-        cmd.args(["-a", "end-usage=q"]);
-        cmd.args(["-a", "enable-qm=1"]);
-        cmd.args(["-a", "color:qm-min=0"]);
-        cmd.args(["-a", "aq-mode=2"]);
-        cmd.args(["-a", "color:denoise-noise-level=20"]);
-        cmd.args(["-a", "tune=ssim"]);
-
-        if !self.no_cq {
-            let cq_level = format!("cq-level={}", self.cq_level);
-            cmd.args(["-a", &cq_level]);
+        let mut command = Tool::AvifEnc.command();
+        command.args(["--qcolor", &self.quality.to_string()]);
+        command.args(["--qalpha", "100"]);
+        command.args(["--codec", "aom"]);
+        command.args(["--jobs", "all"]);
+        command.args(["--speed", &self.speed.to_string()]);
+        command.args(["--depth", &self.depth.to_string()]);
+        if let Some(chroma) = self.chroma.as_arg() {
+            command.args(["--yuv", chroma]);
+            if self.chroma == Chroma::Yuv420 {
+                command.arg("--sharpyuv");
+            }
         }
+        // Strip camera/application metadata but retain the color profile. An
+        // ICC profile cannot be discarded safely without first converting it.
+        command.arg("--ignore-exif");
+        command.arg("--ignore-xmp");
+        if self.grain {
+            // In libaom all-intra mode, a positive value acts as the switch for
+            // automatic source-noise estimation; the numeric magnitude is not
+            // honored as a stable user-selected grain level.
+            command.args(["-a", "color:denoise-noise-level=1"]);
+        }
+        command.arg("--").args([input, output]);
 
-        cmd.arg("--").args([input, output]);
-        cmd
+        run_command(self.id(), input, &mut command)?;
+        Ok(Vec::new())
+    }
+
+    fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
+        tools.insert(Tool::AvifEnc);
     }
 }

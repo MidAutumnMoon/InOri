@@ -1,251 +1,146 @@
-# imgo 自动化工作流设计
+# imgo automation workflow
 
-## 目标
+## Goal
 
-把你现在的"下载 → 肉眼逐张判参数 → 跑 N 次 imgo → 监控 → 打包 → 搬运"
-压缩成"分类 → 改 manifest → 一条命令去睡觉"。
+`imgo` minimizes downloaded manga, doujinshi, and illustrations without applying one destructive filter to every page.
 
-核心思路：**分类和执行解耦**。
-classifier 负责把"经验"变成可审的文本 manifest，你扫文本而不是看图；
-route 负责按 manifest 把混合图包一次跑完。
-两者各自独立，互不依赖，可以分阶段交付。
+For still images, the useful term is **rate-distortion optimization**: reduce encoded bytes (or bits per pixel) while keeping the distortion acceptable at the intended viewing scale. Preprocessing can improve that tradeoff by removing information the encoder would otherwise spend bytes preserving. It can also erase intentional screentone, pencil texture, gradients, or fine line art. No scalar metric can decide that artistic boundary reliably.
 
----
-
-## 现状诊断：为什么现在这么累
-
-根因在代码结构，不在你懒。
-
-- `run_pipeline_external(shared, transcoder)` 一次只吃一个 transcoder（`pipeline.rs:425`）。
-  CLI 每个 subcommand（`avif`/`jxl`/`denoise`/`cleanscan`）就是单 transcoder 一次跑（`bin/i.rs`）。
-- `SharedOpts`（`pipeline.rs:223`）没有 per-image 参数、没有链式、没有分类。
-- 所以混合图包 = 你手动把图拆成 N 个同类子集，跑 N 次命令，监控 N 次。
-  第 3 步的劳动本质是这个限制逼出来的。
-
-还有一个痛点：**今天没法链式**。
-想 `denoise -> avif`，只能手动跑两遍——`imgo d` 出一批 PNG（备份一次原件），
-再 `imgo a` 压这批 PNG（又备份一次）。`.backup` 嵌套、两轮监控、两份备份。
-`cleanscan -> jxl` 同理。
-
----
-
-## 三个新概念
-
-全部叠加在现有 `External`/`Pixel` trait 之上，不推翻现有设计。
-
-### 1. Pipeline = 有序的 transcoder 步骤链
+The workflow therefore automates the repetitive work and keeps destructive decisions reviewable:
 
 ```text
-[{denoise, mode: artifact, strength: strong}, {avif, cq: 22}]
+analyze and group -> encode representative alternatives -> review at 1:1
+-> edit one recipe choice per group -> run the mixed batch once
 ```
 
-orchestrator 已经在管 temp/backup/并行（`pipeline.rs:345` 的 `orchestrate`）。
-链式只需把"单步 exec"换成"多步串行 exec"：
-中间产物走 temp 文件，只有最终输出落盘 + 备份一次。
-`process_one`（`pipeline.rs:154`）现在是 `temp → work → backup → dest`，
-改成一串 temp 在步骤间传递，最后一步才 backup + 落盘。
-
-步骤间的格式兼容性由 `Meta::input_formats()` / `output_format()` 现成保证：
-`denoise` 出 PNG（`magick.rs:58`），`avif` 收 PNG（`avif.rs:69`），链得上。
-编排时校验相邻步骤的输出/输入格式匹配，不匹配直接报错，不跑。
-
-### 2. Recipe = 命名的 pipeline + 目标格式
-
-把你的"经验参数"固化成具名配方。内置几个覆盖常见场景：
-
-| Recipe              | 步骤链                                   | 适用                     |
-|---------------------|------------------------------------------|--------------------------|
-| `clean-color`       | `[avif cq:22]`                           | 干净彩色图               |
-| `jpeg-artifact-lg`  | `[denoise artifact strong -> avif cq:22]`| 大图有 JPEG artifact     |
-| `jpeg-artifact-sm`  | `[denoise artifact light -> avif cq:22]` | 小图，轻 despeckle 防糊  |
-| `screentone`        | `[cleanscan -> jxl]`                      | 网点黑白图，2bit + 无损  |
-| `fake-pencil`       | `[denoise fakepencil -> avif cq:22]`      | 假铅笔噪点               |
-
-`avif:cq` / `denoise:strength` 这些现有参数原样复用，不用改 transcoder。
-新场景你加个 recipe 条目就行，不动核心。
-
-Recipe 用 TOML/JSON 描述，可内置也可外置文件（`~/.config/imgo/recipes.toml`）。
-内置提供默认集，外置让你覆盖或加自己的。
-
-### 3. Manifest = 每张图 → recipe 的映射
-
-```toml
-# 自动生成、人工可改
-[defaults]
-recipe = "clean-color"      # 没单列的图走默认
-
-[[entries]]
-path = "001.png"
-recipe = "screentone"
-
-[[entries]]
-path = "cover.png"
-recipe = "clean-color"
-
-[[entries]]
-path = "p005.png"
-recipe = "jpeg-artifact-lg"
-```
-
-可手写，也可由 `imgo classify` 生成草稿。
-
----
-
-## 命令
+## Commands
 
 ```sh
-# 扫图、出 manifest 草稿（带置信度 + 理由）
-imgo classify <dir> -o manifest.toml
+# Analyze PNG/JPEG files and write <dir>/imgo-plan.json.
+i plan <dir>
 
-# 按 manifest 跑：每图走自己的 recipe，rayon 并行，
-# 一次备份、一个进度条、一次监控
-imgo route manifest.toml
+# Encode one representative with the selected and alternative recipes.
+# Outputs go to <dir>/.imgo-review by default.
+i preview <dir>/imgo-plan.json
+
+# Inspect *.preview.png at 1:1, then change selected_recipe for any group.
+$EDITOR <dir>/imgo-plan.json
+
+# Execute every selected recipe, with one shared progress run and backup tree.
+i run <dir>/imgo-plan.json
 ```
 
-`route` 是"跑个命令去睡觉"那一步。
-mixed 图包从"跑 N 次、监控 N 次"变成"跑 1 次、监控 1 次"。
+`i run` is resumable with the default backup policy. Re-running a completed plan reports the completed files instead of creating numbered duplicates.
 
----
-
-## 分类器：把第 3 步从肉眼降到文本
-
-### 能不能靠谱
-
-能。不需要 ML、不需要新重依赖。
-`image` crate 已经在 workspace deps（`Cargo.toml:28`），能 decode PNG/JPEG。
-cheap 像素统计覆盖你判断依据里的大部分：
-
-| 你判断的       | 自动化的方法                                              | 成本     |
-|----------------|----------------------------------------------------------|----------|
-| 彩色 vs 灰度   | 扫像素看 `max(|R-G|,|G-B|,|R-B|)`，超阈值即彩色           | O(n)     |
-| 2-tone / 网点  | 直方图强双峰，或唯一颜色数极少                            | O(n)     |
-| 尺寸 → 力度    | 直接编码经验：`longest_edge > 2000 → strong` 等           | 读 header|
-| JPEG artifact  | 源是 JPG + 8px 块边界方差（blockiness）                  | O(n)     |
-
-前两项 trivial，第三项是把你脑子里的规则写成 config。
-最弱是 JPEG artifact 检测，cheap proxy 是 blockiness。
-判不准时倾向"按尺寸档 despeckle"——对干净 JPEG 轻微 despeckle 只是略软，
-可接受；真不准的你在 manifest 里改。
-
-### 关键：classifier 不需要 100% 对
-
-它出草稿、你改文本、然后执行。
-你从"逐张肉眼看图选参数"降到"扫一眼文本 manifest 改几行"。
-这才是省注意力的地方。
-
-### Manifest 输出：按摘要审，不是逐行审
-
-200 页的书 manifest 逐行审不现实。
-classifier 输出按 recipe 分组的摘要，只把 low-confidence 条目单列出来让人审：
-
-```text
-分类摘要：
-  clean-color      : 8 张   (封面、彩页)
-  screentone       : 187 张 (正文黑白网点)
-  jpeg-artifact-lg : 5 张   (来源 JPEG，大图)
-
-需人工确认（置信度 < 0.7）：
-  p042.png  → jpeg-artifact-lg? (blockiness 0.62，可能是干净 JPG)
-  p150.png  → screentone? (颜色数偏多，可能是灰阶而非纯网点)
-
-其余按上述分组，默认 recipe = clean-color。
-```
-
-人从"看 200 行"降到"看几行"。
-
----
-
-## 自动化清单（按优先级）
-
-每项独立，按需开。
-
-### C1. Manifest + 链式 pipeline + `imgo route` —— 地基
-
-mixed 图包立刻一条命令跑完。
-没有 classifier 也能手写 manifest 凑合用。
-这是把第 3/4 步的 N 次循环砍成 1 次的关键。
-
-### C2. `imgo classify` —— 第 3 步自动化
-
-第 3 步从"肉眼逐张"降到"扫文本摘要改几行"。
-和 C1 解耦，C1 先落地、C2 后补，互不阻塞。
-
-### C3. 多本子批量 + 归档 hook
+Direct expert commands remain available:
 
 ```sh
-imgo batch b1/ b2/ b3/   # 逐个 classify + route + archive
+i avif --quality 65 --chroma auto <files...>
+i jxl <files...>
+i denoise --mode artifact <files...>
+i clean-scan --threshold 55 <files...>
 ```
 
-真·睡前一键。transcode 完直接调你那个 7z rust app，少一步手动打包。
+## Classification model
 
-### C4. 完成通知 + 备份策略
+A flat label such as `screentone` is not enough. The analyzer measures orthogonal properties from decoded pixels:
 
-跑完 `notify-send` / 终端 bell，不用切窗看进度。
+- color occupancy;
+- exact bilevel versus general grayscale;
+- grayscale entropy and near-black/white occupancy;
+- edge/detail energy;
+- low-amplitude fine variation globally and in local tiles;
+- canvas scale.
 
-备份删除要谨慎。你第 5 步是"看一遍结果再删"——
-200 张里一张 cleanscan 翻车很常见，
-"输出非空"校验替代不了肉眼 QA。
-所以默认**不自动删** `.backup`，做成显式 flag：
+It groups images by measured properties such as `color-textured-small` or `gray-quiet-large`. The plan stores relative file paths, stable source fingerprints, group metrics, one representative, a conservative selected recipe, and explicit alternatives.
 
-```sh
-imgo route manifest.toml --purge-backup   # 显式确认才删
-```
+This deliberately does **not** treat JPEG extension or 8-pixel block-boundary energy as proof of JPEG damage. On the reference corpus, the strongest 8-pixel signal came from a clean grayscale/halftone image, while the clean JPEG had a much weaker signal. Deliberate panel geometry and screentone make blockiness heuristics unreliable.
 
-或更稳的：归档成功（7z 打完、校验通过）后才删备份。
-默认行为偏向安全，宁可多留一次备份让你手动清。
+### Automatic choices
 
-### C5. 输出落盘到 NAS 挂载点
+- An image with exactly two decoded grayscale values selects mathematically lossless JPEG XL directly.
+- Other grayscale images select direct monochrome AVIF.
+- Color images select direct AVIF with automatic chroma sampling.
+- Larger canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
 
-`imgo route --dest /mnt/nas/manga/...`：路径映射你来定，
-连最后搬运都省。
+### Review-only alternatives
 
----
+These are generated but never selected automatically:
 
-## 交付节奏
+- fixed-threshold one-bit conversion followed by lossless JXL;
+- bilateral or light adaptive denoise followed by AVIF;
+- despeckle for broad pencil-like grayscale texture;
+- AOM denoise/grain synthesis for densely textured color images;
+- lower-quality and, for color, 4:2:0 compact AVIF variants.
 
-两个阶段，风险隔离：
+Sharp clean screentone and degraded near-bilevel scans can have nearly identical histograms. Thresholding either one automatically would be unsafe. The representative preview makes that ambiguity visible without requiring inspection of every page.
 
-1. **地基阶段（C1）**：manifest + 链式 pipeline + `route`。
-   classifier 之后再加。立即能用、风险最低。
-2. **自动化阶段（C2–C5）**：classifier、批量、归档 hook、通知、NAS 落盘。
-   在地基上叠加，每项独立可测。
+## Encoder policy
 
-执行自动化是地基——哪怕没 auto-classifier，
-光"manifest + 链式 + 一条命令跑 mixed 包"就把第 3/4 步的 N 次循环砍成 1 次。
-classifier 是把第 3 步从"肉眼"降到"扫文本"。
-两者解耦，可分两步交付。
+### AVIF
 
----
+The AVIF recipe uses libavif's documented quality control rather than combining `--qcolor` with a separate libaom `cq-level`:
 
-## 实现对接点（给写代码时的锚）
+- color quality is explicit in `0..=100`;
+- alpha is lossless;
+- 10-bit output is the default;
+- `--yuv` is omitted for `auto`, allowing grayscale PNG to become 4:0:0 and color PNG to remain 4:4:4;
+- 4:2:0 plus SharpYUV is an explicit compact color alternative;
+- Exif/XMP are stripped, but ICC profiles are retained;
+- AOM grain synthesis is opt-in per recipe, never global.
 
-- `orchestrate`（`pipeline.rs:345`）：核心要改的地方。
-  现在 `execute: Fn(&Image, &Path)` 是单步，扩展成步骤链。
-  temp 在步骤间传递，最后一步才 backup + 落盘。
-- `process_one`（`pipeline.rs:154`）：现在 `temp → work → backup → dest`。
-  链式改成一串 temp 传递。
-- `Meta::input_formats()` / `output_format()`（`transcoder/mod.rs:22,25`）：
-  现成，用来校验相邻步骤格式匹配。
-- 现有 transcoder（`avif.rs`/`jxl.rs`/`magick.rs`）的参数：
-  recipe 原样复用，不动 transcoder 本身。
-- `collect_for`（`pipeline.rs:264`）：manifest 模式下，
-  收集逻辑改成"读 manifest 的 entries"而不是按格式扫全目录。
-- 新增 `classify` 模块：独立于 pipeline，只做像素分析 + manifest 生成。
-  依赖 `image` crate（已在 workspace deps），不引入新重依赖。
+The old global grain switch was the largest proven defect. On the sharp-screentone reference, the old settings produced 102,274 bytes with SSIMULACRA2 42.7; disabling grain produced 99,600 bytes with score 90.2. It was simultaneously larger, slower, and much more distorted.
 
----
+Forced 4:2:0 is also not a safe universal default for colored line art. On the clean-color reference at quality 65, automatic 4:4:4 produced 292,626 bytes and score 85.4; 4:2:0 produced 241,608 bytes and score 80.8. Both are available through review instead of being conflated with quality.
 
-## 你得到的工作流
+For the 4118x3096 clean grayscale reference, quality 55 scored 81.8 at native resolution and 89.0 after both source and result were downscaled to a 2000-pixel viewing bound. Quality 65 scored 85.0 native and 90.6 at that viewing bound. This supports scale-aware defaults while keeping a higher-quality alternative editable in the plan.
 
-```text
-下载压缩包 → 解压
-  → imgo classify <dir> -o manifest.toml
-  → 扫一眼 manifest 摘要，改几行 low-confidence
-  → imgo route manifest.toml --archive --notify
-  → 去睡觉
-醒来 → 检查归档 → 放 NAS
-```
+### JPEG XL
 
-第 3 步从"逐张肉眼看图选参数"变成"扫文本摘要改几行"。
-第 4 步从"跑 N 次、切窗监控 N 次"变成"一条命令跑一次"。
-mental context switching 从"反复切窗看番看进度"降到"睡前一条命令"。
+One set of expert modular parameters was not consistently smallest. For the two one-bit references:
+
+- the expert strategy won 91,406 versus 93,634 bytes on one page;
+- standard effort 9 won 45,120 versus 46,995 bytes on the other.
+
+Lossless JXL recipes therefore run both strategies and retain the smaller result. This is safe because decoded pixels are identical.
+
+## How to judge alternatives
+
+Use two separate checks:
+
+1. **Encoding distortion:** compare an encoded result with the input to that encoder. SSIMULACRA2 at native and intended viewing scale is useful for choosing AVIF quality and detecting accidental line damage.
+2. **Preprocessing intent:** compare the preprocessed representative with the original at 1:1. A metric treats intended denoising as an error and can penalize synthesized grain even when it looks acceptable. This decision remains visual.
+
+Discard a preprocessing recipe if it is both larger and visibly worse. The reference sharp-screentone page demonstrates why: adaptive blur increased the quality-65 AVIF from 98,511 to 295,580 bytes while reducing SSIMULACRA2 from 90.5 to 13.7.
+
+## Execution invariants
+
+Before mutating a source, `i run` validates the complete plan:
+
+- schema version and unknown fields;
+- relative paths and duplicate membership;
+- source size/timestamp fingerprints;
+- every step's parameters and format transition;
+- all required executables;
+- deterministic destination collisions.
+
+Each image is then handled independently:
+
+1. Run every recipe step through temporary files.
+2. Verify that the final output is non-empty and flush it.
+3. Move the original to `.backup`, preserving the relative tree.
+4. Atomically persist the final output beside the source.
+
+One bad page does not cancel unrelated pages. Successful results remain committed; failures are aggregated and returned with a non-zero exit status. If commit fails after backup, the next run can re-encode from the verified backup. Existing unrelated outputs are never silently overwritten or renamed with a numeric suffix.
+
+`--no-backup` is available, but it intentionally gives up reliable resume detection and is not the default for automated runs.
+
+## External tools
+
+The processing surface requires:
+
+- ImageMagick 7 for preprocessing and preview decoding;
+- `avifenc` from libavif for AVIF;
+- `cjxl` from libjxl for JPEG XL.
+
+The implementation probes every tool needed by the selected plan before moving any source file.

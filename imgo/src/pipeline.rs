@@ -1,9 +1,9 @@
-//! Pipeline orchestration: image discovery, parallel execution,
-//! backup, and output resolution shared by all transcoder kinds.
+//! Transactional image execution shared by manual commands and automation.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs::create_dir_all;
 use std::fs::rename;
-use std::iter::repeat;
 use std::num::NonZeroU64;
 use std::path::Path;
 use std::path::PathBuf;
@@ -19,504 +19,658 @@ use ino_color::ceprintln;
 use ino_color::fg::BrightBlue;
 use ino_color::fg::Red;
 use ino_color::fg::Yellow;
-use itertools::izip;
-use parking_lot::Mutex;
 use rayon::ThreadPoolBuilder;
-use tempfile::NamedTempFile;
+use rayon::prelude::*;
+use tempfile::Builder;
 use tracing::debug;
-use tracing::debug_span;
 
-use crate::BACKUP_DIR_NAME;
-use crate::fs::BaseSeqExt;
-use crate::fs::RelAbs;
+use crate::fs::backup_path;
 use crate::fs::collect_images;
+use crate::fs::destination_path;
+use crate::fs::selected_image;
 use crate::img::Image;
 use crate::img::ImageFormat;
-use crate::transcoder::External;
+use crate::recipe::Recipe;
 use crate::transcoder::Pixel;
 
-/// Type alias for the transcoder work closure passed through the pipeline.
-type Work<'data> =
-    dyn Fn(&Image, &Path) -> anyhow::Result<Vec<String>> + Sync + 'data;
-
-/// Internal flag shared across worker threads: once one task fails,
-/// remaining tasks observe `Cancel` and skip themselves.
-enum Permit {
-    Go,
-    Cancel,
-}
-
-/// Reports a fatal task error: prints the message bar-aware, marks the
-/// pipeline as cancelled, and advances the progress bar. Always returns
-/// `None` so callers can write `fail(...)? `-style control flow with `Option`.
-fn fail(
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    msg: impl std::fmt::Display,
-) {
-    bar.suspend(|| ceprintln!(Red, "{msg}"));
-    *permit.lock() = Permit::Cancel;
-    bar.inc(1);
-}
-
-// ── Fail-aware helpers: return None after calling fail() ───────────
-// These exist so the worker closure can use `?` for abort control flow.
-
-/// Run the transcoder work and collect any warnings.
-fn run_work(
-    exec: &Work<'_>,
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    image: &Image,
-    temp: &Path,
-) -> Option<Vec<String>> {
-    match exec(image, temp) {
-        Ok(w) => Some(w),
-        Err(err) => {
-            fail(
-                permit,
-                bar,
-                format!(
-                    "Failed to process {}: {err}",
-                    image.path.original_path().display()
-                ),
-            );
-            None
-        }
-    }
-}
-
-/// Move the source to backup, creating the backup directory tree first.
-fn backup(
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    image: &Image,
-    input_path: &Path,
-    backup_dir: &Path,
-) -> Option<()> {
-    let backup_path = image.path.backup_path_structure(backup_dir);
-    if let Some(backup_parent) = backup_path.parent()
-        && let Err(err) = create_dir_all(backup_parent)
-    {
-        fail(
-            permit,
-            bar,
-            format!(
-                "Failed to create backup dir {}: {err}",
-                backup_parent.display()
-            ),
-        );
-        return None;
-    }
-    if let Err(err) = rename(input_path, &backup_path) {
-        fail(
-            permit,
-            bar,
-            format!("Failed to backup {}: {err}", input_path.display()),
-        );
-        return None;
-    }
-    debug!("Backed up to {}", backup_path.display());
-    Some(())
-}
-
-// ── Infallible helpers ────────────────────────────────────────────
-
-/// Print any warnings the transcoder surfaced, bar-aware.
-fn print_warnings(bar: &ProgressBar, warnings: &[String]) {
-    for warning in warnings {
-        bar.suspend(|| ceprintln!(Yellow, "{warning}"));
-    }
-}
-
-/// Build the destination path, resolving conflicts by incrementing seq.
-fn resolve_dest(
-    dest_dir: &Path,
-    image: &Image,
-    output_ext: &str,
-) -> PathBuf {
-    let mut output_extra = image.extra.set_ext(&format!(".{output_ext}"));
-    let mut dest_path = dest_dir.join(output_extra.to_filename());
-    while dest_path.exists() {
-        debug!(
-            r#"Destination "{}" exists, incrementing seq"#,
-            dest_path.display()
-        );
-        output_extra = output_extra.increment_seq();
-        dest_path = dest_dir.join(output_extra.to_filename());
-    }
-    dest_path
-}
-
-/// Processes a single image: temp → work → warnings → backup →
-/// resolve dest → finalize. Cancellation and failures are reported
-/// before returning early.
-fn process_one(
-    permit: &Arc<Mutex<Permit>>,
-    bar: &ProgressBar,
-    exec: &Work<'_>,
-    image: &Image,
-    backup_dir: &Path,
-    no_backup: bool,
-    output_ext: &str,
-) {
-    if matches!(*permit.lock(), Permit::Cancel) {
-        debug!("Job cancelled");
-        return;
-    }
-    let _g = debug_span!("processing", ?image).entered();
-    let input_path = image.path.original_path();
-
-    bar.suspend(|| {
-        ceprintln!(BrightBlue, "Processing: {}", input_path.display());
-    });
-
-    let temp_output =
-        match NamedTempFile::with_suffix(format!(".{output_ext}")) {
-            Ok(temp) => temp,
-            Err(err) => {
-                fail(
-                    permit,
-                    bar,
-                    format!(
-                        "Failed to create tempfile for {}: {err}",
-                        input_path.display()
-                    ),
-                );
-                return;
-            }
-        };
-
-    let Some(warnings) =
-        run_work(exec, permit, bar, image, temp_output.path())
-    else {
-        return;
-    };
-    print_warnings(bar, &warnings);
-
-    let Some(dest_dir) = image.path.parent_dir().or_else(|| {
-        fail(permit, bar, "[BUG] Failed to get parent directory");
-        None
-    }) else {
-        return;
-    };
-
-    if !no_backup
-        && backup(permit, bar, image, &input_path, backup_dir).is_none()
-    {
-        return;
-    }
-
-    let dest_path = resolve_dest(&dest_dir, image, output_ext);
-
-    if let Err(err) = std::fs::copy(temp_output.path(), &dest_path) {
-        fail(
-            permit,
-            bar,
-            format!(
-                "Failed to copy output to {}: {err}",
-                dest_path.display()
-            ),
-        );
-        return;
-    }
-
-    bar.inc(1);
-}
-
-/// Shared CLI options common to every transcoder subcommand.
-#[derive(clap::Args)]
-#[derive(Debug)]
+/// Shared CLI options for direct, single-recipe commands.
+#[derive(clap::Args, Debug)]
 pub struct SharedOpts {
-    /// The starting point for finding images. Also the backup
-    /// folder will be created here.
-    /// Defaults to `PWD`.
+    /// Starting point for discovery and the `.backup` tree. Defaults to PWD.
     #[arg(long, short = 'W')]
     pub workspace: Option<PathBuf>,
 
-    /// Leaving original pictures at the place after transcoding
-    /// skipping backup.
-    #[arg(long, short = 'N')]
-    #[arg(default_value_t = false)]
+    /// Keep originals in place instead of moving them to `.backup`.
+    #[arg(long, short = 'N', default_value_t = false)]
     pub no_backup: bool,
 
-    /// Number of parallel transcoding to run.
-    /// The default job count is transcoder dependent.
+    /// Number of images processed concurrently. Encoders may use multiple
+    /// threads internally, so expensive encoders default to one image at once.
     #[arg(long, short = 'J')]
     pub jobs: Option<NonZeroU64>,
 
-    /// Do not recurse into subdirectories when collecting images.
-    /// Only images from the workspace or current directory will be processed.
-    #[arg(long, short = 'R')]
-    #[arg(default_value_t = false)]
+    /// Only discover immediate children of each selected directory.
+    #[arg(long, short = 'R', default_value_t = false)]
     pub no_recursive: bool,
 
-    /// Manually choose pictures to transcode.
-    /// This also disables backup.
-    // #[arg(last = true)]
+    /// Explicit files or directories. Manual selection keeps originals.
     pub manual_selection: Option<Vec<PathBuf>>,
 }
 
 impl SharedOpts {
-    /// Effective "skip backup" flag: explicit `--no-backup` OR manual
-    /// selection (which always disables backup).
-    #[inline]
     #[must_use]
     pub fn skips_backup(&self) -> bool {
         self.no_backup || self.manual_selection.is_some()
     }
 }
-/// Collect images for the given input formats, honoring `SharedOpts`
-/// for workspace, recursion, and manual selection.
-fn collect_for(
-    shared: &SharedOpts,
-    input_formats: &[ImageFormat],
-) -> anyhow::Result<(PathBuf, Vec<Image>)> {
-    let workspace = {
-        let pwd = std::env::current_dir()?;
-        shared.workspace.as_ref().map_or(pwd, Clone::clone)
-    };
 
-    let images = if let Some(man_sel) = &shared.manual_selection {
-        debug!("Use manually chosen images");
-        let mut accu = vec![];
-        for sel in man_sel {
-            if sel.is_dir() {
-                if shared.no_recursive {
-                    debug!(
-                        "{} is a directory, skipping in non-recursive mode",
-                        sel.display()
-                    );
-                    continue;
-                }
-                debug!(
-                    "Selection {} is a directory, collecting images",
-                    sel.display()
-                );
-                let collected = collect_images(
-                    sel,
-                    input_formats,
-                    !shared.no_recursive,
-                )
-                .with_context(|| {
-                    format!(
-                        "Failed to collect images from {}",
-                        sel.display()
-                    )
-                })?;
-                accu.extend(collected);
-            } else {
-                let path = RelAbs::from_path(&workspace, sel);
-                let Some(format) = ImageFormat::from_path(sel) else {
-                    bail!(
-                        "The format of {} is not supported",
-                        sel.display()
-                    );
-                };
-                ensure!(
-                    input_formats.contains(&format),
-                    "Format {:?} of {} is not accepted by this transcoder",
-                    format,
-                    sel.display()
-                );
-                let extra = BaseSeqExt::try_from(sel.as_ref())?;
-                accu.push(Image {
-                    path,
-                    format,
-                    extra,
-                });
-            }
-        }
-        accu
-    } else {
-        debug!(
-            "No manual selection, collect images from {} of {:?}",
-            workspace.display(),
-            input_formats
-        );
-        collect_images(&workspace, input_formats, !shared.no_recursive)
-            .context("Failed to collect images")?
-    };
-
-    Ok((workspace, images))
+#[derive(Debug, Clone)]
+pub struct Job {
+    pub image: Image,
+    pub recipe: Arc<Recipe>,
 }
 
-/// Shared orchestration core: owns backup, progress, parallel
-/// execution, temp files, and output resolution. The `execute`
-/// closure does the actual work (spawn command or transform pixels)
-/// and writes its result to the given temp path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BatchSummary {
+    pub processed: usize,
+    pub already_complete: usize,
+}
+
+#[derive(Debug)]
+enum PreparedState {
+    Complete,
+    Pending {
+        input: PathBuf,
+        destination: PathBuf,
+        backup: PathBuf,
+        needs_backup: bool,
+    },
+}
+
+/// Run heterogeneous recipe jobs.
 ///
-/// `execute` returns a list of warning messages (e.g. lossy
-/// downconversion notices) which `orchestrate` prints bar-aware. It
-/// must not touch the filesystem beyond the temp path.
-fn orchestrate(
-    workspace: &Path,
-    images: Vec<Image>,
-    no_backup: bool,
-    jobs: NonZeroU64,
-    output_format: ImageFormat,
-    execute: impl Fn(&Image, &Path) -> anyhow::Result<Vec<String>>
-    + Send
-    + Sync,
-) -> anyhow::Result<()> {
-    if images.is_empty() {
-        ceprintln!(Yellow, "No images to process.");
-        return Ok(());
-    }
-
-    let shared_backup_dir = Arc::new({
-        let dir = workspace.join(BACKUP_DIR_NAME);
-        if !no_backup {
-            std::fs::create_dir_all(&dir)?;
-        }
-        dir
-    });
-
-    let progress_bar = {
-        let bar = ProgressBar::new(images.len() as u64);
-        let style = ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{bar:40.blue/gray}] {pos}/{len} ({eta})",
-        )?
-        .progress_chars("#>-");
-        bar.set_style(style);
-        bar.enable_steady_tick(Duration::from_millis(100));
-        bar
-    };
-
-    let thread_pool = ThreadPoolBuilder::new()
-        .num_threads(usize::try_from(jobs.get())?)
-        .build()?;
-
-    let Some(output_ext) = output_format.exts().first() else {
-        bail!("[BUG] Output format has no ext");
-    };
-
-    thread_pool.scope(|scope| -> anyhow::Result<()> {
-        let shared_permit = Arc::new(Mutex::new(Permit::Go));
-        let exec: &Work<'_> = &execute;
-
-        for (image, permit, bar, backup_dir) in izip!(
-            images,
-            repeat(shared_permit),
-            repeat(progress_bar.clone()),
-            repeat(shared_backup_dir),
-        ) {
-            scope.spawn(move |_| {
-                process_one(
-                    &permit,
-                    &bar,
-                    exec,
-                    &image,
-                    &backup_dir,
-                    no_backup,
-                    output_ext,
-                );
-            });
-        }
-
-        Ok(())
-    })?;
-
-    progress_bar.finish();
-    Ok(())
-}
-
-/// Runs the external (shell-out) transcoder pipeline.
+/// All recipes, tools, paths, and output collisions are checked before the
+/// first source is moved.
 ///
 /// # Errors
 ///
-/// Returns an error if image collection fails, the transcoder
-/// command cannot be spawned, or the command exits with a non-zero
-/// status.
-pub fn run_pipeline_external(
-    shared: &SharedOpts,
-    transcoder: &dyn External,
-) -> anyhow::Result<()> {
-    ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());
-
-    let (workspace, images) =
-        collect_for(shared, transcoder.input_formats())?;
+/// Fails preflight on invalid recipes, missing tools, stale filesystem state,
+/// or output collisions. After execution starts, returns a combined error if
+/// any image failed; successful images remain committed and resumable.
+pub fn run_jobs(
+    workspace: &Path,
+    jobs: Vec<Job>,
+    no_backup: bool,
+    parallelism: NonZeroU64,
+) -> anyhow::Result<BatchSummary> {
+    let mut tools = BTreeSet::new();
+    for job in &jobs {
+        job.recipe.validate_for(job.image.format).with_context(|| {
+            format!("validate recipe for {}", job.image.path.display())
+        })?;
+        job.recipe.required_tools(&mut tools);
+    }
+    for tool in tools {
+        tool.verify()?;
+    }
 
     orchestrate(
-        &workspace,
-        images,
-        shared.skips_backup(),
-        shared.jobs.unwrap_or_else(|| transcoder.default_jobs()),
-        transcoder.output_format(),
-        |image, temp| {
-            let input_path = image.path.original_path();
-            let mut cmd = transcoder.transcode(&input_path, temp);
-            let output = cmd
-                .output()
-                .with_context(|| format!("spawn {}", transcoder.id()))?;
-            if !output.status.success() {
-                bail!(
-                    "{} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",
-                    transcoder.id(),
-                    input_path.display(),
-                    output.status.code(),
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr),
-                );
-            }
-            Ok(vec![])
+        workspace,
+        jobs,
+        no_backup,
+        parallelism,
+        |job| &job.image,
+        |job| job.recipe.validate_for(job.image.format),
+        |job, input, output| {
+            job.recipe.execute(input, job.image.format, output)
         },
     )
 }
 
-/// Runs the in-process pixel transcoder pipeline.
+/// Run one recipe over files discovered by the manual CLI surface.
 ///
 /// # Errors
 ///
-/// Returns an error if image collection fails, the input image
-/// cannot be decoded, the transcoder's `transform` fails, or the
-/// output PNG cannot be encoded.
+/// Returns an error when discovery, preflight, execution, backup, or atomic
+/// output commit fails.
+pub fn run_pipeline_recipe(
+    shared: &SharedOpts,
+    recipe: Recipe,
+) -> anyhow::Result<BatchSummary> {
+    let first = recipe
+        .first_input_formats()
+        .context("recipe has no first step")?;
+    let (workspace, images) = collect_for(shared, first)?;
+    let parallelism = shared.jobs.unwrap_or_else(|| recipe.default_jobs());
+    let recipe = Arc::new(recipe);
+    let jobs = images
+        .into_iter()
+        .map(|image| Job {
+            image,
+            recipe: Arc::clone(&recipe),
+        })
+        .collect();
+    run_jobs(&workspace, jobs, shared.skips_backup(), parallelism)
+}
+
+/// Run an in-process pixel transform through the same preflight, backup, and
+/// atomic-commit path used by external recipes.
+///
+/// # Errors
+///
+/// Returns an error when discovery, decoding, transformation, backup, or
+/// atomic output commit fails.
 pub fn run_pipeline_pixel(
     shared: &SharedOpts,
     transcoder: &dyn Pixel,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<BatchSummary> {
     ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());
     ceprintln!(
         Yellow,
         "Note: metadata (EXIF/ICC) is stripped; GIF uses first frame only."
     );
-
     let (workspace, images) =
         collect_for(shared, transcoder.input_formats())?;
+    let parallelism =
+        shared.jobs.unwrap_or_else(|| transcoder.default_jobs());
+    let output_format = transcoder.output_format();
 
     orchestrate(
         &workspace,
         images,
         shared.skips_backup(),
-        shared.jobs.unwrap_or_else(|| transcoder.default_jobs()),
-        transcoder.output_format(),
-        |image, temp| {
-            let input_path = image.path.original_path();
-            let img = image::open(&input_path).with_context(|| {
-                format!("decode {}", input_path.display())
-            })?;
-
+        parallelism,
+        |image| image,
+        |_| Ok(output_format),
+        |image, input, output| {
+            let decoded = image::open(input)
+                .with_context(|| format!("decode {}", input.display()))?;
             let mut warnings = Vec::new();
-
-            let bpp = img.color().bits_per_pixel();
-            if bpp > 32 {
+            let bits = decoded.color().bits_per_pixel();
+            if bits > 32 {
                 warnings.push(format!(
-                    "{}: {bpp}-bit input, downconverting to 8-bit (lossy)",
-                    input_path.display()
+                    "{}: {bits}-bit input, downconverting to 8-bit",
+                    image.path.display()
                 ));
             }
             if image.format == ImageFormat::GIF {
                 warnings.push(format!(
-                    "{}: GIF, only first frame processed",
-                    input_path.display()
+                    "{}: only the first GIF frame is processed",
+                    image.path.display()
                 ));
             }
-
-            let mut rgba = img.to_rgba8();
+            let mut rgba = decoded.to_rgba8();
             transcoder.transform(&mut rgba)?;
-            rgba.save(temp)
-                .with_context(|| format!("encode {}", temp.display()))?;
+            rgba.save(output)
+                .with_context(|| format!("encode {}", output.display()))?;
             Ok(warnings)
         },
     )
+}
+
+fn collect_for(
+    shared: &SharedOpts,
+    input_formats: &[ImageFormat],
+) -> anyhow::Result<(PathBuf, Vec<Image>)> {
+    let workspace = shared.workspace.clone().map_or_else(
+        std::env::current_dir,
+        Ok::<PathBuf, std::io::Error>,
+    )?;
+    let workspace = workspace.canonicalize().with_context(|| {
+        format!("resolve workspace {}", workspace.display())
+    })?;
+
+    let mut images = if let Some(selections) = &shared.manual_selection {
+        let mut selected = Vec::new();
+        for selection in selections {
+            let path = if selection.is_absolute() {
+                selection.clone()
+            } else {
+                workspace.join(selection)
+            };
+            if path.is_dir() {
+                selected.extend(collect_images(
+                    &path,
+                    input_formats,
+                    !shared.no_recursive,
+                )?);
+            } else {
+                selected.push(selected_image(
+                    &workspace,
+                    selection,
+                    input_formats,
+                )?);
+            }
+        }
+        selected
+    } else {
+        collect_images(&workspace, input_formats, !shared.no_recursive)?
+    };
+
+    images.sort_by(|left, right| left.path.cmp(&right.path));
+    images.dedup_by(|left, right| left.path == right.path);
+    Ok((workspace, images))
+}
+
+fn orchestrate<T, ImageOf, OutputOf, Execute>(
+    workspace: &Path,
+    items: Vec<T>,
+    no_backup: bool,
+    parallelism: NonZeroU64,
+    image_of: ImageOf,
+    output_of: OutputOf,
+    execute: Execute,
+) -> anyhow::Result<BatchSummary>
+where
+    T: Send + Sync,
+    ImageOf: Fn(&T) -> &Image + Send + Sync,
+    OutputOf: Fn(&T) -> anyhow::Result<ImageFormat> + Send + Sync,
+    Execute:
+        Fn(&T, &Path, &Path) -> anyhow::Result<Vec<String>> + Send + Sync,
+{
+    if items.is_empty() {
+        ceprintln!(Yellow, "No images to process.");
+        return Ok(BatchSummary::default());
+    }
+
+    let prepared = preflight_states(
+        workspace, &items, no_backup, &image_of, &output_of,
+    )?;
+    let bar = progress_bar(items.len())?;
+    let thread_count = usize::try_from(parallelism.get())?;
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(thread_count)
+        .build()
+        .context("build image worker pool")?;
+
+    let results = pool.install(|| {
+        items
+            .into_par_iter()
+            .zip(prepared.into_par_iter())
+            .map(|(item, state)| {
+                let image = image_of(&item);
+                let result = match state {
+                    PreparedState::Complete => Ok(false),
+                    PreparedState::Pending {
+                        input,
+                        destination,
+                        backup,
+                        needs_backup,
+                    } => process_one(
+                        image,
+                        &input,
+                        &destination,
+                        &backup,
+                        needs_backup,
+                        &bar,
+                        |temporary| execute(&item, &input, temporary),
+                    )
+                    .map(|()| true),
+                };
+                if let Err(error) = &result {
+                    bar.suspend(|| {
+                        ceprintln!(
+                            Red,
+                            "Failed to process {}: {error:#}",
+                            image.path.display()
+                        );
+                    });
+                }
+                bar.inc(1);
+                result
+            })
+            .collect::<Vec<_>>()
+    });
+    bar.finish();
+
+    let mut summary = BatchSummary::default();
+    let mut failures = Vec::new();
+    for result in results {
+        match result {
+            Ok(true) => summary.processed += 1,
+            Ok(false) => summary.already_complete += 1,
+            Err(error) => failures.push(error),
+        }
+    }
+    if !failures.is_empty() {
+        let details = failures
+            .iter()
+            .take(10)
+            .map(|error| format!("- {error:#}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        bail!(
+            "{} image(s) failed; completed outputs remain resumable:\n{}",
+            failures.len(),
+            details
+        );
+    }
+    Ok(summary)
+}
+
+fn preflight_states<T, ImageOf, OutputOf>(
+    workspace: &Path,
+    items: &[T],
+    no_backup: bool,
+    image_of: &ImageOf,
+    output_of: &OutputOf,
+) -> anyhow::Result<Vec<PreparedState>>
+where
+    ImageOf: Fn(&T) -> &Image,
+    OutputOf: Fn(&T) -> anyhow::Result<ImageFormat>,
+{
+    let mut destinations: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
+    let mut states = Vec::with_capacity(items.len());
+    for item in items {
+        let image = image_of(item);
+        let destination = destination_path(&image.path, output_of(item)?);
+        if let Some(previous) =
+            destinations.insert(destination.clone(), image.path.clone())
+        {
+            ensure!(
+                previous == image.path,
+                "{} and {} both map to output {}",
+                previous.display(),
+                image.path.display(),
+                destination.display()
+            );
+        }
+        states.push(prepare_state(
+            workspace,
+            image,
+            destination,
+            no_backup,
+        )?);
+    }
+    Ok(states)
+}
+
+fn prepare_state(
+    workspace: &Path,
+    image: &Image,
+    destination: PathBuf,
+    no_backup: bool,
+) -> anyhow::Result<PreparedState> {
+    let source = &image.path;
+    let backup = backup_path(workspace, source);
+    let source_exists = source.is_file();
+    let backup_exists = backup.is_file();
+    let same_path = destination == *source;
+    let destination_exists = destination.is_file();
+
+    if no_backup {
+        ensure!(source_exists, "source is missing: {}", source.display());
+        ensure!(
+            same_path || !destination_exists,
+            "output already exists: {}",
+            destination.display()
+        );
+        return Ok(PreparedState::Pending {
+            input: source.clone(),
+            destination,
+            backup,
+            needs_backup: false,
+        });
+    }
+
+    if same_path {
+        return match (source_exists, backup_exists) {
+            (true, true) => {
+                ensure!(
+                    std::fs::metadata(source)?.len() > 0,
+                    "completed output is empty: {}",
+                    source.display()
+                );
+                Ok(PreparedState::Complete)
+            }
+            (true, false) => Ok(PreparedState::Pending {
+                input: source.clone(),
+                destination,
+                backup,
+                needs_backup: true,
+            }),
+            (false, true) => Ok(PreparedState::Pending {
+                input: backup.clone(),
+                destination,
+                backup,
+                needs_backup: false,
+            }),
+            (false, false) => {
+                bail!(
+                    "source and backup are missing: {}",
+                    source.display()
+                )
+            }
+        };
+    }
+
+    match (source_exists, backup_exists, destination_exists) {
+        (true, false, false) => Ok(PreparedState::Pending {
+            input: source.clone(),
+            destination,
+            backup,
+            needs_backup: true,
+        }),
+        (false, true, true) => {
+            ensure!(
+                std::fs::metadata(&destination)?.len() > 0,
+                "completed output is empty: {}",
+                destination.display()
+            );
+            Ok(PreparedState::Complete)
+        }
+        (false, true, false) => Ok(PreparedState::Pending {
+            input: backup.clone(),
+            destination,
+            backup,
+            needs_backup: false,
+        }),
+        (true, _, true) => bail!(
+            "refusing to overwrite existing output {} while source {} remains",
+            destination.display(),
+            source.display()
+        ),
+        (true, true, false) => bail!(
+            "both source and backup exist for {}; resolve the stale backup first",
+            source.display()
+        ),
+        (false, false, true) => bail!(
+            "output {} exists but neither source nor backup can prove it belongs to the job",
+            destination.display()
+        ),
+        (false, false, false) => {
+            bail!("source and backup are missing: {}", source.display())
+        }
+    }
+}
+
+fn process_one(
+    image: &Image,
+    input: &Path,
+    destination: &Path,
+    backup: &Path,
+    needs_backup: bool,
+    bar: &ProgressBar,
+    execute: impl FnOnce(&Path) -> anyhow::Result<Vec<String>>,
+) -> anyhow::Result<()> {
+    bar.suspend(|| {
+        ceprintln!(BrightBlue, "Processing: {}", image.path.display());
+    });
+    let parent = destination
+        .parent()
+        .context("destination has no parent directory")?;
+    let suffix = destination
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map_or_else(String::new, |extension| format!(".{extension}"));
+    let temporary = Builder::new()
+        .prefix(".imgo-")
+        .suffix(&suffix)
+        .tempfile_in(parent)
+        .with_context(|| {
+            format!("create output beside {}", destination.display())
+        })?;
+
+    let warnings = execute(temporary.path())?;
+    for warning in warnings {
+        bar.suspend(|| ceprintln!(Yellow, "{warning}"));
+    }
+    let metadata = std::fs::metadata(temporary.path())?;
+    ensure!(
+        metadata.len() > 0,
+        "encoder produced an empty output for {}",
+        image.path.display()
+    );
+    let source_permissions = std::fs::metadata(input)?.permissions();
+    std::fs::set_permissions(temporary.path(), source_permissions)?;
+    temporary.as_file().sync_all().with_context(|| {
+        format!("flush encoded output for {}", image.path.display())
+    })?;
+
+    if needs_backup {
+        if let Some(backup_parent) = backup.parent() {
+            create_dir_all(backup_parent).with_context(|| {
+                format!(
+                    "create backup directory {}",
+                    backup_parent.display()
+                )
+            })?;
+        }
+        rename(input, backup).with_context(|| {
+            format!("move {} to {}", input.display(), backup.display())
+        })?;
+        debug!(path = %backup.display(), "source backed up");
+    }
+
+    temporary
+        .persist(destination)
+        .map_err(|error| error.error)
+        .with_context(|| {
+            format!("commit encoded output to {}", destination.display())
+        })?;
+    Ok(())
+}
+
+fn progress_bar(length: usize) -> anyhow::Result<ProgressBar> {
+    let bar = ProgressBar::new(u64::try_from(length)?);
+    let style = ProgressStyle::with_template(
+        "{spinner:.green} [{elapsed_precise}] [{bar:40.blue/gray}] {pos}/{len} ({eta})",
+    )?
+    .progress_chars("#>-");
+    bar.set_style(style);
+    bar.enable_steady_tick(Duration::from_millis(100));
+    Ok(bar)
+}
+
+#[cfg(test)]
+#[expect(clippy::panic_in_result_fn, reason = "test assertions")]
+#[expect(clippy::unwrap_used, reason = "test verifies a batch error")]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    #[test]
+    fn commits_once_and_resumes_from_backup_state() -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let workspace = temporary.path();
+        let source = workspace.join("page.png");
+        std::fs::write(&source, b"original")?;
+        let image = Image {
+            path: source.clone(),
+            format: ImageFormat::PNG,
+        };
+        let calls = AtomicUsize::new(0);
+
+        let initial_summary = orchestrate(
+            workspace,
+            vec![image.clone()],
+            false,
+            NonZeroU64::MIN,
+            |image| image,
+            |_| Ok(ImageFormat::AVIF),
+            |_, input, output| {
+                assert_eq!(input, source);
+                calls.fetch_add(1, Ordering::Relaxed);
+                std::fs::write(output, b"encoded")?;
+                Ok(Vec::new())
+            },
+        )?;
+        assert_eq!(
+            initial_summary,
+            BatchSummary {
+                processed: 1,
+                already_complete: 0,
+            }
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read(workspace.join(".backup/page.png"))?,
+            b"original"
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("page.avif"))?,
+            b"encoded"
+        );
+
+        let resumed_summary = orchestrate(
+            workspace,
+            vec![image],
+            false,
+            NonZeroU64::MIN,
+            |image| image,
+            |_| Ok(ImageFormat::AVIF),
+            |_, _, _| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                anyhow::bail!("completed work must not execute again")
+            },
+        )?;
+        assert_eq!(resumed_summary.processed, 0);
+        assert_eq!(resumed_summary.already_complete, 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn one_failure_does_not_cancel_independent_images()
+    -> anyhow::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let workspace = temporary.path();
+        let failed = workspace.join("a.png");
+        let successful = workspace.join("b.png");
+        std::fs::write(&failed, b"a")?;
+        std::fs::write(&successful, b"b")?;
+        let images = [&failed, &successful]
+            .into_iter()
+            .map(|path| Image {
+                path: path.clone(),
+                format: ImageFormat::PNG,
+            })
+            .collect();
+
+        let result = orchestrate(
+            workspace,
+            images,
+            false,
+            NonZeroU64::MIN,
+            |image| image,
+            |_| Ok(ImageFormat::AVIF),
+            |image, _, output| {
+                if image.path == failed {
+                    anyhow::bail!("deliberate failure");
+                }
+                std::fs::write(output, b"encoded")?;
+                Ok(Vec::new())
+            },
+        );
+        result.unwrap_err();
+        assert!(failed.exists());
+        assert!(!workspace.join(".backup/a.png").exists());
+        assert!(!successful.exists());
+        assert!(workspace.join(".backup/b.png").exists());
+        assert_eq!(std::fs::read(workspace.join("b.avif"))?, b"encoded");
+        Ok(())
+    }
 }
