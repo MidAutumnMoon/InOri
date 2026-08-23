@@ -56,7 +56,8 @@ impl Chroma {
 #[derive(clap::Args, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Avif {
-    /// libavif quality in 0..=100. Higher is better; 100 is lossless.
+    /// libavif color quality in 0..=100. At 100 quantization is lossless;
+    /// chroma conversion can still be lossy.
     #[arg(long, short = 'q', default_value_t = Self::default().quality)]
     pub quality: u8,
 
@@ -91,18 +92,6 @@ impl Default for Avif {
     }
 }
 
-impl Avif {
-    fn validate(&self) -> anyhow::Result<()> {
-        ensure!(self.quality <= 100, "AVIF quality must be in 0..=100");
-        ensure!(
-            matches!(self.depth, 8 | 10 | 12),
-            "AVIF depth must be 8, 10, or 12"
-        );
-        ensure!(self.speed <= 10, "AVIF speed must be in 0..=10");
-        Ok(())
-    }
-}
-
 impl Meta for Avif {
     fn id(&self) -> &'static str {
         "avifenc"
@@ -122,11 +111,17 @@ impl Meta for Avif {
 }
 
 impl Operation for Avif {
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    fn validate(&self) -> anyhow::Result<()> {
+        ensure!(self.quality <= 100, "AVIF quality must be in 0..=100");
+        ensure!(
+            matches!(self.depth, 8 | 10 | 12),
+            "AVIF depth must be 8, 10, or 12"
+        );
+        ensure!(self.speed <= 10, "AVIF speed must be in 0..=10");
+        Ok(())
+    }
+
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
         self.validate()?;
 
         let mut command = Tool::AvifEnc.command();
@@ -154,8 +149,7 @@ impl Operation for Avif {
         }
         command.arg("--").args([input, output]);
 
-        run_command(self.id(), input, &mut command)?;
-        Ok(Vec::new())
+        run_command(self.id(), input, &mut command)
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {

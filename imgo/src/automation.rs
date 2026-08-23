@@ -42,8 +42,17 @@ use crate::transcoder::magick::Denoise;
 use crate::transcoder::magick::Mode;
 use crate::transcoder::run_command;
 
-const PLAN_VERSION: u32 = 1;
+const PLAN_VERSION: u32 = 2;
 const DEFAULT_PLAN_NAME: &str = "imgo-plan.json";
+
+const SMALL_AVIF_QUALITY: u8 = 68;
+const MEDIUM_AVIF_QUALITY: u8 = 65;
+const LARGE_AVIF_QUALITY: u8 = 55;
+const COMPACT_QUALITY_DELTA: u8 = 7;
+const NEAR_BILEVEL_REVIEW_PERCENT: f64 = 68.0;
+const PENCIL_MAX_NEAR_BW_PERCENT: f64 = 40.0;
+const PENCIL_MIN_GRAY_ENTROPY: f64 = 5.5;
+const PENCIL_MIN_SOFT_NOISE_PERCENT: f64 = 8.0;
 
 #[derive(Debug, clap::Args)]
 pub struct PlanOpts {
@@ -108,7 +117,7 @@ struct Plan {
 struct PlanGroup {
     id: String,
     selected_recipe: String,
-    alternative_recipes: Vec<String>,
+    candidate_recipes: Vec<String>,
     review_required: bool,
     reasons: Vec<String>,
     metrics: GroupMetrics,
@@ -185,8 +194,8 @@ pub fn create_plan(options: &PlanOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Generate full-resolution representative outputs for every selected and
-/// alternative recipe in a plan.
+/// Generate full-resolution representative outputs for every candidate recipe
+/// in a plan, with the selected candidate shown first.
 ///
 /// # Errors
 ///
@@ -195,7 +204,7 @@ pub fn create_plan(options: &PlanOpts) -> anyhow::Result<()> {
 pub fn preview_plan(options: &PreviewOpts) -> anyhow::Result<()> {
     let plan = Plan::read(&options.plan)?;
     plan.validate()?;
-    plan.validate_fingerprints()?;
+    plan.validate_source_metadata()?;
     let output = options
         .output
         .clone()
@@ -226,7 +235,7 @@ pub fn preview_plan(options: &PreviewOpts) -> anyhow::Result<()> {
             .iter()
             .find(|file| file.path == group.representative)
             .context("representative is absent from its group")?;
-        let source = plan.resolve_source(planned)?;
+        let source = plan.resolve_planned_source(planned)?;
         let original_extension = ImageFormat::from_path(&source)
             .and_then(ImageFormat::primary_extension)
             .unwrap_or("img");
@@ -269,7 +278,6 @@ pub fn preview_plan(options: &PreviewOpts) -> anyhow::Result<()> {
                 directory.join(format!("{name}.preview.png"));
             let mut command = Tool::Magick.command();
             command.arg(&encoded_path);
-            command.arg("-strip");
             command.arg(&decoded_path);
             run_command(
                 "magick review decode",
@@ -308,19 +316,19 @@ pub fn preview_plan(options: &PreviewOpts) -> anyhow::Result<()> {
 pub fn run_plan(options: &RunOpts) -> anyhow::Result<()> {
     let plan = Plan::read(&options.plan)?;
     plan.validate()?;
-    plan.validate_fingerprints()?;
+    plan.validate_source_metadata()?;
 
     let mut recipe_cache: BTreeMap<String, Arc<Recipe>> = BTreeMap::new();
     for group in &plan.groups {
-        if !recipe_cache.contains_key(&group.selected_recipe) {
-            let recipe =
-                plan.recipes.get(&group.selected_recipe).with_context(
-                    || format!("unknown recipe {}", group.selected_recipe),
-                )?;
-            recipe_cache.insert(
-                group.selected_recipe.clone(),
-                Arc::new(recipe.clone()),
-            );
+        match recipe_cache.entry(group.selected_recipe.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let recipe =
+                    plan.recipes.get(entry.key()).with_context(|| {
+                        format!("unknown recipe {}", entry.key())
+                    })?;
+                entry.insert(Arc::new(recipe.clone()));
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
         }
     }
     let mut jobs = Vec::new();
@@ -384,13 +392,19 @@ impl Plan {
                 relative_to(&workspace, &representative_image.image.path)?;
             let recommendation = recipes_for_group(key, metrics);
             for (name, recipe) in recommendation.recipes {
-                if let Some(existing) =
-                    recipes.insert(name.clone(), recipe.clone())
-                {
-                    ensure!(
-                        existing == recipe,
-                        "recipe name {name} has conflicting definitions"
-                    );
+                match recipes.entry(name) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(recipe);
+                    }
+                    std::collections::btree_map::Entry::Occupied(
+                        entry,
+                    ) => {
+                        ensure!(
+                            entry.get() == &recipe,
+                            "recipe name {} has conflicting definitions",
+                            entry.key()
+                        );
+                    }
                 }
             }
             let files = images
@@ -402,10 +416,13 @@ impl Plan {
                     )
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
+            let selected_recipe = recommendation.selected;
+            let mut candidate_recipes = vec![selected_recipe.clone()];
+            candidate_recipes.extend(recommendation.alternatives);
             groups.push(PlanGroup {
                 id: key.id(),
-                selected_recipe: recommendation.selected,
-                alternative_recipes: recommendation.alternatives,
+                selected_recipe,
+                candidate_recipes,
                 review_required: recommendation.review_required,
                 reasons: recommendation.reasons,
                 metrics,
@@ -464,6 +481,12 @@ impl Plan {
             "plan workspace is not a directory"
         );
         ensure!(!self.groups.is_empty(), "plan has no groups");
+        ensure!(!self.recipes.is_empty(), "plan has no recipes");
+
+        for (name, recipe) in &self.recipes {
+            ensure!(valid_id(name), "invalid recipe id: {name}");
+            validate_automation_recipe(name, recipe)?;
+        }
 
         let mut group_ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
@@ -480,12 +503,6 @@ impl Plan {
                 group.id
             );
             ensure!(
-                self.recipes.contains_key(&group.selected_recipe),
-                "group {} selects unknown recipe {}",
-                group.id,
-                group.selected_recipe
-            );
-            ensure!(
                 group
                     .files
                     .iter()
@@ -493,77 +510,121 @@ impl Plan {
                 "group {} representative is not a member",
                 group.id
             );
-            for name in group.recipe_names() {
-                ensure!(valid_id(name), "invalid recipe id: {name}");
-                let recipe =
-                    self.recipes.get(name).with_context(|| {
-                        format!(
-                            "group {} references unknown recipe {name}",
-                            group.id
-                        )
-                    })?;
-                for file in &group.files {
-                    validate_relative_path(&file.path)?;
-                    let format = ImageFormat::from_path(&file.path)
-                        .with_context(|| {
-                            format!(
-                                "unsupported planned image {}",
-                                file.path.display()
-                            )
-                        })?;
-                    let output = recipe.validate_for(format)?;
-                    ensure!(
-                        matches!(
-                            output,
-                            ImageFormat::AVIF | ImageFormat::JXL
-                        ),
-                        "automation recipe {name} must end in AVIF or JXL"
-                    );
-                }
+
+            ensure!(
+                !group.candidate_recipes.is_empty(),
+                "group {} has no candidate recipes",
+                group.id
+            );
+            let mut referenced_recipes = BTreeSet::new();
+            for name in &group.candidate_recipes {
+                ensure!(
+                    referenced_recipes.insert(name),
+                    "group {} references recipe {name} more than once",
+                    group.id
+                );
+                ensure!(
+                    self.recipes.contains_key(name),
+                    "group {} references unknown recipe {name}",
+                    group.id
+                );
             }
+            ensure!(
+                referenced_recipes.contains(&group.selected_recipe),
+                "group {} selects recipe {} outside its candidates",
+                group.id,
+                group.selected_recipe
+            );
+
             for file in &group.files {
+                validate_relative_path(&file.path)?;
                 ensure!(
                     paths.insert(&file.path),
                     "image appears in more than one group: {}",
                     file.path.display()
                 );
+                let format = ImageFormat::from_path(&file.path)
+                    .with_context(|| {
+                        format!(
+                            "unsupported planned image {}",
+                            file.path.display()
+                        )
+                    })?;
+                for name in group.recipe_names() {
+                    self.recipes
+                        .get(name)
+                        .context("recipe reference was validated")?
+                        .validate_for(format)
+                        .with_context(|| {
+                            format!(
+                                "recipe {name} cannot process {}",
+                                file.path.display()
+                            )
+                        })?;
+                }
             }
         }
         Ok(())
     }
 
-    fn validate_fingerprints(&self) -> anyhow::Result<()> {
+    fn validate_source_metadata(&self) -> anyhow::Result<()> {
         for group in &self.groups {
             for file in &group.files {
-                self.resolve_source(file)?;
+                self.resolve_planned_source(file)?;
             }
         }
         Ok(())
     }
 
-    fn resolve_source(
+    fn resolve_planned_source(
         &self,
         file: &PlannedFile,
     ) -> anyhow::Result<PathBuf> {
         let source = self.workspace.join(&file.path);
-        if file.matches(&source)? {
+        if file.matches_metadata(&source)? {
             return Ok(source);
         }
         let backup = backup_path(&self.workspace, &source);
-        if file.matches(&backup)? {
+        if file.matches_metadata(&backup)? {
             return Ok(backup);
         }
         bail!(
-            "{} changed or disappeared since the plan was generated (backup also does not match)",
+            "{} changed or disappeared since the plan was generated (backup metadata also does not match)",
             file.path.display()
         )
     }
 }
 
+fn validate_automation_recipe(
+    name: &str,
+    recipe: &Recipe,
+) -> anyhow::Result<()> {
+    let input_formats = recipe
+        .first_input_formats()
+        .with_context(|| format!("recipe {name} has no steps"))?;
+    ensure!(
+        !input_formats.is_empty(),
+        "recipe {name} accepts no input formats"
+    );
+    for format in input_formats {
+        let output = recipe
+            .validate_for(*format)
+            .with_context(|| format!("invalid recipe {name}"))?;
+        ensure!(
+            matches!(output, ImageFormat::AVIF | ImageFormat::JXL),
+            "automation recipe {name} must end in AVIF or JXL"
+        );
+    }
+    Ok(())
+}
+
 impl PlanGroup {
     fn recipe_names(&self) -> impl Iterator<Item = &String> {
-        std::iter::once(&self.selected_recipe)
-            .chain(self.alternative_recipes.iter())
+        std::iter::once(&self.selected_recipe).chain(
+            self.candidate_recipes
+                .iter()
+                .filter(|name| *name != &self.selected_recipe),
+        )
     }
 }
 
@@ -579,7 +640,7 @@ impl PlannedFile {
         })
     }
 
-    fn matches(&self, path: &Path) -> anyhow::Result<bool> {
+    fn matches_metadata(&self, path: &Path) -> anyhow::Result<bool> {
         let Ok(metadata) = std::fs::metadata(path) else {
             return Ok(false);
         };
@@ -611,7 +672,7 @@ fn recipes_for_group(
             alternatives: Vec::new(),
             review_required: false,
             reasons: vec![
-                "Decoded pixels contain exactly two grayscale levels; no thresholding is needed."
+                "Decoded pixels contain only black/white grayscale values; no thresholding is needed."
                     .to_owned(),
                 "JPEG XL is mathematically lossless and races two modular strategies."
                     .to_owned(),
@@ -621,20 +682,16 @@ fn recipes_for_group(
     }
 
     let quality = quality_for(key.scale);
-    let safe_name = format!("avif-q{quality}-auto");
+    let scale = scale_name(key.scale);
+    let safe_name = format!("avif-safe-{scale}");
     let safe_recipe = avif_recipe(quality, Chroma::Auto, false);
-    let compact_quality = quality.saturating_sub(7);
-    let compact_chroma = if key.palette == PaletteClass::Color {
-        Chroma::Yuv420
-    } else {
-        Chroma::Auto
-    };
-    let compact_suffix = if compact_chroma == Chroma::Yuv420 {
-        "420"
-    } else {
-        "auto"
-    };
-    let compact_name = format!("avif-q{compact_quality}-{compact_suffix}");
+    let compact_quality = quality.saturating_sub(COMPACT_QUALITY_DELTA);
+    let (compact_name, compact_chroma) =
+        if key.palette == PaletteClass::Color {
+            (format!("avif-color-compact-{scale}"), Chroma::Yuv420)
+        } else {
+            (format!("avif-gray-compact-{scale}"), Chroma::Auto)
+        };
     let compact_recipe =
         avif_recipe(compact_quality, compact_chroma, false);
     let mut recommendation = Recommendation {
@@ -658,7 +715,7 @@ fn recipes_for_group(
     if key.palette == PaletteClass::Color
         && key.texture == TextureClass::Textured
     {
-        let grain_name = format!("avif-q{quality}-420-grain");
+        let grain_name = format!("avif-color-grain-{scale}");
         recommendation.alternatives.push(grain_name.clone());
         recommendation.recipes.push((
             grain_name,
@@ -673,39 +730,27 @@ fn recipes_for_group(
 
     if key.palette == PaletteClass::Gray {
         if key.texture == TextureClass::Textured {
-            let bilateral_name = format!("bilateral-avif-q{quality}");
-            let adaptive_name = format!("adaptive-light-avif-q{quality}");
+            let bilateral_name = format!("gray-bilateral-{scale}");
+            let adaptive_name = format!("gray-adaptive-light-{scale}");
             recommendation
                 .alternatives
                 .extend([bilateral_name.clone(), adaptive_name.clone()]);
             recommendation.recipes.push((
                 bilateral_name,
-                Recipe {
-                    steps: vec![
-                        Step::Denoise(Denoise::default()),
-                        Step::Avif(avif_options(
-                            quality,
-                            Chroma::Auto,
-                            false,
-                        )),
-                    ],
-                },
+                Recipe::pair(
+                    Step::Denoise(Denoise::default()),
+                    Step::Avif(avif_options(quality, Chroma::Auto, false)),
+                ),
             ));
             recommendation.recipes.push((
                 adaptive_name,
-                Recipe {
-                    steps: vec![
-                        Step::Denoise(Denoise {
-                            mode: Mode::AdaptiveBlur,
-                            strength: Some("1x0.5".to_owned()),
-                        }),
-                        Step::Avif(avif_options(
-                            quality,
-                            Chroma::Auto,
-                            false,
-                        )),
-                    ],
-                },
+                Recipe::pair(
+                    Step::Denoise(Denoise {
+                        mode: Mode::AdaptiveBlur,
+                        strength: Some("1x0.5".to_owned()),
+                    }),
+                    Step::Avif(avif_options(quality, Chroma::Auto, false)),
+                ),
             ));
             recommendation.review_required = true;
             recommendation.reasons.push(
@@ -713,17 +758,15 @@ fn recipes_for_group(
                     .to_owned(),
             );
         }
-        if metrics.near_bw_percent >= 68.0 {
-            let bilevel_name = "clean-scan-55-jxl".to_owned();
+        if metrics.near_bw_percent >= NEAR_BILEVEL_REVIEW_PERCENT {
+            let bilevel_name = "clean-scan-jxl".to_owned();
             recommendation.alternatives.push(bilevel_name.clone());
             recommendation.recipes.push((
                 bilevel_name,
-                Recipe {
-                    steps: vec![
-                        Step::CleanScan(CleanScan::default()),
-                        Step::Jxl(Jxl::default()),
-                    ],
-                },
+                Recipe::pair(
+                    Step::CleanScan(CleanScan::default()),
+                    Step::Jxl(Jxl::default()),
+                ),
             ));
             recommendation.review_required = true;
             recommendation.reasons.push(
@@ -731,27 +774,21 @@ fn recipes_for_group(
                     .to_owned(),
             );
         }
-        if metrics.near_bw_percent < 40.0
-            && metrics.gray_entropy >= 5.5
-            && metrics.soft_noise_percent >= 8.0
+        if metrics.near_bw_percent < PENCIL_MAX_NEAR_BW_PERCENT
+            && metrics.gray_entropy >= PENCIL_MIN_GRAY_ENTROPY
+            && metrics.soft_noise_percent >= PENCIL_MIN_SOFT_NOISE_PERCENT
         {
-            let despeckle_name = format!("despeckle-avif-q{quality}");
+            let despeckle_name = format!("gray-despeckle-{scale}");
             recommendation.alternatives.push(despeckle_name.clone());
             recommendation.recipes.push((
                 despeckle_name,
-                Recipe {
-                    steps: vec![
-                        Step::Denoise(Denoise {
-                            mode: Mode::Despeckle,
-                            strength: None,
-                        }),
-                        Step::Avif(avif_options(
-                            quality,
-                            Chroma::Auto,
-                            false,
-                        )),
-                    ],
-                },
+                Recipe::pair(
+                    Step::Denoise(Denoise {
+                        mode: Mode::Despeckle,
+                        strength: None,
+                    }),
+                    Step::Avif(avif_options(quality, Chroma::Auto, false)),
+                ),
             ));
             recommendation.review_required = true;
             recommendation.reasons.push(
@@ -783,9 +820,17 @@ const fn quality_for(scale: ScaleClass) -> u8 {
     match scale {
         // Smaller canvases receive more quality because defects occupy more of
         // the viewed image. Large pages are tuned for a 2k-ish viewing scale.
-        ScaleClass::Small => 68,
-        ScaleClass::Medium => 65,
-        ScaleClass::Large => 55,
+        ScaleClass::Small => SMALL_AVIF_QUALITY,
+        ScaleClass::Medium => MEDIUM_AVIF_QUALITY,
+        ScaleClass::Large => LARGE_AVIF_QUALITY,
+    }
+}
+
+const fn scale_name(scale: ScaleClass) -> &'static str {
+    match scale {
+        ScaleClass::Small => "small",
+        ScaleClass::Medium => "medium",
+        ScaleClass::Large => "large",
     }
 }
 
@@ -954,12 +999,12 @@ mod tests {
             },
             metrics(78.0),
         );
-        assert_eq!(recommendation.selected, "avif-q55-auto");
+        assert_eq!(recommendation.selected, "avif-safe-large");
         assert!(
             recommendation
                 .alternatives
                 .iter()
-                .any(|name| name == "clean-scan-55-jxl")
+                .any(|name| name == "clean-scan-jxl")
         );
         assert!(recommendation.review_required);
     }
@@ -977,32 +1022,32 @@ mod tests {
             },
             color_metrics,
         );
-        assert_eq!(recommendation.selected, "avif-q68-auto");
+        assert_eq!(recommendation.selected, "avif-safe-small");
         assert!(
             recommendation
                 .alternatives
                 .iter()
-                .any(|name| name.ends_with("-grain"))
+                .any(|name| name == "avif-color-grain-small")
         );
     }
 
     #[test]
-    fn fingerprint_numbers_survive_javascript_editors()
-    -> anyhow::Result<()> {
+    fn metadata_numbers_survive_javascript_editors() -> anyhow::Result<()>
+    {
         const JS_MAX_SAFE_INTEGER: u64 = 0x001F_FFFF_FFFF_FFFF;
 
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("image.png");
         std::fs::write(&path, b"pixels")?;
-        let fingerprint =
+        let metadata =
             PlannedFile::from_path(PathBuf::from("image.png"), &path)?;
-        assert!(fingerprint.modified_unix_seconds < JS_MAX_SAFE_INTEGER);
+        assert!(metadata.modified_unix_seconds < JS_MAX_SAFE_INTEGER);
         assert!(
-            u64::from(fingerprint.modified_subsec_nanos)
+            u64::from(metadata.modified_subsec_nanos)
                 < JS_MAX_SAFE_INTEGER
         );
 
-        let mut value = serde_json::to_value(&fingerprint)?;
+        let mut value = serde_json::to_value(&metadata)?;
         let object = value
             .as_object_mut()
             .context("planned file did not serialize as an object")?;
@@ -1013,5 +1058,53 @@ mod tests {
         );
         serde_json::from_value::<PlannedFile>(value).unwrap_err();
         Ok(())
+    }
+
+    #[test]
+    fn selected_recipe_can_change_without_rewriting_candidates()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let safe = "safe".to_owned();
+        let compact = "compact".to_owned();
+        let plan = Plan {
+            version: PLAN_VERSION,
+            workspace: directory.path().to_path_buf(),
+            recipes: BTreeMap::from([
+                (
+                    safe.clone(),
+                    Recipe::single(Step::Avif(Avif::default())),
+                ),
+                (
+                    compact.clone(),
+                    Recipe::single(Step::Avif(Avif {
+                        quality: 58,
+                        ..Avif::default()
+                    })),
+                ),
+            ]),
+            groups: vec![PlanGroup {
+                id: "gray-quiet-small".to_owned(),
+                selected_recipe: compact.clone(),
+                candidate_recipes: vec![safe, compact],
+                review_required: false,
+                reasons: Vec::new(),
+                metrics: metrics(50.0),
+                representative: PathBuf::from("page.png"),
+                files: vec![PlannedFile {
+                    path: PathBuf::from("page.png"),
+                    bytes: 1,
+                    modified_unix_seconds: 0,
+                    modified_subsec_nanos: 0,
+                }],
+            }],
+        };
+
+        plan.validate()
+    }
+
+    #[test]
+    fn all_recipe_definitions_must_end_in_an_archive_format() {
+        let png_only = Recipe::single(Step::Denoise(Denoise::default()));
+        validate_automation_recipe("png-only", &png_only).unwrap_err();
     }
 }

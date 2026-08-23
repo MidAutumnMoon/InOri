@@ -13,6 +13,8 @@ use crate::transcoder::Operation;
 use crate::transcoder::Tool;
 use crate::transcoder::run_command;
 
+const DEFAULT_CLEAN_SCAN_THRESHOLD: u8 = 55;
+
 /// `ImageMagick` preprocessing modes. Destructive modes remain explicit
 /// recipe steps: image statistics cannot reliably distinguish intentional
 /// texture from disposable noise.
@@ -66,11 +68,22 @@ impl Meta for Denoise {
 }
 
 impl Operation for Denoise {
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    fn validate(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.strength
+                .as_deref()
+                .is_none_or(|strength| !strength.trim().is_empty()),
+            "denoise strength cannot be empty"
+        );
+        ensure!(
+            self.mode != Mode::Despeckle || self.strength.is_none(),
+            "despeckle does not accept --strength"
+        );
+        Ok(())
+    }
+
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+        self.validate()?;
         let mut command = Tool::Magick.command();
         command.arg(input);
         match self.mode {
@@ -99,8 +112,7 @@ impl Operation for Denoise {
         }
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
-        run_command(self.id(), input, &mut command)?;
-        Ok(Vec::new())
+        run_command(self.id(), input, &mut command)
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
@@ -129,7 +141,7 @@ pub struct CleanScan {
 impl Default for CleanScan {
     fn default() -> Self {
         Self {
-            threshold: 55,
+            threshold: DEFAULT_CLEAN_SCAN_THRESHOLD,
             otsu: false,
             sharpen: true,
         }
@@ -155,15 +167,20 @@ impl Meta for CleanScan {
 }
 
 impl Operation for CleanScan {
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    fn validate(&self) -> anyhow::Result<()> {
         ensure!(
             self.threshold <= 100,
             "clean-scan threshold must be in 0..=100"
         );
+        ensure!(
+            !self.otsu || self.threshold == DEFAULT_CLEAN_SCAN_THRESHOLD,
+            "--threshold cannot be customized together with --otsu"
+        );
+        Ok(())
+    }
+
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+        self.validate()?;
 
         let mut command = Tool::Magick.command();
         command.arg(input);
@@ -182,8 +199,7 @@ impl Operation for CleanScan {
         command.args(["-depth", "1", "-colors", "2"]);
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
-        run_command(self.id(), input, &mut command)?;
-        Ok(Vec::new())
+        run_command(self.id(), input, &mut command)
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {

@@ -26,7 +26,7 @@ enum CliOpts {
     /// Analyze a directory, group similar images, and write a reviewable plan.
     Plan(PlanOpts),
 
-    /// Encode representative alternatives from a plan for 1:1 visual review.
+    /// Encode representative candidates from a plan for 1:1 visual review.
     Preview(PreviewOpts),
 
     /// Execute every selected recipe in a reviewed plan.

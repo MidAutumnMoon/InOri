@@ -49,11 +49,7 @@ impl Meta for Jxl {
 }
 
 impl Operation for Jxl {
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
         let directory =
             tempfile::tempdir().context("create JXL work directory")?;
         let standard_path = directory.path().join("standard.jxl");
@@ -80,7 +76,7 @@ impl Operation for Jxl {
         std::fs::copy(&selected, output).with_context(|| {
             format!("copy selected JXL output to {}", output.display())
         })?;
-        Ok(Vec::new())
+        Ok(())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
@@ -104,7 +100,6 @@ fn encode_expert(input: &Path, output: &Path) -> anyhow::Result<()> {
     command.args(["--modular", "1"]);
     command.args(["--lossless_jpeg", "1"]);
     command.args(["--distance", "0"]);
-    command.args(["--premultiply", "1"]);
     command.args(["--iterations", "100"]);
     command.args(["--modular_nb_prev_channels", "6"]);
     command.args(["--modular_group_size", "2"]);

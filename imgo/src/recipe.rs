@@ -76,34 +76,14 @@ impl Step {
 
     fn validate(&self) -> anyhow::Result<()> {
         match self {
-            Self::Avif(options) => {
-                ensure!(
-                    options.quality <= 100,
-                    "AVIF quality must be in 0..=100"
-                );
-                ensure!(
-                    matches!(options.depth, 8 | 10 | 12),
-                    "AVIF depth must be 8, 10, or 12"
-                );
-                ensure!(
-                    options.speed <= 10,
-                    "AVIF speed must be in 0..=10"
-                );
-            }
-            Self::CleanScan(options) => ensure!(
-                options.threshold <= 100,
-                "clean-scan threshold must be in 0..=100"
-            ),
-            Self::Jxl(_) | Self::Denoise(_) => {}
+            Self::Avif(step) => step.validate(),
+            Self::Jxl(step) => step.validate(),
+            Self::Denoise(step) => step.validate(),
+            Self::CleanScan(step) => step.validate(),
         }
-        Ok(())
     }
 
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
         match self {
             Self::Avif(step) => step.run(input, output),
             Self::Jxl(step) => step.run(input, output),
@@ -126,13 +106,20 @@ impl Step {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
-    pub steps: Vec<Step>,
+    steps: Vec<Step>,
 }
 
 impl Recipe {
     #[must_use]
     pub fn single(step: Step) -> Self {
         Self { steps: vec![step] }
+    }
+
+    #[must_use]
+    pub fn pair(first: Step, second: Step) -> Self {
+        Self {
+            steps: vec![first, second],
+        }
     }
 
     #[must_use]
@@ -172,21 +159,6 @@ impl Recipe {
         Ok(format)
     }
 
-    /// Verify every external tool required by the recipe.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a configured tool is missing or fails its version
-    /// probe.
-    pub fn verify_tools(&self) -> anyhow::Result<()> {
-        let mut tools = BTreeSet::new();
-        self.required_tools(&mut tools);
-        for tool in tools {
-            tool.verify()?;
-        }
-        Ok(())
-    }
-
     #[must_use]
     pub fn default_jobs(&self) -> NonZeroU64 {
         self.steps
@@ -207,27 +179,17 @@ impl Recipe {
         input: &Path,
         input_format: ImageFormat,
         output: &Path,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<()> {
         self.validate_for(input_format)?;
 
         let mut current_path = input.to_path_buf();
-        let mut current_format = input_format;
         let mut intermediates: Vec<NamedTempFile> = Vec::new();
-        let mut warnings = Vec::new();
 
         for (index, step) in self.steps.iter().enumerate() {
-            ensure!(
-                step.input_formats().contains(&current_format),
-                "{} does not accept {:?}",
-                step.id(),
-                current_format
-            );
             let is_final = index + 1 == self.steps.len();
             if is_final {
-                warnings.extend(
-                    step.run(&current_path, output)
-                        .with_context(|| format!("run {}", step.id()))?,
-                );
+                step.run(&current_path, output)
+                    .with_context(|| format!("run {}", step.id()))?;
             } else {
                 let extension =
                     step.output_format()
@@ -251,10 +213,9 @@ impl Recipe {
                     .path()
                     .to_path_buf();
             }
-            current_format = step.output_format();
         }
 
-        Ok(warnings)
+        Ok(())
     }
 }
 
@@ -262,6 +223,7 @@ impl Recipe {
 #[expect(clippy::unwrap_used, reason = "test verifies rejected recipes")]
 mod tests {
     use super::*;
+    use crate::transcoder::magick::Mode;
 
     #[test]
     fn validates_every_format_transition() {
@@ -286,5 +248,30 @@ mod tests {
         (Recipe { steps: Vec::new() })
             .validate_for(ImageFormat::PNG)
             .unwrap_err();
+    }
+
+    #[test]
+    fn operation_owns_parameter_validation() {
+        Recipe::single(Step::Avif(Avif {
+            quality: 101,
+            ..Avif::default()
+        }))
+        .validate_for(ImageFormat::PNG)
+        .unwrap_err();
+
+        Recipe::single(Step::Denoise(Denoise {
+            mode: Mode::Despeckle,
+            strength: Some("ignored".to_owned()),
+        }))
+        .validate_for(ImageFormat::PNG)
+        .unwrap_err();
+
+        Recipe::single(Step::CleanScan(CleanScan {
+            threshold: 50,
+            otsu: true,
+            sharpen: true,
+        }))
+        .validate_for(ImageFormat::PNG)
+        .unwrap_err();
     }
 }

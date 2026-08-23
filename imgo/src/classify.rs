@@ -4,23 +4,37 @@ use anyhow::Context as _;
 
 use crate::img::Image;
 
-const MAX_SAMPLED_PIXELS: usize = 2_000_000;
+const MAX_LOCAL_SAMPLES: usize = 2_000_000;
 const TILE_COUNT: usize = 8;
 const TILE_TOTAL: usize = TILE_COUNT * TILE_COUNT;
+
+const COLOR_CHANNEL_DELTA: u8 = 8;
+const IMAGE_COLOR_PERCENT: f64 = 1.0;
+const NEAR_BLACK_MAX: u8 = 8;
+const NEAR_WHITE_MIN: u8 = 247;
+const DETAIL_LAPLACIAN_THRESHOLD: u32 = 24;
+const SOFT_NOISE_LAPLACIAN_MIN: u32 = 4;
+const SOFT_NOISE_LAPLACIAN_MAX: u32 = 20;
+const SOFT_NOISE_GRADIENT_MAX: u16 = 24;
+const COLOR_TEXTURE_GLOBAL_PERCENT: f64 = 20.0;
+const COLOR_TEXTURE_TILE_PERCENT: f64 = 35.0;
+const GRAY_TEXTURE_GLOBAL_PERCENT: f64 = 8.0;
+const GRAY_TEXTURE_TILE_PERCENT: f64 = 20.0;
+const SMALL_EDGE_LIMIT: u32 = 1800;
+const MEDIUM_EDGE_LIMIT: u32 = 3000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageFeatures {
     pub width: u32,
     pub height: u32,
     pub color_percent: f64,
+    pub exact_bilevel: bool,
     pub gray_entropy: f64,
     pub gray_levels: u16,
     pub near_bw_percent: f64,
     pub detail_percent: f64,
     pub soft_noise_percent: f64,
     pub max_tile_soft_noise_percent: f64,
-    pub mean_gradient: f64,
-    pub mean_laplacian: f64,
 }
 
 impl ImageFeatures {
@@ -70,19 +84,19 @@ pub struct GroupKey {
 impl GroupKey {
     #[must_use]
     pub fn from_features(features: ImageFeatures) -> Self {
-        let palette = if features.gray_levels <= 2
-            && features.near_bw_percent >= 99.9
-        {
-            PaletteClass::Bilevel
-        } else if features.color_percent >= 1.0 {
+        let palette = if features.color_percent >= IMAGE_COLOR_PERCENT {
             PaletteClass::Color
+        } else if features.exact_bilevel {
+            PaletteClass::Bilevel
         } else {
             PaletteClass::Gray
         };
         let texture = match palette {
             PaletteClass::Color => {
-                if features.soft_noise_percent >= 20.0
-                    || features.max_tile_soft_noise_percent >= 35.0
+                if features.soft_noise_percent
+                    >= COLOR_TEXTURE_GLOBAL_PERCENT
+                    || features.max_tile_soft_noise_percent
+                        >= COLOR_TEXTURE_TILE_PERCENT
                 {
                     TextureClass::Textured
                 } else {
@@ -90,8 +104,10 @@ impl GroupKey {
                 }
             }
             PaletteClass::Gray => {
-                if features.soft_noise_percent >= 8.0
-                    || features.max_tile_soft_noise_percent >= 20.0
+                if features.soft_noise_percent
+                    >= GRAY_TEXTURE_GLOBAL_PERCENT
+                    || features.max_tile_soft_noise_percent
+                        >= GRAY_TEXTURE_TILE_PERCENT
                 {
                     TextureClass::Textured
                 } else {
@@ -101,8 +117,8 @@ impl GroupKey {
             PaletteClass::Bilevel => TextureClass::Quiet,
         };
         let scale = match features.longest_edge() {
-            0..1800 => ScaleClass::Small,
-            1800..3000 => ScaleClass::Medium,
+            0..SMALL_EDGE_LIMIT => ScaleClass::Small,
+            SMALL_EDGE_LIMIT..MEDIUM_EDGE_LIMIT => ScaleClass::Medium,
             _ => ScaleClass::Large,
         };
         Self {
@@ -153,51 +169,54 @@ pub fn analyze(image: Image) -> anyhow::Result<AnalyzedImage> {
 
 #[expect(
     clippy::indexing_slicing,
-    reason = "all raw-buffer indexes derive from checked image dimensions and interior pixel coordinates"
+    reason = "RGBA chunks and coordinates are derived from checked image dimensions"
 )]
 fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     let width = pixels.width() as usize;
     let height = pixels.height() as usize;
-    let pixel_count = width.saturating_mul(height);
-    let sampling_ratio = pixel_count.div_ceil(MAX_SAMPLED_PIXELS).max(1);
-    let floor_stride = sampling_ratio.isqrt();
-    let stride = if floor_stride * floor_stride < sampling_ratio {
-        floor_stride + 1
-    } else {
-        floor_stride
-    };
     let raw = pixels.as_raw();
 
-    let mut histogram = [0_u32; 256];
-    let mut sampled = 0_u32;
-    let mut colorful = 0_u32;
-    let mut near_bw = 0_u32;
-    let mut gradient_samples = 0_u32;
+    // Palette and color are exact image-wide facts. Sampling these allowed a
+    // rare chromatic or midtone pixel to turn a non-bilevel page into a
+    // supposedly exact bilevel page.
+    let mut histogram = [0_u64; 256];
+    let mut total_pixels = 0_u64;
+    let mut colorful_pixels = 0_u64;
+    let mut near_bw_pixels = 0_u64;
+    let (rgba_pixels, remainder) = raw.as_chunks::<4>();
+    debug_assert!(
+        remainder.is_empty(),
+        "RgbaImage storage must contain complete four-byte pixels"
+    );
+    for &[red, green, blue, alpha] in rgba_pixels {
+        let (red, green, blue) = composite_rgb(red, green, blue, alpha);
+        let maximum = red.max(green).max(blue);
+        let minimum = red.min(green).min(blue);
+        if maximum - minimum > COLOR_CHANNEL_DELTA {
+            colorful_pixels += 1;
+        }
+        let luminance = luma(red, green, blue);
+        histogram[usize::from(luminance)] += 1;
+        if luminance <= NEAR_BLACK_MAX || luminance >= NEAR_WHITE_MIN {
+            near_bw_pixels += 1;
+        }
+        total_pixels += 1;
+    }
+
+    // Local edge statistics are sampled because they are approximate routing
+    // signals. The stride calculation enforces the accumulator bound.
+    let stride = local_sample_stride(width, height);
+    let mut local_samples = 0_u32;
     let mut detail = 0_u32;
     let mut soft_noise = 0_u32;
-    let mut gradient_sum = 0_u32;
-    let mut laplacian_sum = 0_u32;
     let mut tile_soft = [0_u32; TILE_TOTAL];
     let mut tile_samples = [0_u32; TILE_TOTAL];
-
     for y in (0..height).step_by(stride) {
         for x in (0..width).step_by(stride) {
-            let (red, green, blue) = rgb_at(raw, width, x, y);
-            let maximum = red.max(green).max(blue);
-            let minimum = red.min(green).min(blue);
-            if maximum - minimum > 8 {
-                colorful += 1;
-            }
-            let center = luma(red, green, blue);
-            histogram[usize::from(center)] += 1;
-            if center <= 8 || center >= 247 {
-                near_bw += 1;
-            }
-            sampled += 1;
-
             if x == 0 || y == 0 || x + 1 >= width || y + 1 >= height {
                 continue;
             }
+            let center = luma_at(raw, width, x, y);
             let left = luma_at(raw, width, x - 1, y);
             let right = luma_at(raw, width, x + 1, y);
             let up = luma_at(raw, width, x, y - 1);
@@ -212,17 +231,17 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
                 - i32::from(up)
                 - i32::from(down))
             .unsigned_abs();
-            gradient_sum += u32::from(gradient);
-            laplacian_sum += laplacian;
-            if laplacian > 24 {
+            if laplacian > DETAIL_LAPLACIAN_THRESHOLD {
                 detail += 1;
             }
-            let is_soft_noise =
-                (4..=20).contains(&laplacian) && gradient <= 24;
+            let is_soft_noise = (SOFT_NOISE_LAPLACIAN_MIN
+                ..=SOFT_NOISE_LAPLACIAN_MAX)
+                .contains(&laplacian)
+                && gradient <= SOFT_NOISE_GRADIENT_MAX;
             if is_soft_noise {
                 soft_noise += 1;
             }
-            gradient_samples += 1;
+            local_samples += 1;
 
             let tile_x = x
                 .saturating_mul(TILE_COUNT)
@@ -242,8 +261,8 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         }
     }
 
-    let sampled_f64 = f64::from(sampled.max(1));
-    let gradient_f64 = f64::from(gradient_samples.max(1));
+    let total_f64 = count_as_f64(total_pixels.max(1));
+    let local_f64 = f64::from(local_samples.max(1));
     let mut entropy = 0.0;
     let mut levels = 0_u16;
     for count in histogram {
@@ -251,9 +270,15 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
             continue;
         }
         levels += 1;
-        let probability = f64::from(count) / sampled_f64;
+        let probability = count_as_f64(count) / total_f64;
         entropy -= probability * probability.log2();
     }
+    let exact_bilevel = total_pixels > 0
+        && colorful_pixels == 0
+        && histogram
+            .iter()
+            .enumerate()
+            .all(|(level, count)| *count == 0 || matches!(level, 0 | 255));
     let max_tile_soft_noise_percent = tile_soft
         .iter()
         .zip(tile_samples)
@@ -264,28 +289,53 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     ImageFeatures {
         width: pixels.width(),
         height: pixels.height(),
-        color_percent: f64::from(colorful) * 100.0 / sampled_f64,
+        color_percent: count_as_f64(colorful_pixels) * 100.0 / total_f64,
+        exact_bilevel,
         gray_entropy: entropy,
         gray_levels: levels,
-        near_bw_percent: f64::from(near_bw) * 100.0 / sampled_f64,
-        detail_percent: f64::from(detail) * 100.0 / gradient_f64,
-        soft_noise_percent: f64::from(soft_noise) * 100.0 / gradient_f64,
+        near_bw_percent: count_as_f64(near_bw_pixels) * 100.0 / total_f64,
+        detail_percent: f64::from(detail) * 100.0 / local_f64,
+        soft_noise_percent: f64::from(soft_noise) * 100.0 / local_f64,
         max_tile_soft_noise_percent,
-        mean_gradient: f64::from(gradient_sum) / gradient_f64,
-        mean_laplacian: f64::from(laplacian_sum) / gradient_f64,
     }
 }
 
-#[inline]
+fn local_sample_stride(width: usize, height: usize) -> usize {
+    let pixel_count = width.saturating_mul(height);
+    let sampling_ratio = pixel_count.div_ceil(MAX_LOCAL_SAMPLES).max(1);
+    let floor_stride = sampling_ratio.isqrt();
+    let mut stride = if floor_stride * floor_stride < sampling_ratio {
+        floor_stride + 1
+    } else {
+        floor_stride
+    };
+    while local_sample_count(width, height, stride) > MAX_LOCAL_SAMPLES {
+        stride = stride.saturating_add(1);
+    }
+    stride
+}
+
+fn local_sample_count(
+    width: usize,
+    height: usize,
+    stride: usize,
+) -> usize {
+    width
+        .div_ceil(stride)
+        .saturating_mul(height.div_ceil(stride))
+}
+
 #[expect(
-    clippy::indexing_slicing,
-    reason = "caller supplies coordinates inside the image buffer"
+    clippy::cast_precision_loss,
+    reason = "image population percentages do not require integer precision above f64's exact range"
 )]
-fn rgb_at(raw: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
-    let index = (y * width + x) * 4;
-    let alpha = raw[index + 3];
+fn count_as_f64(count: u64) -> f64 {
+    count as f64
+}
+
+fn composite_rgb(red: u8, green: u8, blue: u8, alpha: u8) -> (u8, u8, u8) {
     if alpha == 255 {
-        return (raw[index], raw[index + 1], raw[index + 2]);
+        return (red, green, blue);
     }
     let composite = |channel: u8| {
         let foreground = u16::from(channel) * u16::from(alpha);
@@ -295,10 +345,21 @@ fn rgb_at(raw: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
             .unwrap_or_default();
         u8::try_from(value).unwrap_or(255)
     };
-    (
-        composite(raw[index]),
-        composite(raw[index + 1]),
-        composite(raw[index + 2]),
+    (composite(red), composite(green), composite(blue))
+}
+
+#[inline]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "caller supplies coordinates inside the image buffer"
+)]
+fn rgb_at(raw: &[u8], width: usize, x: usize, y: usize) -> (u8, u8, u8) {
+    let index = (y * width + x) * 4;
+    composite_rgb(
+        raw[index],
+        raw[index + 1],
+        raw[index + 2],
+        raw[index + 3],
     )
 }
 
@@ -362,5 +423,54 @@ mod tests {
         assert_eq!(key.palette, PaletteClass::Color);
         assert_eq!(key.texture, TextureClass::Quiet);
         assert_eq!(key.scale, ScaleClass::Small);
+    }
+
+    #[test]
+    fn exact_bilevel_scans_every_decoded_pixel() {
+        // The feature sampler uses a stride of two at this size. The lone
+        // midtone deliberately sits between sampled coordinates.
+        let mut image =
+            RgbaImage::from_pixel(2001, 1001, Rgba([255, 255, 255, 255]));
+        image.put_pixel(0, 0, Rgba([0, 0, 0, 255]));
+        image.put_pixel(1, 1, Rgba([127, 127, 127, 255]));
+
+        let features = analyze_rgba(&image);
+        assert_eq!(features.gray_levels, 3);
+        assert_eq!(
+            GroupKey::from_features(features).palette,
+            PaletteClass::Gray
+        );
+    }
+
+    #[test]
+    fn near_black_chroma_is_not_bilevel() {
+        let image = RgbaImage::from_fn(12, 12, |x, _| {
+            if x % 2 == 0 {
+                Rgba([0, 0, 30, 255])
+            } else {
+                Rgba([255, 255, 255, 255])
+            }
+        });
+
+        assert_eq!(
+            GroupKey::from_features(analyze_rgba(&image)).palette,
+            PaletteClass::Color
+        );
+    }
+
+    #[test]
+    fn local_sampling_bound_holds_for_extreme_aspect_ratios() {
+        for (width, height) in [
+            (4299, 1325),
+            (1, 10_000_000),
+            (10_000_000, 1),
+            (100_000, 100_000),
+        ] {
+            let stride = local_sample_stride(width, height);
+            assert!(
+                local_sample_count(width, height, stride)
+                    <= MAX_LOCAL_SAMPLES
+            );
+        }
     }
 }

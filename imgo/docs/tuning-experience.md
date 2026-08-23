@@ -123,7 +123,7 @@ Toggle candidates without rescaling or interpolation changes. Inspect:
 
 ### Use one quality control
 
-`imgo` uses libavif’s `--qcolor` scale: `0` is most lossy and `100` is lossless. It deliberately does not combine that with a separate libaom `cq-level`. Two quality controls make experiments ambiguous and can interact with quantizer bounds.
+`imgo` uses libavif’s `--qcolor` scale: `0` is most lossy and `100` requests lossless color quantization. Chroma conversion such as 4:2:0 can still make the complete encode lossy. `imgo` deliberately does not combine `--qcolor` with a separate libaom `cq-level`; two quality controls make experiments ambiguous and can interact with quantizer bounds.
 
 Approximate migration from the old AOM CQ scale is:
 
@@ -142,6 +142,11 @@ Useful anchors are therefore roughly:
 | 33 | 48 |
 
 Current starting points are quality 68 for small canvases, 65 for medium canvases, and 55 for large canvases. These are viewing-scale priors, not claims that resolution alone determines quality. Each generated plan also offers a value seven points lower as a compact alternative.
+
+Generated recipe IDs are semantic labels such as `avif-safe-large` and
+`avif-color-compact-small`; parameter values live only in the recipe options.
+Do not encode a copied recipe's current quality value into its ID, because the
+label becomes false as soon as the experiment changes that value.
 
 When changing these defaults, compare at equal viewing quality, not merely equal `--qcolor`. Content complexity means the same quality number does not imply the same file size or metric score.
 
@@ -196,13 +201,16 @@ For PNG-like input, `cjxl --distance 0` is the command-line lossless control; ef
 The previous expert modular constants are retained as a second candidate:
 
 ```text
+allow_expert_options
+distance=0
+effort=8
 modular=1
 lossless_jpeg=1
 iterations=100
 modular_nb_prev_channels=6
 modular_group_size=2
 modular_predictor=15
-effort=8
+num_threads=-1
 ```
 
 They are not “better settings.” One reference bilevel page favored them; another favored standard effort 9. `imgo` therefore runs both and keeps the smaller output.
@@ -260,7 +268,7 @@ Under the current AVIF recipe, this mode did not improve the stylized-noise samp
 
 ### Despeckle
 
-`-despeckle` has no numeric parameter. Repeating it effectively creates a stronger, different operation, so repetition count must be treated as a parameter. On the stylized-noise reference it saved about 8% but visibly altered texture and reduced the reference metric. It remains review-only.
+`-despeckle` has no numeric parameter. `imgo` rejects a `strength` value in this mode rather than silently ignoring it. Repeating the operation would create a stronger, different preset, so repetition count must be treated as a parameter. On the stylized-noise reference it saved about 8% but visibly altered texture and reduced the reference metric. It remains review-only.
 
 ### Clean scan: unsharp plus threshold
 
@@ -287,6 +295,10 @@ The high threshold makes sharpening selective, but it still changes which pixels
 
 `-auto-threshold OTSU` chooses a cluster-based threshold from each image histogram. It can adapt to a shifted scan, but page-to-page variation can also create inconsistent line weights. Compare fixed and Otsu on a whole cohort, not one page. ImageMagick can expose the chosen Otsu value through its `auto-threshold:verbose` property; record it when diagnosing outliers.
 
+`--otsu` and a customized fixed `--threshold` are mutually exclusive in the
+recipe contract. This prevents a plan from carrying a threshold value that the
+selected mode silently ignores.
+
 The intermediate PNG uses compression level 1 for speed because it is consumed immediately by AVIF/JXL. Do not use intermediate PNG bytes to judge a preprocessing preset; measure the final encoded result.
 
 ## Classifier constants
@@ -295,16 +307,17 @@ Classifier thresholds route review work; they do not prove semantic image types.
 
 Current 8-bit feature rules include:
 
-- a sampled pixel is chromatic when `max(R,G,B) - min(R,G,B) > 8`;
-- an image is color when at least 1% of sampled pixels are chromatic;
-- exact bilevel requires at most two gray levels and at least 99.9% near black/white;
-- “soft noise” uses Laplacian magnitude 4–20 with local gradient at most 24;
+- a pixel is chromatic when `max(R,G,B) - min(R,G,B) > 8`;
+- color occupancy and the grayscale histogram scan every decoded pixel;
+- an image is color when at least 1% of pixels are chromatic;
+- exact bilevel means no chromatic pixels and only grayscale values 0 and 255;
+- sampled “soft noise” uses Laplacian magnitude 4–20 with local gradient at most 24;
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
 - scale buckets use longest edges below 1800, below 3000, and 3000 or above;
 - near-bilevel grayscale gets a clean-scan alternative at group average 68%; it is never auto-selected.
 
-Analysis samples at most about two million pixels and divides each image into an 8×8 tile grid. Tiny localized defects can be diluted. Group averages and a medoid representative can also hide one exceptional page.
+Palette/color facts scan the full image. Only local edge/texture analysis samples at most two million coordinates and divides each image into an 8×8 tile grid. Tiny localized defects can still be diluted. Group averages and a medoid representative can also hide one exceptional page.
 
 When tuning routing thresholds, measure two costs:
 

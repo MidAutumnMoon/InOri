@@ -12,7 +12,7 @@ For still images, the useful term is **rate-distortion optimization**: reduce en
 The workflow therefore automates the repetitive work and keeps destructive decisions reviewable:
 
 ```text
-analyze and group -> encode representative alternatives -> review at 1:1
+analyze and group -> encode representative candidates -> review at 1:1
 -> edit one recipe choice per group -> run the mixed batch once
 ```
 
@@ -22,7 +22,7 @@ analyze and group -> encode representative alternatives -> review at 1:1
 # Analyze PNG/JPEG files and write <dir>/imgo-plan.json.
 i plan <dir>
 
-# Encode one representative with the selected and alternative recipes.
+# Encode one representative with every candidate recipe.
 # Outputs go to <dir>/.imgo-review by default.
 i preview <dir>/imgo-plan.json
 
@@ -32,6 +32,10 @@ $EDITOR <dir>/imgo-plan.json
 # Execute every selected recipe, with one shared progress run and backup tree.
 i run <dir>/imgo-plan.json
 ```
+
+Each group’s `candidate_recipes` is the reviewed catalog.
+`selected_recipe` must name one candidate; choosing another candidate changes
+only `selected_recipe`, not the candidate list.
 
 `i run` is resumable with the default backup policy. Re-running a completed plan reports the completed files instead of creating numbered duplicates.
 
@@ -55,13 +59,13 @@ A flat label such as `screentone` is not enough. The analyzer measures orthogona
 - low-amplitude fine variation globally and in local tiles;
 - canvas scale.
 
-It groups images by measured properties such as `color-textured-small` or `gray-quiet-large`. The plan stores relative file paths, stable source fingerprints, group metrics, one representative, a conservative selected recipe, and explicit alternatives.
+It groups images by measured properties such as `color-textured-small` or `gray-quiet-large`. The plan stores relative file paths, source size and nanosecond-mtime guards, group metrics, one representative, a conservative selected recipe, and an explicit candidate catalog.
 
 This deliberately does **not** treat JPEG extension or 8-pixel block-boundary energy as proof of JPEG damage. On the reference corpus, the strongest 8-pixel signal came from a clean grayscale/halftone image, while the clean JPEG had a much weaker signal. Deliberate panel geometry and screentone make blockiness heuristics unreliable.
 
 ### Automatic choices
 
-- An image with exactly two decoded grayscale values selects mathematically lossless JPEG XL directly.
+- An image containing only decoded black/white grayscale values selects mathematically lossless JPEG XL directly.
 - Other grayscale images select direct monochrome AVIF.
 - Color images select direct AVIF with automatic chroma sampling.
 - Larger canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
@@ -105,7 +109,7 @@ One set of expert modular parameters was not consistently smallest. For the two 
 - the expert strategy won 91,406 versus 93,634 bytes on one page;
 - standard effort 9 won 45,120 versus 46,995 bytes on the other.
 
-Lossless JXL recipes therefore run both strategies and retain the smaller result. This is safe because decoded pixels are identical.
+Lossless JXL recipes therefore run both strategies and retain the smaller result. Both commands request mathematically lossless coding; reference roundtrips, including alpha and invisible RGB, were byte-exact after canonical RGBA decoding.
 
 ## How to judge alternatives
 
@@ -122,7 +126,7 @@ Before mutating a source, `i run` validates the complete plan:
 
 - schema version and unknown fields;
 - relative paths and duplicate membership;
-- source size/timestamp fingerprints;
+- source size and nanosecond-mtime identity guards;
 - every step's parameters and format transition;
 - all required executables;
 - deterministic destination collisions.
@@ -137,6 +141,22 @@ Each image is then handled independently:
 One bad page does not cancel unrelated pages. Successful results remain committed; failures are aggregated and returned with a non-zero exit status. If commit fails after backup, the next run can re-encode from the verified backup. Existing unrelated outputs are never silently overwritten or renamed with a numeric suffix.
 
 `--no-backup` is available, but it intentionally gives up reliable resume detection and is not the default for automated runs.
+
+## Current boundary
+
+The implemented automation intentionally stops at reviewed image conversion:
+
+- planning discovers PNG and JPEG sources;
+- each feature group gets one medoid representative, so exceptional pages still
+  require attention;
+- source identity uses size and modification time, not a cryptographic content
+  hash;
+- derived files in the default `.imgo-review` directory are overwritten when
+  preview is rerun;
+- archiving, completion notifications, backup purging, multi-book scheduling,
+  and NAS transfer are not implemented by `imgo`.
+
+These are current limits, not implicit promises hidden behind plan flags.
 
 ## External tools
 

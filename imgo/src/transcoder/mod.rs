@@ -84,20 +84,27 @@ pub trait Meta: Send + Sync {
     fn default_jobs(&self) -> NonZeroU64;
 }
 
-/// One recipe operation. Implementations own process execution so an
-/// operation may try several equivalent encodings and retain the smallest.
+/// One recipe operation. Implementations own parameter policy and process
+/// execution, so an operation may try several equivalent encodings and retain
+/// the smallest.
 pub trait Operation: Meta {
+    /// Validate operation-specific parameters without executing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configuration contains an invalid or ignored
+    /// parameter combination.
+    fn validate(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Execute the operation into `output`.
     ///
     /// # Errors
     ///
     /// Returns an error when parameters are invalid, process execution fails,
     /// or the output cannot be materialized.
-    fn run(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> anyhow::Result<Vec<String>>;
+    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()>;
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>);
 }

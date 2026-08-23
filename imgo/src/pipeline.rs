@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::fs::OpenOptions;
 use std::fs::create_dir_all;
 use std::fs::rename;
 use std::num::NonZeroU64;
@@ -79,12 +80,20 @@ pub struct BatchSummary {
 #[derive(Debug)]
 enum PreparedState {
     Complete,
-    Pending {
-        input: PathBuf,
-        destination: PathBuf,
-        backup: PathBuf,
-        needs_backup: bool,
-    },
+    Pending(PendingJob),
+}
+
+#[derive(Debug)]
+struct PendingJob {
+    input: PathBuf,
+    destination: PathBuf,
+    source_commit: SourceCommit,
+}
+
+#[derive(Debug)]
+enum SourceCommit {
+    Keep,
+    MoveToBackup(PathBuf),
 }
 
 /// Run heterogeneous recipe jobs.
@@ -122,7 +131,9 @@ pub fn run_jobs(
         |job| &job.image,
         |job| job.recipe.validate_for(job.image.format),
         |job, input, output| {
-            job.recipe.execute(input, job.image.format, output)
+            job.recipe
+                .execute(input, job.image.format, output)
+                .map(|()| Vec::new())
         },
     )
 }
@@ -291,19 +302,13 @@ where
                 let image = image_of(&item);
                 let result = match state {
                     PreparedState::Complete => Ok(false),
-                    PreparedState::Pending {
-                        input,
-                        destination,
-                        backup,
-                        needs_backup,
-                    } => process_one(
+                    PreparedState::Pending(pending) => process_one(
                         image,
-                        &input,
-                        &destination,
-                        &backup,
-                        needs_backup,
+                        pending,
                         &bar,
-                        |temporary| execute(&item, &input, temporary),
+                        |input, temporary| {
+                            execute(&item, input, temporary)
+                        },
                     )
                     .map(|()| true),
                 };
@@ -405,12 +410,11 @@ fn prepare_state(
             "output already exists: {}",
             destination.display()
         );
-        return Ok(PreparedState::Pending {
+        return Ok(PreparedState::Pending(PendingJob {
             input: source.clone(),
             destination,
-            backup,
-            needs_backup: false,
-        });
+            source_commit: SourceCommit::Keep,
+        }));
     }
 
     if same_path {
@@ -423,18 +427,16 @@ fn prepare_state(
                 );
                 Ok(PreparedState::Complete)
             }
-            (true, false) => Ok(PreparedState::Pending {
+            (true, false) => Ok(PreparedState::Pending(PendingJob {
                 input: source.clone(),
                 destination,
-                backup,
-                needs_backup: true,
-            }),
-            (false, true) => Ok(PreparedState::Pending {
-                input: backup.clone(),
+                source_commit: SourceCommit::MoveToBackup(backup),
+            })),
+            (false, true) => Ok(PreparedState::Pending(PendingJob {
+                input: backup,
                 destination,
-                backup,
-                needs_backup: false,
-            }),
+                source_commit: SourceCommit::Keep,
+            })),
             (false, false) => {
                 bail!(
                     "source and backup are missing: {}",
@@ -445,12 +447,11 @@ fn prepare_state(
     }
 
     match (source_exists, backup_exists, destination_exists) {
-        (true, false, false) => Ok(PreparedState::Pending {
+        (true, false, false) => Ok(PreparedState::Pending(PendingJob {
             input: source.clone(),
             destination,
-            backup,
-            needs_backup: true,
-        }),
+            source_commit: SourceCommit::MoveToBackup(backup),
+        })),
         (false, true, true) => {
             ensure!(
                 std::fs::metadata(&destination)?.len() > 0,
@@ -459,12 +460,11 @@ fn prepare_state(
             );
             Ok(PreparedState::Complete)
         }
-        (false, true, false) => Ok(PreparedState::Pending {
-            input: backup.clone(),
+        (false, true, false) => Ok(PreparedState::Pending(PendingJob {
+            input: backup,
             destination,
-            backup,
-            needs_backup: false,
-        }),
+            source_commit: SourceCommit::Keep,
+        })),
         (true, _, true) => bail!(
             "refusing to overwrite existing output {} while source {} remains",
             destination.display(),
@@ -486,13 +486,15 @@ fn prepare_state(
 
 fn process_one(
     image: &Image,
-    input: &Path,
-    destination: &Path,
-    backup: &Path,
-    needs_backup: bool,
+    pending: PendingJob,
     bar: &ProgressBar,
-    execute: impl FnOnce(&Path) -> anyhow::Result<Vec<String>>,
+    execute: impl FnOnce(&Path, &Path) -> anyhow::Result<Vec<String>>,
 ) -> anyhow::Result<()> {
+    let PendingJob {
+        input,
+        destination,
+        source_commit,
+    } = pending;
     bar.suspend(|| {
         ceprintln!(BrightBlue, "Processing: {}", image.path.display());
     });
@@ -511,7 +513,7 @@ fn process_one(
             format!("create output beside {}", destination.display())
         })?;
 
-    let warnings = execute(temporary.path())?;
+    let warnings = execute(&input, temporary.path())?;
     for warning in warnings {
         bar.suspend(|| ceprintln!(Yellow, "{warning}"));
     }
@@ -521,13 +523,23 @@ fn process_one(
         "encoder produced an empty output for {}",
         image.path.display()
     );
-    let source_permissions = std::fs::metadata(input)?.permissions();
+    let source_permissions = std::fs::metadata(&input)?.permissions();
     std::fs::set_permissions(temporary.path(), source_permissions)?;
-    temporary.as_file().sync_all().with_context(|| {
-        format!("flush encoded output for {}", image.path.display())
-    })?;
+    // External tools may replace the path's inode. Reopen the encoded path
+    // rather than syncing NamedTempFile's original descriptor.
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(temporary.path())
+        .with_context(|| {
+            format!("open encoded output for {}", image.path.display())
+        })?
+        .sync_all()
+        .with_context(|| {
+            format!("flush encoded output for {}", image.path.display())
+        })?;
 
-    if needs_backup {
+    if let SourceCommit::MoveToBackup(backup) = source_commit {
         if let Some(backup_parent) = backup.parent() {
             create_dir_all(backup_parent).with_context(|| {
                 format!(
@@ -536,14 +548,14 @@ fn process_one(
                 )
             })?;
         }
-        rename(input, backup).with_context(|| {
+        rename(&input, &backup).with_context(|| {
             format!("move {} to {}", input.display(), backup.display())
         })?;
         debug!(path = %backup.display(), "source backed up");
     }
 
     temporary
-        .persist(destination)
+        .persist(&destination)
         .map_err(|error| error.error)
         .with_context(|| {
             format!("commit encoded output to {}", destination.display())
