@@ -316,8 +316,13 @@ Current 8-bit feature rules include:
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
 - scale buckets use longest edges below 1800, below 3000, and 3000 or above;
-- near-bilevel grayscale gets a clean-scan candidate at 68%;
-- `clean-scan-jxl` is selected only for medium/large pages whose mean binary error is at most 16/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
+- ambiguous near-bilevel grayscale gets a review-only clean-scan candidate at 68%;
+- `clean-scan-jxl` is selected for medium/large pages at 65% near-black/white when mean binary error is at most 18/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
+
+The second degraded-scan reference measured 65.5%, 17.8/255, 4.2%, and
+0.38% on those four axes. Clean grayscale guards still fail the independent
+threshold-band or smooth-midtone checks; this is why the rule was widened on
+two axes rather than reduced to a single lower near-black/white cutoff.
 
 Palette/color and threshold-band facts scan the full image. Local
 edge/texture analysis samples at most two million coordinates and divides each

@@ -75,8 +75,8 @@ This deliberately does **not** treat JPEG extension or 8-pixel block-boundary en
 
 `clean-scan-jxl` is selected only when each page independently has:
 
-- at least 68% near-black/white pixels;
-- mean error to its thresholded binary value at most 16/255;
+- at least 65% near-black/white pixels;
+- mean error to its thresholded binary value at most 18/255;
 - at most 5% of pixels in the threshold-sensitive 45–65% luminance band;
 - at most 1% locally smooth midtone pixels;
 - a longest edge of at least 1800 pixels.

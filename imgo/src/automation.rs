@@ -774,7 +774,9 @@ fn recipes_for_group(
                     .to_owned(),
             );
         }
-        if metrics.near_bw_percent >= NEAR_BILEVEL_REVIEW_PERCENT {
+        if metrics.near_bw_percent >= NEAR_BILEVEL_REVIEW_PERCENT
+            || key.binarization == BinarizationClass::ThresholdStable
+        {
             let bilevel_name = "clean-scan-jxl".to_owned();
             if key.binarization == BinarizationClass::ThresholdStable {
                 let previous = std::mem::replace(
@@ -1050,10 +1052,10 @@ mod tests {
 
     #[test]
     fn threshold_stable_large_page_selects_clean_scan() {
-        let mut stable_metrics = metrics(69.5);
-        stable_metrics.threshold_stability_percent = 3.0;
-        stable_metrics.binary_error_mean = 14.4;
-        stable_metrics.smooth_midtone_percent = 0.1;
+        let mut stable_metrics = metrics(65.5);
+        stable_metrics.threshold_stability_percent = 4.2;
+        stable_metrics.binary_error_mean = 17.8;
+        stable_metrics.smooth_midtone_percent = 0.4;
         let recommendation = recipes_for_group(
             GroupKey {
                 palette: PaletteClass::Gray,

@@ -31,9 +31,9 @@ const SMOOTH_MIDTONE_MAX: u8 = 223;
 const SMOOTH_MIDTONE_GRADIENT_MAX: u16 = 6;
 const SMOOTH_MIDTONE_LAPLACIAN_MAX: u32 = 12;
 
-const THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT: f64 = 68.0;
+const THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT: f64 = 65.0;
 const THRESHOLD_STABLE_MAX_BAND_PERCENT: f64 = 5.0;
-const THRESHOLD_STABLE_MAX_BINARY_ERROR: f64 = 16.0;
+const THRESHOLD_STABLE_MAX_BINARY_ERROR: f64 = 18.0;
 const THRESHOLD_STABLE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -562,6 +562,41 @@ mod tests {
         let smooth_key =
             GroupKey::from_features(analyze_rgba(&smooth_gray));
         assert_eq!(smooth_key.binarization, BinarizationClass::General);
+    }
+
+    #[test]
+    fn measured_scan_boundary_requires_all_independent_signals() {
+        let second_scan = ImageFeatures {
+            width: 4168,
+            height: 4305,
+            color_percent: 0.0,
+            exact_bilevel: false,
+            gray_entropy: 4.0,
+            gray_levels: 256,
+            near_bw_percent: 65.49,
+            detail_percent: 30.0,
+            soft_noise_percent: 9.0,
+            max_tile_soft_noise_percent: 26.0,
+            threshold_stability_percent: 4.21,
+            binary_error_mean: 17.76,
+            smooth_midtone_percent: 0.38,
+        };
+        assert_eq!(
+            GroupKey::from_features(second_scan).binarization,
+            BinarizationClass::ThresholdStable
+        );
+
+        let intentional_texture = ImageFeatures {
+            near_bw_percent: 64.35,
+            threshold_stability_percent: 3.36,
+            binary_error_mean: 17.81,
+            smooth_midtone_percent: 3.62,
+            ..second_scan
+        };
+        assert_eq!(
+            GroupKey::from_features(intentional_texture).binarization,
+            BinarizationClass::General
+        );
     }
 
     #[test]
