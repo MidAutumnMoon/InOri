@@ -70,6 +70,9 @@ impl SharedOpts {
 pub struct Job {
     pub image: Image,
     pub recipe: Arc<Recipe>,
+    /// Reviewed encoded bytes that already implement `recipe` for this image.
+    /// Missing review artifact remains a normal recipe execution.
+    pub reviewed_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -118,7 +121,17 @@ pub fn run_jobs(
         job.recipe.validate_for(job.image.format).with_context(|| {
             format!("validate recipe for {}", job.image.path.display())
         })?;
-        job.recipe.required_tools(&mut tools);
+        if let Some(reviewed) = &job.reviewed_output {
+            ensure!(
+                std::fs::metadata(reviewed)
+                    .is_ok_and(|metadata| metadata.is_file()
+                        && metadata.len() > 0),
+                "reviewed output is missing or empty: {}",
+                reviewed.display()
+            );
+        } else {
+            job.recipe.required_tools(&mut tools);
+        }
     }
     for tool in tools {
         tool.verify()?;
@@ -132,9 +145,19 @@ pub fn run_jobs(
         |job| &job.image,
         |job| job.recipe.validate_for(job.image.format),
         |job, input, output| {
-            job.recipe
-                .execute(input, job.image.format, output)
-                .map(|()| Vec::new())
+            if let Some(reviewed) = &job.reviewed_output {
+                std::fs::copy(reviewed, output).with_context(|| {
+                    format!("reuse reviewed output {}", reviewed.display())
+                })?;
+                Ok(vec![format!(
+                    "Reused reviewed candidate for {}",
+                    job.image.path.display()
+                )])
+            } else {
+                job.recipe
+                    .execute(input, job.image.format, output)
+                    .map(|()| Vec::new())
+            }
         },
     )
 }
@@ -160,6 +183,7 @@ pub fn run_pipeline_recipe(
         .map(|image| Job {
             image,
             recipe: Arc::clone(&recipe),
+            reviewed_output: None,
         })
         .collect();
     run_jobs(&workspace, jobs, shared.skips_backup(), parallelism)
@@ -583,6 +607,8 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::*;
+    use crate::recipe::Step;
+    use crate::transcoder::avif::Avif;
 
     #[test]
     fn commits_once_and_resumes_from_backup_state() -> anyhow::Result<()> {
@@ -684,6 +710,45 @@ mod tests {
         assert!(!successful.exists());
         assert!(workspace.join(".backup/b.png").exists());
         assert_eq!(std::fs::read(workspace.join("b.avif"))?, b"encoded");
+        Ok(())
+    }
+
+    #[test]
+    fn reviewed_candidate_commits_without_reencoding() -> anyhow::Result<()>
+    {
+        let temporary = tempfile::tempdir()?;
+        let workspace = temporary.path();
+        let source = workspace.join("page.png");
+        let reviewed = workspace.join("reviewed.avif");
+        std::fs::write(&source, b"original")?;
+        std::fs::write(&reviewed, b"reviewed encoded bytes")?;
+
+        let summary = run_jobs(
+            workspace,
+            vec![Job {
+                image: Image {
+                    path: source.clone(),
+                    format: ImageFormat::PNG,
+                },
+                recipe: Arc::new(Recipe::single(Step::Avif(
+                    Avif::default(),
+                ))),
+                reviewed_output: Some(reviewed),
+            }],
+            false,
+            NonZeroU64::MIN,
+        )?;
+
+        assert_eq!(summary.processed, 1);
+        assert_eq!(
+            std::fs::read(workspace.join("page.avif"))?,
+            b"reviewed encoded bytes"
+        );
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read(workspace.join(".backup/page.png"))?,
+            b"original"
+        );
         Ok(())
     }
 }

@@ -14,7 +14,7 @@ use crate::img::Image;
 use crate::img::ImageFormat;
 
 /// Collect images under `workspace` in deterministic natural-path order.
-/// Generated backups and review outputs are never re-ingested.
+/// Generated backups and review bundles are never re-ingested.
 ///
 /// # Errors
 ///

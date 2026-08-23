@@ -30,6 +30,7 @@ An encoder metric can help with decision 2. It cannot decide whether pencil grai
 - Reject a candidate that is both larger and worse. Keep non-dominated candidates as a Pareto frontier.
 - A preprocessing win on one sample becomes an alternative, not a default. A universal default must be neutral or better across every relevant reference family.
 - Lossless strategies are different: after exact decoded-pixel verification, the smallest output wins automatically.
+- `plan` records encoded representatives directly in `.imgo-review` using source metadata, the exact recipe, and artifact metadata. Recipe/source edits force a new encode; unchanged reviewed bytes are intentionally reused by `run`. Use `plan --force` after upgrading an encoder to measure fresh candidates.
 
 The measurements quoted below used libavif 1.4.2 with libaom 3.12.1,
 libjxl/cjxl 0.12.0, ImageMagick 7.1.2-29 Q16-HDRI, and SSIMULACRA2
@@ -332,7 +333,7 @@ grayscale neighbors destructively. Tiny localized defects can still be diluted.
 
 When tuning routing thresholds, measure two costs:
 
-- false positive on a review-only candidate: extra preview work;
+- false positive on a review-only candidate: extra review work;
 - false negative: a useful candidate is not offered;
 - false positive on an automatically selected destructive recipe: damaged output.
 

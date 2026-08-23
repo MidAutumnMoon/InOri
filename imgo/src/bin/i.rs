@@ -1,10 +1,8 @@
 use rlimit::Resource;
 
 use imgo::automation::PlanOpts;
-use imgo::automation::PreviewOpts;
 use imgo::automation::RunOpts;
 use imgo::automation::create_plan;
-use imgo::automation::preview_plan;
 use imgo::automation::run_plan;
 use imgo::pipeline::SharedOpts;
 use imgo::pipeline::run_pipeline_pixel;
@@ -26,13 +24,10 @@ use tracing::warn;
 // structs. Every options struct used here disables that group; otherwise
 // same-named pairs such as `CleanScan` collide. The schema test guards this.
 enum CliOpts {
-    /// Analyze a directory, group similar images, and write a reviewable plan.
+    /// Phase 1: classify, encode review candidates, then stop for selection.
     Plan(PlanOpts),
 
-    /// Encode representative candidates from a plan for 1:1 visual review.
-    Preview(PreviewOpts),
-
-    /// Execute every selected recipe in a reviewed plan.
+    /// Phase 2: apply selected recipes, reusing reviewed representative bytes.
     Run(RunOpts),
 
     /// Directly encode discovered pictures to AVIF.
@@ -101,8 +96,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     match &options {
-        CliOpts::Plan(options) => create_plan(options),
-        CliOpts::Preview(options) => preview_plan(options),
+        CliOpts::Plan(options) => {
+            create_plan(options)?;
+            Ok(())
+        }
         CliOpts::Run(options) => run_plan(options),
         CliOpts::Avif { transcoder, shared } => {
             run_pipeline_recipe(

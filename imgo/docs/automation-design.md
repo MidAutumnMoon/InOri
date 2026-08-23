@@ -18,28 +18,35 @@ analyze and group -> encode representative candidates -> review at 1:1
 
 ## Commands
 
+The workflow has two CLI phases and one human boundary:
+
 ```sh
-# Analyze PNG/JPEG files and write <dir>/imgo-plan.json.
+# Phase 1: classify in parallel, encode representative candidates, write the
+# plan, then stop.
 i plan <dir>
 
-# Encode one representative with every candidate recipe.
-# Outputs go to <dir>/.imgo-review by default.
-i preview <dir>/imgo-plan.json
-
-# Inspect *.preview.png at 1:1, then change selected_recipe for any group.
+# Human boundary: inspect the actual AVIF/JXL candidates and choose one recipe
+# per group by editing selected_recipe.
 $EDITOR <dir>/imgo-plan.json
 
-# Execute every selected recipe, with one shared progress run and backup tree.
+# Phase 2: apply each selected recipe to its group.
 i run <dir>/imgo-plan.json
 ```
 
-Each group’s `candidate_recipes` is the reviewed catalog.
-`selected_recipe` must name one candidate; choosing another candidate changes
-only `selected_recipe`, not the candidate list.
+The command names communicate ownership:
 
-`i run` is resumable with the default backup policy. Re-running a completed plan reports the completed files instead of creating numbered duplicates.
+- `plan` produces every fact and artifact needed for a decision;
+- the user owns only `selected_recipe`;
+- `run` consumes that reviewed decision.
 
-Direct expert commands remain available:
+There is no separate prepare or preview phase. `plan` already parallelizes image
+analysis (`-J` overrides the default of at most four workers) and performs the
+unavoidably expensive representative candidate encodes. `run` reuses the exact
+reviewed selected bytes for each representative and transcodes the remaining
+files. If a review artifact is missing or stale, `run` performs that image’s
+normal recipe instead.
+
+Direct expert transcoder commands remain separate tools, not workflow phases:
 
 ```sh
 i avif --quality 65 --chroma auto <files...>
@@ -47,6 +54,34 @@ i jxl <files...>
 i denoise --mode artifact <files...>
 i clean-scan --threshold 55 <files...>
 ```
+
+### Review layout
+
+The managed review directory contains the exact encoded candidates:
+
+```text
+.imgo-review/
+└── 001--gray-textured-large-threshold-stable--001/
+    ├── 00-original--001.png
+    ├── 01--clean-scan-jxl.jxl
+    ├── 02--avif-gray-compact-large.avif
+    ├── 03--avif-safe-large.avif
+    └── review.txt
+```
+
+No `.preview.png` derivatives are generated. The ordinal, feature group, and
+source stem provide the mapping to the original. `review.txt` records which
+recipe was initially selected and the size of every candidate.
+
+The hidden root manifest maps each source and recipe to the reviewed artifact.
+It records source metadata, the exact serialized recipe, artifact path, size,
+and mtime. `run` validates that manifest before reusing bytes. Changing a
+source, recipe, or reviewed artifact turns reuse into a normal transcode.
+
+Review generation is fully staged before the previous managed directory is
+replaced. An old or unrelated `.imgo-review` requires `plan --force`.
+`--force` also disables artifact reuse and performs fresh candidate encodes,
+which is the correct choice after upgrading ImageMagick, avifenc, or cjxl.
 
 ## Classification model
 
@@ -142,12 +177,12 @@ Before mutating a source, `i run` validates the complete plan:
 - relative paths and duplicate membership;
 - source size and nanosecond-mtime identity guards;
 - every step's parameters and format transition;
-- all required executables;
+- executables required by images without a reusable review artifact;
 - deterministic destination collisions.
 
 Each image is then handled independently:
 
-1. Run every recipe step through temporary files.
+1. Reuse the exact reviewed selected candidate when its manifest entry remains valid; otherwise run the recipe through temporary files.
 2. Verify that the final output is non-empty and flush it.
 3. Move the original to `.backup`, preserving the relative tree.
 4. Atomically persist the final output beside the source.
@@ -165,8 +200,8 @@ The implemented automation intentionally stops at reviewed image conversion:
   require attention;
 - source identity uses size and modification time, not a cryptographic content
   hash;
-- derived files in the default `.imgo-review` directory are overwritten when
-  preview is rerun;
+- `.imgo-review` is derived state; old `.imgo-cache` directories from the
+  abandoned intermediate design are unused and may be removed;
 - archiving, completion notifications, backup purging, multi-book scheduling,
   and NAS transfer are not implemented by `imgo`.
 
@@ -176,8 +211,8 @@ These are current limits, not implicit promises hidden behind plan flags.
 
 The processing surface requires:
 
-- ImageMagick 7 for preprocessing and preview decoding;
+- ImageMagick 7 for preprocessing;
 - `avifenc` from libavif for AVIF;
 - `cjxl` from libjxl for JPEG XL.
 
-The implementation probes every tool needed by the selected plan before moving any source file.
+The implementation probes tools required by work without a reusable review artifact. A reviewed one-image run can commit without invoking its encoder again.
