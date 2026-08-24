@@ -20,11 +20,15 @@ const COLOR_TEXTURE_GLOBAL_PERCENT: f64 = 20.0;
 const COLOR_TEXTURE_TILE_PERCENT: f64 = 35.0;
 const GRAY_TEXTURE_GLOBAL_PERCENT: f64 = 8.0;
 const GRAY_TEXTURE_TILE_PERCENT: f64 = 20.0;
-const NOISE_TONE_MIN_GRAY_ENTROPY: f64 = 4.5;
-const NOISE_TONE_MIN_TILE_SOFT_NOISE_PERCENT: f64 = 20.0;
-const NOISE_TONE_MIN_NEAR_BW_PERCENT: f64 = 25.0;
-const NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT: f64 = 25.0;
-const NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 35.0;
+const SAND_TONE_MIN_GRAY_ENTROPY: f64 = 4.2;
+const SAND_TONE_MIN_MICROTEXTURE_PERCENT: f64 = 20.0;
+const SAND_TONE_MIN_TILE_SOFT_NOISE_PERCENT: f64 = 20.0;
+const SAND_TONE_MIN_NEAR_BW_PERCENT: f64 = 25.0;
+const SAND_TONE_MIN_BINARY_ERROR: f64 = 19.5;
+const SAND_TONE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 42.0;
+const SAND_TONE_MAX_DIRECTIONAL_COHERENCE: f64 = 0.15;
+const SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT: f64 = 25.0;
+const SAND_TONE_MEDIUM_MAX_MICROTEXTURE_PERCENT: f64 = 45.0;
 const SMALL_EDGE_LIMIT: u32 = 1800;
 const MEDIUM_EDGE_LIMIT: u32 = 3000;
 
@@ -53,6 +57,7 @@ pub struct ImageFeatures {
     pub detail_percent: f64,
     pub soft_noise_percent: f64,
     pub max_tile_soft_noise_percent: f64,
+    pub texture_directional_coherence: f64,
     pub threshold_stability_percent: f64,
     pub binary_error_mean: f64,
     pub smooth_midtone_percent: f64,
@@ -67,6 +72,11 @@ impl ImageFeatures {
             self.height
         }
     }
+
+    #[must_use]
+    pub fn microtexture_percent(self) -> f64 {
+        self.detail_percent + self.soft_noise_percent
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -76,19 +86,31 @@ pub struct AnalyzedImage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PaletteClass {
-    Bilevel,
-    Gray,
-    Color,
+pub enum SandToneBurden {
+    Light,
+    Medium,
+    Heavy,
+}
+
+impl SandToneBurden {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Medium => "medium",
+            Self::Heavy => "heavy",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TextureClass {
-    Quiet,
-    Textured,
-    /// Heuristic match for grayscale noise/sand tone: localized stochastic
-    /// texture surrounding substantial smooth midtone regions.
-    NoiseTone,
+pub enum ContentClass {
+    LineArt,
+    Grayscale,
+    TexturedGrayscale,
+    MangaSandTone(SandToneBurden),
+    DegradedScan,
+    Color,
+    TexturedColor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,92 +120,57 @@ pub enum ScaleClass {
     Large,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BinarizationClass {
-    General,
-    ThresholdStable,
+impl ScaleClass {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Small => "low-resolution",
+            Self::Medium => "standard-resolution",
+            Self::Large => "high-resolution",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GroupKey {
-    pub palette: PaletteClass,
-    pub texture: TextureClass,
+    pub content: ContentClass,
     pub scale: ScaleClass,
-    pub binarization: BinarizationClass,
 }
 
 impl GroupKey {
     #[must_use]
     pub fn from_features(features: ImageFeatures) -> Self {
-        let palette = if features.color_percent >= IMAGE_COLOR_PERCENT {
-            PaletteClass::Color
-        } else if features.exact_bilevel {
-            PaletteClass::Bilevel
-        } else {
-            PaletteClass::Gray
-        };
-        let texture = match palette {
-            PaletteClass::Color => {
-                if features.soft_noise_percent
-                    >= COLOR_TEXTURE_GLOBAL_PERCENT
-                    || features.max_tile_soft_noise_percent
-                        >= COLOR_TEXTURE_TILE_PERCENT
-                {
-                    TextureClass::Textured
-                } else {
-                    TextureClass::Quiet
-                }
-            }
-            PaletteClass::Gray => {
-                let is_textured = features.soft_noise_percent
-                    >= GRAY_TEXTURE_GLOBAL_PERCENT
-                    || features.max_tile_soft_noise_percent
-                        >= GRAY_TEXTURE_TILE_PERCENT;
-                if !is_textured {
-                    TextureClass::Quiet
-                } else if features.gray_entropy
-                    >= NOISE_TONE_MIN_GRAY_ENTROPY
-                    && features.near_bw_percent
-                        >= NOISE_TONE_MIN_NEAR_BW_PERCENT
-                    && features.max_tile_soft_noise_percent
-                        >= NOISE_TONE_MIN_TILE_SOFT_NOISE_PERCENT
-                    && (NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT
-                        ..=NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT)
-                        .contains(&features.smooth_midtone_percent)
-                {
-                    TextureClass::NoiseTone
-                } else {
-                    TextureClass::Textured
-                }
-            }
-            PaletteClass::Bilevel => TextureClass::Quiet,
-        };
         let scale = match features.longest_edge() {
             0..SMALL_EDGE_LIMIT => ScaleClass::Small,
             SMALL_EDGE_LIMIT..MEDIUM_EDGE_LIMIT => ScaleClass::Medium,
             _ => ScaleClass::Large,
         };
-        let binarization = if palette == PaletteClass::Gray
-            && scale != ScaleClass::Small
-            && features.near_bw_percent
-                >= THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT
-            && features.threshold_stability_percent
-                <= THRESHOLD_STABLE_MAX_BAND_PERCENT
-            && features.binary_error_mean
-                <= THRESHOLD_STABLE_MAX_BINARY_ERROR
-            && features.smooth_midtone_percent
-                <= THRESHOLD_STABLE_MAX_SMOOTH_MIDTONE_PERCENT
-        {
-            BinarizationClass::ThresholdStable
+        let content = if features.color_percent >= IMAGE_COLOR_PERCENT {
+            if features.soft_noise_percent >= COLOR_TEXTURE_GLOBAL_PERCENT
+                || features.max_tile_soft_noise_percent
+                    >= COLOR_TEXTURE_TILE_PERCENT
+            {
+                ContentClass::TexturedColor
+            } else {
+                ContentClass::Color
+            }
+        } else if features.exact_bilevel {
+            ContentClass::LineArt
+        } else if is_threshold_stable_scan(features, scale) {
+            ContentClass::DegradedScan
         } else {
-            BinarizationClass::General
+            let is_textured = features.soft_noise_percent
+                >= GRAY_TEXTURE_GLOBAL_PERCENT
+                || features.max_tile_soft_noise_percent
+                    >= GRAY_TEXTURE_TILE_PERCENT;
+            if !is_textured {
+                ContentClass::Grayscale
+            } else if is_manga_sand_tone(features) {
+                ContentClass::MangaSandTone(sand_tone_burden(features))
+            } else {
+                ContentClass::TexturedGrayscale
+            }
         };
-        Self {
-            palette,
-            texture,
-            scale,
-            binarization,
-        }
+        Self { content, scale }
     }
 
     #[must_use]
@@ -192,28 +179,68 @@ impl GroupKey {
     }
 }
 
+fn is_threshold_stable_scan(
+    features: ImageFeatures,
+    scale: ScaleClass,
+) -> bool {
+    scale != ScaleClass::Small
+        && features.near_bw_percent >= THRESHOLD_STABLE_MIN_NEAR_BW_PERCENT
+        && features.threshold_stability_percent
+            <= THRESHOLD_STABLE_MAX_BAND_PERCENT
+        && features.binary_error_mean <= THRESHOLD_STABLE_MAX_BINARY_ERROR
+        && features.smooth_midtone_percent
+            <= THRESHOLD_STABLE_MAX_SMOOTH_MIDTONE_PERCENT
+}
+
+fn is_manga_sand_tone(features: ImageFeatures) -> bool {
+    features.gray_entropy >= SAND_TONE_MIN_GRAY_ENTROPY
+        && features.microtexture_percent()
+            >= SAND_TONE_MIN_MICROTEXTURE_PERCENT
+        && features.max_tile_soft_noise_percent
+            >= SAND_TONE_MIN_TILE_SOFT_NOISE_PERCENT
+        && features.near_bw_percent >= SAND_TONE_MIN_NEAR_BW_PERCENT
+        && features.binary_error_mean >= SAND_TONE_MIN_BINARY_ERROR
+        && features.smooth_midtone_percent
+            <= SAND_TONE_MAX_SMOOTH_MIDTONE_PERCENT
+        && features.texture_directional_coherence
+            <= SAND_TONE_MAX_DIRECTIONAL_COHERENCE
+}
+
+fn sand_tone_burden(features: ImageFeatures) -> SandToneBurden {
+    match features.microtexture_percent() {
+        microtexture
+            if microtexture < SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT =>
+        {
+            SandToneBurden::Light
+        }
+        microtexture
+            if microtexture
+                < SAND_TONE_MEDIUM_MAX_MICROTEXTURE_PERCENT =>
+        {
+            SandToneBurden::Medium
+        }
+        _ => SandToneBurden::Heavy,
+    }
+}
+
 impl fmt::Display for GroupKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let palette = match self.palette {
-            PaletteClass::Bilevel => "bilevel",
-            PaletteClass::Gray => "gray",
-            PaletteClass::Color => "color",
-        };
-        let texture = match self.texture {
-            TextureClass::Quiet => "quiet",
-            TextureClass::Textured => "textured",
-            TextureClass::NoiseTone => "noise-tone",
-        };
-        let scale = match self.scale {
-            ScaleClass::Small => "small",
-            ScaleClass::Medium => "medium",
-            ScaleClass::Large => "large",
-        };
-        write!(f, "{palette}-{texture}-{scale}")?;
-        if self.binarization == BinarizationClass::ThresholdStable {
-            f.write_str("-threshold-stable")?;
+        match self.content {
+            ContentClass::LineArt => f.write_str("line-art")?,
+            ContentClass::Grayscale => f.write_str("grayscale")?,
+            ContentClass::TexturedGrayscale => {
+                f.write_str("textured-grayscale")?;
+            }
+            ContentClass::MangaSandTone(burden) => {
+                write!(f, "manga-sand-tone-{}", burden.name())?;
+            }
+            ContentClass::DegradedScan => f.write_str("degraded-scan")?,
+            ContentClass::Color => f.write_str("color")?,
+            ContentClass::TexturedColor => {
+                f.write_str("textured-color")?;
+            }
         }
-        Ok(())
+        write!(f, "-{}", self.scale.name())
     }
 }
 
@@ -275,6 +302,9 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     let mut smooth_midtone = 0_u32;
     let mut tile_soft = [0_u32; TILE_TOTAL];
     let mut tile_samples = [0_u32; TILE_TOTAL];
+    let mut horizontal_texture_energy = 0_u64;
+    let mut vertical_texture_energy = 0_u64;
+    let mut cross_texture_energy = 0_i64;
     for y in (0..height).step_by(stride) {
         for x in (0..width).step_by(stride) {
             if x == 0 || y == 0 || x + 1 >= width || y + 1 >= height {
@@ -295,7 +325,8 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
                 - i32::from(up)
                 - i32::from(down))
             .unsigned_abs();
-            if laplacian > DETAIL_LAPLACIAN_THRESHOLD {
+            let is_detail = laplacian > DETAIL_LAPLACIAN_THRESHOLD;
+            if is_detail {
                 detail += 1;
             }
             let is_soft_noise = (SOFT_NOISE_LAPLACIAN_MIN
@@ -328,6 +359,15 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
             tile_samples[tile] += 1;
             if is_soft_noise {
                 tile_soft[tile] += 1;
+            }
+            if is_detail || is_soft_noise {
+                let gradient_x = i64::from(right) - i64::from(left);
+                let gradient_y = i64::from(down) - i64::from(up);
+                horizontal_texture_energy +=
+                    (gradient_x * gradient_x).unsigned_abs();
+                vertical_texture_energy +=
+                    (gradient_y * gradient_y).unsigned_abs();
+                cross_texture_energy += gradient_x * gradient_y;
             }
         }
     }
@@ -372,6 +412,11 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         .filter(|(_, count)| *count > 0)
         .map(|(noise, count)| f64::from(*noise) * 100.0 / f64::from(count))
         .fold(0.0_f64, f64::max);
+    let texture_directional_coherence = directional_coherence(
+        horizontal_texture_energy,
+        vertical_texture_energy,
+        cross_texture_energy,
+    );
 
     ImageFeatures {
         width: pixels.width(),
@@ -384,6 +429,7 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         detail_percent: f64::from(detail) * 100.0 / local_f64,
         soft_noise_percent: f64::from(soft_noise) * 100.0 / local_f64,
         max_tile_soft_noise_percent,
+        texture_directional_coherence,
         threshold_stability_percent: count_as_f64(
             threshold_stability_pixels,
         ) * 100.0
@@ -425,6 +471,21 @@ fn local_sample_count(
 )]
 fn count_as_f64(count: u64) -> f64 {
     count as f64
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "sampled gradient sums stay well below exact f64 integer range"
+)]
+fn directional_coherence(xx: u64, yy: u64, xy: i64) -> f64 {
+    let xx = xx as f64;
+    let yy = yy as f64;
+    let xy = xy as f64;
+    let energy = xx + yy;
+    if energy == 0.0 {
+        return 1.0;
+    }
+    ((xx - yy).mul_add(xx - yy, 4.0 * xy * xy)).sqrt() / energy
 }
 
 fn composite_rgb(red: u8, green: u8, blue: u8, alpha: u8) -> (u8, u8, u8) {
@@ -491,8 +552,8 @@ mod tests {
         let bilevel_features = analyze_rgba(&bilevel);
         assert_eq!(bilevel_features.gray_levels, 2);
         assert_eq!(
-            GroupKey::from_features(bilevel_features).palette,
-            PaletteClass::Bilevel
+            GroupKey::from_features(bilevel_features).content,
+            ContentClass::LineArt
         );
 
         let grayscale = RgbaImage::from_fn(12, 12, |x, _| {
@@ -503,9 +564,9 @@ mod tests {
             };
             Rgba([value, value, value, 255])
         });
-        assert_eq!(
-            GroupKey::from_features(analyze_rgba(&grayscale)).palette,
-            PaletteClass::Gray
+        assert_ne!(
+            GroupKey::from_features(analyze_rgba(&grayscale)).content,
+            ContentClass::LineArt
         );
     }
 
@@ -514,8 +575,7 @@ mod tests {
         let color =
             RgbaImage::from_pixel(12, 12, Rgba([220, 40, 80, 255]));
         let key = GroupKey::from_features(analyze_rgba(&color));
-        assert_eq!(key.palette, PaletteClass::Color);
-        assert_eq!(key.texture, TextureClass::Quiet);
+        assert_eq!(key.content, ContentClass::Color);
         assert_eq!(key.scale, ScaleClass::Small);
     }
 
@@ -530,9 +590,9 @@ mod tests {
 
         let features = analyze_rgba(&image);
         assert_eq!(features.gray_levels, 3);
-        assert_eq!(
-            GroupKey::from_features(features).palette,
-            PaletteClass::Gray
+        assert_ne!(
+            GroupKey::from_features(features).content,
+            ContentClass::LineArt
         );
     }
 
@@ -547,8 +607,8 @@ mod tests {
         });
 
         assert_eq!(
-            GroupKey::from_features(analyze_rgba(&image)).palette,
-            PaletteClass::Color
+            GroupKey::from_features(analyze_rgba(&image)).content,
+            ContentClass::Color
         );
     }
 
@@ -566,10 +626,7 @@ mod tests {
         });
         let degraded_key =
             GroupKey::from_features(analyze_rgba(&degraded));
-        assert_eq!(
-            degraded_key.binarization,
-            BinarizationClass::ThresholdStable
-        );
+        assert_eq!(degraded_key.content, ContentClass::DegradedScan);
 
         let smooth_gray = RgbaImage::from_fn(1800, 20, |x, _| {
             let value = match x {
@@ -581,7 +638,7 @@ mod tests {
         });
         let smooth_key =
             GroupKey::from_features(analyze_rgba(&smooth_gray));
-        assert_eq!(smooth_key.binarization, BinarizationClass::General);
+        assert_ne!(smooth_key.content, ContentClass::DegradedScan);
     }
 
     #[test]
@@ -597,13 +654,14 @@ mod tests {
             detail_percent: 30.0,
             soft_noise_percent: 9.0,
             max_tile_soft_noise_percent: 26.0,
+            texture_directional_coherence: 0.0,
             threshold_stability_percent: 4.21,
             binary_error_mean: 17.76,
             smooth_midtone_percent: 0.38,
         };
         assert_eq!(
-            GroupKey::from_features(second_scan).binarization,
-            BinarizationClass::ThresholdStable
+            GroupKey::from_features(second_scan).content,
+            ContentClass::DegradedScan
         );
 
         let intentional_texture = ImageFeatures {
@@ -614,69 +672,70 @@ mod tests {
             ..second_scan
         };
         assert_eq!(
-            GroupKey::from_features(intentional_texture).binarization,
-            BinarizationClass::General
+            GroupKey::from_features(intentional_texture).content,
+            ContentClass::TexturedGrayscale
         );
     }
 
     #[test]
-    fn noise_tone_requires_local_texture_and_smooth_midtone_regions() {
-        let measured_noise_tone = ImageFeatures {
-            width: 1980,
-            height: 1572,
+    fn sand_tone_requires_dense_isotropic_microtexture() {
+        let measured_sand_tone = ImageFeatures {
+            width: 4441,
+            height: 4503,
             color_percent: 0.0,
             exact_bilevel: false,
-            gray_entropy: 5.08,
+            gray_entropy: 4.21,
             gray_levels: 256,
-            near_bw_percent: 54.3,
-            detail_percent: 10.0,
-            soft_noise_percent: 7.0,
-            max_tile_soft_noise_percent: 45.1,
-            threshold_stability_percent: 9.8,
-            binary_error_mean: 35.2,
-            smooth_midtone_percent: 30.5,
+            near_bw_percent: 54.6,
+            detail_percent: 10.7,
+            soft_noise_percent: 9.8,
+            max_tile_soft_noise_percent: 49.9,
+            texture_directional_coherence: 0.09,
+            threshold_stability_percent: 8.0,
+            binary_error_mean: 30.5,
+            smooth_midtone_percent: 29.8,
         };
-        let key = GroupKey::from_features(measured_noise_tone);
-        assert_eq!(key.texture, TextureClass::NoiseTone);
-        assert_eq!(key.id(), "gray-noise-tone-medium");
+        let key = GroupKey::from_features(measured_sand_tone);
+        assert_eq!(
+            key.content,
+            ContentClass::MangaSandTone(SandToneBurden::Light)
+        );
+        assert_eq!(key.id(), "manga-sand-tone-light-high-resolution");
 
-        let texture_without_smooth_regions = ImageFeatures {
-            smooth_midtone_percent: NOISE_TONE_MIN_SMOOTH_MIDTONE_PERCENT
-                - 0.1,
-            ..measured_noise_tone
+        let directional_stripes = ImageFeatures {
+            texture_directional_coherence: 0.37,
+            ..measured_sand_tone
         };
         assert_eq!(
-            GroupKey::from_features(texture_without_smooth_regions)
-                .texture,
-            TextureClass::Textured
+            GroupKey::from_features(directional_stripes).content,
+            ContentClass::TexturedGrayscale
         );
 
-        let low_entropy_texture = ImageFeatures {
-            gray_entropy: NOISE_TONE_MIN_GRAY_ENTROPY - 0.1,
-            ..measured_noise_tone
+        let low_binary_error = ImageFeatures {
+            binary_error_mean: SAND_TONE_MIN_BINARY_ERROR - 0.1,
+            ..measured_sand_tone
         };
         assert_eq!(
-            GroupKey::from_features(low_entropy_texture).texture,
-            TextureClass::Textured
+            GroupKey::from_features(low_binary_error).content,
+            ContentClass::TexturedGrayscale
         );
 
-        let low_black_white_texture = ImageFeatures {
-            near_bw_percent: NOISE_TONE_MIN_NEAR_BW_PERCENT - 0.1,
-            ..measured_noise_tone
+        let medium = ImageFeatures {
+            detail_percent: 25.0,
+            ..measured_sand_tone
         };
         assert_eq!(
-            GroupKey::from_features(low_black_white_texture).texture,
-            TextureClass::Textured
+            GroupKey::from_features(medium).content,
+            ContentClass::MangaSandTone(SandToneBurden::Medium)
         );
 
-        let broadly_smooth_texture = ImageFeatures {
-            smooth_midtone_percent: NOISE_TONE_MAX_SMOOTH_MIDTONE_PERCENT
-                + 0.1,
-            ..measured_noise_tone
+        let heavy = ImageFeatures {
+            detail_percent: 47.0,
+            ..measured_sand_tone
         };
         assert_eq!(
-            GroupKey::from_features(broadly_smooth_texture).texture,
-            TextureClass::Textured
+            GroupKey::from_features(heavy).content,
+            ContentClass::MangaSandTone(SandToneBurden::Heavy)
         );
     }
 

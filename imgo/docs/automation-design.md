@@ -61,15 +61,15 @@ The managed review directory contains the exact encoded candidates:
 
 ```text
 .imgo-review/
-└── 001--gray-textured-large-threshold-stable--001/
+└── 001--degraded-scan-high-resolution--001/
     ├── 00-original--001.png
     ├── 01--clean-scan-jxl.jxl
-    ├── 02--avif-gray-compact-large.avif
-    ├── 03--avif-safe-large.avif
+    ├── 02--avif-grayscale-compact-high-resolution.avif
+    ├── 03--avif-safe-high-resolution.avif
     └── review.txt
 ```
 
-No `.preview.png` derivatives are generated. The ordinal, feature group, and
+No `.preview.png` derivatives are generated. The ordinal, content group, and
 source stem provide the mapping to the original. `review.txt` records which
 recipe was initially selected and the size of every candidate.
 
@@ -85,28 +85,36 @@ which is the correct choice after upgrading ImageMagick, avifenc, or cjxl.
 
 ## Classification model
 
-A flat label such as `screentone` is not enough. The analyzer measures orthogonal properties from decoded pixels:
+The analyzer measures decoded content before assigning one valid content
+category:
 
 - color occupancy;
-- exact bilevel versus general grayscale;
+- exact line art versus general grayscale;
 - grayscale entropy and near-black/white occupancy;
-- edge/detail energy;
+- high-frequency microtexture;
+- microtexture directional coherence;
 - low-amplitude fine variation globally and in local tiles;
 - locally smooth midtone occupancy;
-- canvas scale.
+- canvas resolution.
 
-It groups images by measured properties such as `color-textured-small`, `gray-noise-tone-medium`, or `gray-quiet-large`. The plan stores relative file paths, source size and nanosecond-mtime guards, group metrics, one representative, a selected recipe, and an explicit candidate catalog.
+The category representation excludes combinations that cannot exist, such as
+colored line art marked as grayscale texture. User-facing group names describe
+content and resolution: `textured-color-low-resolution`,
+`manga-sand-tone-heavy-standard-resolution`, or
+`grayscale-high-resolution`. The plan stores relative file paths, source size
+and nanosecond-mtime guards, group metrics, one representative, a selected
+recipe, and an explicit candidate catalog.
 
 This deliberately does **not** treat JPEG extension or 8-pixel block-boundary energy as proof of JPEG damage. On the reference corpus, the strongest 8-pixel signal came from a clean grayscale/halftone image, while the clean JPEG had a much weaker signal. Deliberate panel geometry and screentone make blockiness heuristics unreliable.
 
 ### Automatic choices
 
-- An image containing only decoded black/white grayscale values selects mathematically lossless JPEG XL directly.
-- Threshold-stable medium/large grayscale pages select `clean-scan-jxl`.
-- Noise/sand-tone grayscale pages select destructive mean-shift followed by AVIF speed 2.
+- Decoded black/white line art selects mathematically lossless JPEG XL directly.
+- The `degraded-scan` category selects `clean-scan-jxl`.
+- `manga-sand-tone-{light,medium,heavy}` selects matching destructive flattening followed by AVIF speed 2.
 - Other grayscale images select direct monochrome AVIF.
 - Color images select direct AVIF with automatic chroma sampling.
-- Larger canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
+- Higher-resolution canvases use a more compact default quality because review is modeled around an approximately 2k-pixel viewing scale.
 
 ### Destructive routing
 
@@ -118,18 +126,27 @@ This deliberately does **not** treat JPEG extension or 8-pixel block-boundary en
 - at most 1% locally smooth midtone pixels;
 - a longest edge of at least 1800 pixels.
 
-This separates the noisy but threshold-stable scan references from clean pages
+This separates degraded-scan references from clean pages
 with meaningful smooth grayscale. The strong class gets its own group, so one
 page cannot make an averaged mixed group destructive. It still has
 `review_required = true`, and direct AVIF remains a candidate.
 
-Noise-tone routing is also automatic because the storage policy explicitly
-does not preserve that styling. It requires a grayscale textured page with
-entropy at least 4.5, near-black/white occupancy at least 25%, worst-tile soft
-noise at least 20%, and smooth midtones from 25% through 35%. The selected
-recipe is mean-shift `5x5+15%` followed by the scale's normal AVIF quality at
-speed 2. Mild `3x3+10%`, aggressive `5x5+20%`, and unprocessed direct AVIF
-remain candidates.
+Manga sand-tone routing is also automatic because the storage policy
+explicitly discards that styling. It requires a textured grayscale page with:
+
+- entropy at least 4.2;
+- at least 20% sampled microtexture;
+- at least 20% soft noise in the noisiest 8×8 tile;
+- at least 25% near-black/white occupancy;
+- mean binary error at least 19.5/255;
+- at most 42% smooth midtones;
+- microtexture directional coherence at most 0.15.
+
+Microtexture below 25% is light, 25–45% is medium, and 45% or above is heavy.
+The selected recipe low-pass filters the page, quantizes it to 12, 8, or 6
+gray levels, then restores solid dark line work with a resolution-scaled
+morphological mask. All three strengths and unprocessed direct AVIF remain
+candidates.
 
 Other destructive operations remain unselected candidates:
 
@@ -154,9 +171,9 @@ The AVIF recipe uses libavif's documented quality control rather than combining 
 - 4:2:0 plus SharpYUV is an explicit compact color alternative;
 - Exif/XMP are stripped, but ICC profiles are retained;
 - AOM grain synthesis is opt-in per recipe, never global.
-- speed 5 remains the general default; measured noise-tone recipes use speed 2
-  because it saved 6.6% on the full-page reference without additional
-  preprocessing damage;
+- speed 5 remains the general default; sand-tone flattening uses speed 2
+  because the storage-first route already accepts substantial visual change
+  and slower speeds below 2 had sharply diminishing returns;
 
 The old global grain switch was the largest proven defect. On the sharp-screentone reference, the old settings produced 102,274 bytes with SSIMULACRA2 42.7; disabling grain produced 99,600 bytes with score 90.2. It was simultaneously larger, slower, and much more distorted.
 
@@ -209,7 +226,7 @@ One bad page does not cancel unrelated pages. Successful results remain committe
 The implemented automation intentionally stops at reviewed image conversion:
 
 - planning discovers PNG and JPEG sources;
-- each feature group gets one medoid representative, so exceptional pages still
+- each content group gets one medoid representative, so exceptional pages still
   require attention;
 - source identity uses size and modification time, not a cryptographic content
   hash;

@@ -24,12 +24,11 @@ use tempfile::Builder;
 use crate::BACKUP_DIR_NAME;
 use crate::REVIEW_DIR_NAME;
 use crate::classify::AnalyzedImage;
-use crate::classify::BinarizationClass;
+use crate::classify::ContentClass;
 use crate::classify::GroupKey;
 use crate::classify::ImageFeatures;
-use crate::classify::PaletteClass;
+use crate::classify::SandToneBurden;
 use crate::classify::ScaleClass;
-use crate::classify::TextureClass;
 use crate::classify::analyze;
 use crate::fs::backup_path;
 use crate::fs::collect_images;
@@ -45,11 +44,13 @@ use crate::transcoder::avif::Chroma;
 use crate::transcoder::jxl::Jxl;
 use crate::transcoder::magick::CleanScan;
 use crate::transcoder::magick::Denoise;
+use crate::transcoder::magick::FlattenSandTone;
 use crate::transcoder::magick::Mode;
+use crate::transcoder::magick::SandToneStrength;
 
-const PLAN_VERSION: u32 = 3;
+const PLAN_VERSION: u32 = 4;
 const DEFAULT_PLAN_NAME: &str = "imgo-plan.json";
-const REVIEW_VERSION: u32 = 2;
+const REVIEW_VERSION: u32 = 3;
 const REVIEW_MANIFEST_NAME: &str = ".imgo-review.json";
 
 const SMALL_AVIF_QUALITY: u8 = 68;
@@ -60,9 +61,7 @@ const NEAR_BILEVEL_REVIEW_PERCENT: f64 = 68.0;
 const PENCIL_MAX_NEAR_BW_PERCENT: f64 = 40.0;
 const PENCIL_MIN_GRAY_ENTROPY: f64 = 5.5;
 const PENCIL_MIN_SOFT_NOISE_PERCENT: f64 = 8.0;
-const NOISE_TONE_AVIF_SPEED: u8 = 2;
-const NOISE_TONE_MILD_STRENGTH: &str = "3x3+10%";
-const NOISE_TONE_AGGRESSIVE_STRENGTH: &str = "5x5+20%";
+const SAND_TONE_AVIF_SPEED: u8 = 2;
 
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -151,6 +150,8 @@ struct GroupMetrics {
     detail_percent: f64,
     soft_noise_percent: f64,
     max_tile_soft_noise_percent: f64,
+    microtexture_percent: f64,
+    texture_directional_coherence: f64,
     #[serde(default)]
     threshold_stability_percent: f64,
     #[serde(default)]
@@ -1038,7 +1039,7 @@ fn recipes_for_group(
     key: GroupKey,
     metrics: GroupMetrics,
 ) -> Recommendation {
-    if key.palette == PaletteClass::Bilevel {
+    if key.content == ContentClass::LineArt {
         let name = "jxl-lossless".to_owned();
         return Recommendation {
             selected: name.clone(),
@@ -1055,27 +1056,36 @@ fn recipes_for_group(
     }
 
     let quality = quality_for(key.scale);
-    let scale = scale_name(key.scale);
-    let safe_name = format!("avif-safe-{scale}");
+    let resolution = resolution_name(key.scale);
+    let safe_name = format!("avif-safe-{resolution}");
     let safe_recipe = avif_recipe(quality, Chroma::Auto, false);
-    if key.palette == PaletteClass::Gray
-        && key.texture == TextureClass::NoiseTone
-    {
-        return noise_tone_recommendation(
+    if let ContentClass::MangaSandTone(burden) = key.content {
+        return sand_tone_recommendation(
             quality,
-            scale,
+            resolution,
             safe_name,
             safe_recipe,
+            burden,
             metrics,
         );
     }
+
+    let is_color = matches!(
+        key.content,
+        ContentClass::Color | ContentClass::TexturedColor
+    );
+    let is_grayscale = matches!(
+        key.content,
+        ContentClass::Grayscale
+            | ContentClass::TexturedGrayscale
+            | ContentClass::DegradedScan
+    );
     let compact_quality = quality.saturating_sub(COMPACT_QUALITY_DELTA);
-    let (compact_name, compact_chroma) =
-        if key.palette == PaletteClass::Color {
-            (format!("avif-color-compact-{scale}"), Chroma::Yuv420)
-        } else {
-            (format!("avif-gray-compact-{scale}"), Chroma::Auto)
-        };
+    let (compact_name, compact_chroma) = if is_color {
+        (format!("avif-color-compact-{resolution}"), Chroma::Yuv420)
+    } else {
+        (format!("avif-grayscale-compact-{resolution}"), Chroma::Auto)
+    };
     let compact_recipe =
         avif_recipe(compact_quality, compact_chroma, false);
     let mut recommendation = Recommendation {
@@ -1083,12 +1093,12 @@ fn recipes_for_group(
         alternatives: vec![compact_name.clone()],
         review_required: false,
         reasons: vec![format!(
-            "Feature group: {:.1}% color, {:.1}% near black/white, entropy {:.2}, fine texture {:.1}% (worst tile {:.1}%).",
+            "Content evidence: {:.1}% color, {:.1}% near black/white, entropy {:.2}, {:.1}% microtexture (directional coherence {:.2}).",
             metrics.color_percent,
             metrics.near_bw_percent,
             metrics.gray_entropy,
-            metrics.soft_noise_percent,
-            metrics.max_tile_soft_noise_percent,
+            metrics.microtexture_percent,
+            metrics.texture_directional_coherence,
         )],
         recipes: vec![
             (safe_name, safe_recipe),
@@ -1096,10 +1106,8 @@ fn recipes_for_group(
         ],
     };
 
-    if key.palette == PaletteClass::Color
-        && key.texture == TextureClass::Textured
-    {
-        let grain_name = format!("avif-color-grain-{scale}");
+    if key.content == ContentClass::TexturedColor {
+        let grain_name = format!("avif-color-grain-{resolution}");
         recommendation.alternatives.push(grain_name.clone());
         recommendation.recipes.push((
             grain_name,
@@ -1112,16 +1120,18 @@ fn recipes_for_group(
         );
     }
 
-    if key.palette == PaletteClass::Gray {
+    if is_grayscale {
         recommendation.reasons.push(format!(
             "Binarization evidence: {:.1} mean binary error, {:.1}% threshold-sensitive pixels, {:.1}% smooth midtones.",
             metrics.binary_error_mean,
             metrics.threshold_stability_percent,
             metrics.smooth_midtone_percent,
         ));
-        if key.texture == TextureClass::Textured {
-            let bilateral_name = format!("gray-bilateral-{scale}");
-            let adaptive_name = format!("gray-adaptive-light-{scale}");
+        if key.content == ContentClass::TexturedGrayscale {
+            let bilateral_name =
+                format!("grayscale-bilateral-{resolution}");
+            let adaptive_name =
+                format!("grayscale-adaptive-light-{resolution}");
             recommendation
                 .alternatives
                 .extend([bilateral_name.clone(), adaptive_name.clone()]);
@@ -1144,28 +1154,28 @@ fn recipes_for_group(
             ));
             recommendation.review_required = true;
             recommendation.reasons.push(
-                "Fine grayscale variation may be disposable noise or intentional screentone; both denoise candidates remain unselected until reviewed."
+                "Grayscale texture is not a confident sand-tone match; destructive denoise candidates remain review-only."
                     .to_owned(),
             );
         }
         if metrics.near_bw_percent >= NEAR_BILEVEL_REVIEW_PERCENT
-            || key.binarization == BinarizationClass::ThresholdStable
+            || key.content == ContentClass::DegradedScan
         {
             let bilevel_name = "clean-scan-jxl".to_owned();
-            if key.binarization == BinarizationClass::ThresholdStable {
+            if key.content == ContentClass::DegradedScan {
                 let previous = std::mem::replace(
                     &mut recommendation.selected,
                     bilevel_name.clone(),
                 );
                 recommendation.alternatives.push(previous);
                 recommendation.reasons.push(
-                    "Large/medium near-bilevel pages with low binary error, a stable threshold band, and almost no smooth midtones select clean-scan-jxl."
+                    "The degraded-scan category selects threshold cleanup and mathematically lossless JPEG XL."
                         .to_owned(),
                 );
             } else {
                 recommendation.alternatives.push(bilevel_name.clone());
                 recommendation.reasons.push(
-                    "The page is near-bilevel but did not meet every strong threshold-stability check; clean-scan-jxl remains review-only."
+                    "The page is near-bilevel but did not meet every degraded-scan check; threshold cleanup remains review-only."
                         .to_owned(),
                 );
             }
@@ -1182,7 +1192,8 @@ fn recipes_for_group(
             && metrics.gray_entropy >= PENCIL_MIN_GRAY_ENTROPY
             && metrics.soft_noise_percent >= PENCIL_MIN_SOFT_NOISE_PERCENT
         {
-            let despeckle_name = format!("gray-despeckle-{scale}");
+            let despeckle_name =
+                format!("grayscale-despeckle-{resolution}");
             recommendation.alternatives.push(despeckle_name.clone());
             recommendation.recipes.push((
                 despeckle_name,
@@ -1207,70 +1218,106 @@ fn recipes_for_group(
     recommendation
 }
 
-fn noise_tone_recommendation(
+fn sand_tone_recommendation(
     quality: u8,
-    scale: &str,
+    resolution: &str,
     safe_name: String,
     safe_recipe: Recipe,
+    burden: SandToneBurden,
     metrics: GroupMetrics,
 ) -> Recommendation {
-    let balanced_name = format!("gray-noise-tone-balanced-{scale}");
-    let mild_name = format!("gray-noise-tone-mild-{scale}");
-    let aggressive_name = format!("gray-noise-tone-aggressive-{scale}");
+    let light_name = format!("flatten-sand-tone-light-{resolution}");
+    let medium_name = format!("flatten-sand-tone-medium-{resolution}");
+    let heavy_name = format!("flatten-sand-tone-heavy-{resolution}");
+    let (selected, alternatives) = match burden {
+        SandToneBurden::Light => (
+            light_name.clone(),
+            vec![
+                safe_name.clone(),
+                medium_name.clone(),
+                heavy_name.clone(),
+            ],
+        ),
+        SandToneBurden::Medium => (
+            medium_name.clone(),
+            vec![
+                safe_name.clone(),
+                light_name.clone(),
+                heavy_name.clone(),
+            ],
+        ),
+        SandToneBurden::Heavy => (
+            heavy_name.clone(),
+            vec![
+                safe_name.clone(),
+                light_name.clone(),
+                medium_name.clone(),
+            ],
+        ),
+    };
     Recommendation {
-        selected: balanced_name.clone(),
-        alternatives: vec![
-            safe_name.clone(),
-            mild_name.clone(),
-            aggressive_name.clone(),
-        ],
+        selected,
+        alternatives,
         review_required: true,
         reasons: vec![
             format!(
-                "Noise-tone evidence: {:.2} entropy, {:.1}% near black/white, {:.1}% smooth midtones, {:.1}% worst-tile fine texture.",
+                "Manga sand-tone evidence: {:.1}% microtexture, {:.2} directional coherence, {:.2} entropy, {:.1}% near black/white.",
+                metrics.microtexture_percent,
+                metrics.texture_directional_coherence,
                 metrics.gray_entropy,
                 metrics.near_bw_percent,
-                metrics.smooth_midtone_percent,
-                metrics.max_tile_soft_noise_percent,
             ),
-            "Noise/sand tone is intentionally simplified by default: measured mean-shift 5x5+15% preserves structural lines while reducing final AVIF size."
-                .to_owned(),
+            format!(
+                "{} sand-tone burden selects destructive low-pass filtering, grayscale quantization, and solid-line restoration.",
+                sand_tone_burden_name(burden),
+            ),
         ],
         recipes: vec![
             (
-                balanced_name,
-                mean_shift_avif_recipe(quality, None),
+                light_name,
+                flatten_sand_tone_avif_recipe(
+                    quality,
+                    SandToneStrength::Light,
+                ),
+            ),
+            (
+                medium_name,
+                flatten_sand_tone_avif_recipe(
+                    quality,
+                    SandToneStrength::Medium,
+                ),
+            ),
+            (
+                heavy_name,
+                flatten_sand_tone_avif_recipe(
+                    quality,
+                    SandToneStrength::Heavy,
+                ),
             ),
             (safe_name, safe_recipe),
-            (
-                mild_name,
-                mean_shift_avif_recipe(
-                    quality,
-                    Some(NOISE_TONE_MILD_STRENGTH),
-                ),
-            ),
-            (
-                aggressive_name,
-                mean_shift_avif_recipe(
-                    quality,
-                    Some(NOISE_TONE_AGGRESSIVE_STRENGTH),
-                ),
-            ),
         ],
     }
 }
 
-fn mean_shift_avif_recipe(quality: u8, strength: Option<&str>) -> Recipe {
+const fn sand_tone_burden_name(burden: SandToneBurden) -> &'static str {
+    match burden {
+        SandToneBurden::Light => "Light",
+        SandToneBurden::Medium => "Medium",
+        SandToneBurden::Heavy => "Heavy",
+    }
+}
+
+fn flatten_sand_tone_avif_recipe(
+    quality: u8,
+    strength: SandToneStrength,
+) -> Recipe {
     Recipe::pair(
-        Step::Denoise(Denoise {
-            mode: Mode::MeanShift,
-            strength: strength.map(str::to_owned),
-        }),
+        Step::FlattenSandTone(FlattenSandTone { strength }),
         Step::Avif(avif_options_with_speed(
             quality,
             Chroma::Auto,
             false,
-            NOISE_TONE_AVIF_SPEED,
+            SAND_TONE_AVIF_SPEED,
         )),
     )
 }
@@ -1308,11 +1355,11 @@ const fn quality_for(scale: ScaleClass) -> u8 {
     }
 }
 
-const fn scale_name(scale: ScaleClass) -> &'static str {
+const fn resolution_name(scale: ScaleClass) -> &'static str {
     match scale {
-        ScaleClass::Small => "small",
-        ScaleClass::Medium => "medium",
-        ScaleClass::Large => "large",
+        ScaleClass::Small => "low-resolution",
+        ScaleClass::Medium => "standard-resolution",
+        ScaleClass::Large => "high-resolution",
     }
 }
 
@@ -1335,6 +1382,10 @@ fn group_metrics(images: &[AnalyzedImage]) -> GroupMetrics {
         }),
         max_tile_soft_noise_percent: average(|features| {
             features.max_tile_soft_noise_percent
+        }),
+        microtexture_percent: average(ImageFeatures::microtexture_percent),
+        texture_directional_coherence: average(|features| {
+            features.texture_directional_coherence
         }),
         threshold_stability_percent: average(|features| {
             features.threshold_stability_percent
@@ -1378,13 +1429,16 @@ fn feature_distance(
         + (features.near_bw_percent - metrics.near_bw_percent).abs()
             / 100.0
         + (features.gray_entropy - metrics.gray_entropy).abs() / 8.0
-        + (features.detail_percent - metrics.detail_percent).abs() / 100.0
-        + (features.soft_noise_percent - metrics.soft_noise_percent).abs()
+        + (features.microtexture_percent() - metrics.microtexture_percent)
+            .abs()
             / 100.0
         + (features.max_tile_soft_noise_percent
             - metrics.max_tile_soft_noise_percent)
             .abs()
             / 100.0
+        + (features.texture_directional_coherence
+            - metrics.texture_directional_coherence)
+            .abs()
 }
 
 fn relative_to(workspace: &Path, path: &Path) -> anyhow::Result<PathBuf> {
@@ -1451,7 +1505,7 @@ fn print_plan_summary(plan: &Plan, output: &Path) {
     let image_count: usize =
         plan.groups.iter().map(|group| group.files.len()).sum();
     println!(
-        "Plan: {} images in {} feature groups -> {}",
+        "Plan: {} images in {} content groups -> {}",
         image_count,
         plan.groups.len(),
         output.display()
@@ -1463,7 +1517,7 @@ fn print_plan_summary(plan: &Plan, output: &Path) {
             "safe direct route"
         };
         println!(
-            "  {:28} {:>4} images  {:24}  {review}",
+            "  {:52} {:>4} images  {:52}  {review}",
             group.id,
             group.files.len(),
             group.selected_recipe,
@@ -1488,6 +1542,8 @@ mod tests {
             detail_percent: 10.0,
             soft_noise_percent: 4.0,
             max_tile_soft_noise_percent: 12.0,
+            microtexture_percent: 14.0,
+            texture_directional_coherence: 0.2,
             threshold_stability_percent: 10.0,
             binary_error_mean: 20.0,
             smooth_midtone_percent: 10.0,
@@ -1500,14 +1556,12 @@ mod tests {
     fn ambiguous_near_bilevel_recipe_remains_unselected() {
         let recommendation = recipes_for_group(
             GroupKey {
-                palette: PaletteClass::Gray,
-                texture: TextureClass::Quiet,
+                content: ContentClass::Grayscale,
                 scale: ScaleClass::Large,
-                binarization: BinarizationClass::General,
             },
             metrics(78.0),
         );
-        assert_eq!(recommendation.selected, "avif-safe-large");
+        assert_eq!(recommendation.selected, "avif-safe-high-resolution");
         assert!(
             recommendation
                 .alternatives
@@ -1525,10 +1579,8 @@ mod tests {
         stable_metrics.smooth_midtone_percent = 0.4;
         let recommendation = recipes_for_group(
             GroupKey {
-                palette: PaletteClass::Gray,
-                texture: TextureClass::Textured,
+                content: ContentClass::DegradedScan,
                 scale: ScaleClass::Large,
-                binarization: BinarizationClass::ThresholdStable,
             },
             stable_metrics,
         );
@@ -1538,7 +1590,7 @@ mod tests {
             recommendation
                 .alternatives
                 .iter()
-                .any(|name| name == "avif-safe-large")
+                .any(|name| name == "avif-safe-high-resolution")
         );
     }
 
@@ -1549,63 +1601,62 @@ mod tests {
         color_metrics.soft_noise_percent = 40.0;
         let recommendation = recipes_for_group(
             GroupKey {
-                palette: PaletteClass::Color,
-                texture: TextureClass::Textured,
+                content: ContentClass::TexturedColor,
                 scale: ScaleClass::Small,
-                binarization: BinarizationClass::General,
             },
             color_metrics,
         );
-        assert_eq!(recommendation.selected, "avif-safe-small");
+        assert_eq!(recommendation.selected, "avif-safe-low-resolution");
         assert!(
             recommendation
                 .alternatives
                 .iter()
-                .any(|name| name == "avif-color-grain-small")
+                .any(|name| name == "avif-color-grain-low-resolution")
         );
     }
 
     #[test]
-    fn measured_noise_tone_selects_destructive_mean_shift() {
-        let mut noise_metrics = metrics(54.3);
-        noise_metrics.gray_entropy = 5.08;
-        noise_metrics.soft_noise_percent = 7.0;
-        noise_metrics.max_tile_soft_noise_percent = 45.1;
-        noise_metrics.smooth_midtone_percent = 30.5;
+    fn measured_sand_tone_selects_adaptive_flattening() {
+        let mut sand_metrics = metrics(54.3);
+        sand_metrics.gray_entropy = 5.08;
+        sand_metrics.soft_noise_percent = 7.0;
+        sand_metrics.max_tile_soft_noise_percent = 45.1;
+        sand_metrics.microtexture_percent = 35.0;
+        sand_metrics.texture_directional_coherence = 0.08;
+        sand_metrics.smooth_midtone_percent = 30.5;
         let recommendation = recipes_for_group(
             GroupKey {
-                palette: PaletteClass::Gray,
-                texture: TextureClass::NoiseTone,
+                content: ContentClass::MangaSandTone(
+                    SandToneBurden::Medium,
+                ),
                 scale: ScaleClass::Medium,
-                binarization: BinarizationClass::General,
             },
-            noise_metrics,
+            sand_metrics,
         );
 
         assert_eq!(
             recommendation.selected,
-            "gray-noise-tone-balanced-medium"
+            "flatten-sand-tone-medium-standard-resolution"
         );
         assert!(recommendation.review_required);
         assert!(
             recommendation
                 .alternatives
                 .iter()
-                .any(|name| name == "avif-safe-medium")
+                .any(|name| name == "avif-safe-standard-resolution")
         );
         let expected = Recipe::pair(
-            Step::Denoise(Denoise {
-                mode: Mode::MeanShift,
-                strength: None,
+            Step::FlattenSandTone(FlattenSandTone {
+                strength: SandToneStrength::Medium,
             }),
             Step::Avif(Avif {
                 quality: MEDIUM_AVIF_QUALITY,
-                speed: NOISE_TONE_AVIF_SPEED,
+                speed: SAND_TONE_AVIF_SPEED,
                 ..Avif::default()
             }),
         );
         assert!(recommendation.recipes.iter().any(|(name, recipe)| {
-            name == "gray-noise-tone-balanced-medium"
+            name == "flatten-sand-tone-medium-standard-resolution"
                 && recipe == &expected
         }));
     }
@@ -1663,7 +1714,7 @@ mod tests {
                 ),
             ]),
             groups: vec![PlanGroup {
-                id: "gray-quiet-small".to_owned(),
+                id: "grayscale-low-resolution".to_owned(),
                 selected_recipe: compact.clone(),
                 candidate_recipes: vec![safe, compact],
                 review_required: false,
@@ -1697,7 +1748,7 @@ mod tests {
             modified_subsec_nanos: 0,
         };
         let group = PlanGroup {
-            id: "gray-textured-large".to_owned(),
+            id: "textured-grayscale-high-resolution".to_owned(),
             selected_recipe: "safe".to_owned(),
             candidate_recipes: vec!["safe".to_owned()],
             review_required: false,
@@ -1709,7 +1760,7 @@ mod tests {
 
         assert_eq!(
             review_group_directory_name(0, &group, &planned),
-            "001--gray-textured-large--001"
+            "001--textured-grayscale-high-resolution--001"
         );
         assert_eq!(
             candidate_artifact_file_name(1, "safe", "avif"),

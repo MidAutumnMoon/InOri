@@ -17,6 +17,7 @@ use crate::transcoder::avif::Avif;
 use crate::transcoder::jxl::Jxl;
 use crate::transcoder::magick::CleanScan;
 use crate::transcoder::magick::Denoise;
+use crate::transcoder::magick::FlattenSandTone;
 
 /// A serializable operation in a recipe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ pub enum Step {
     Avif(Avif),
     Jxl(Jxl),
     Denoise(Denoise),
+    FlattenSandTone(FlattenSandTone),
     CleanScan(CleanScan),
 }
 
@@ -40,6 +42,7 @@ impl Step {
             Self::Avif(step) => step.id(),
             Self::Jxl(step) => step.id(),
             Self::Denoise(step) => step.id(),
+            Self::FlattenSandTone(step) => step.id(),
             Self::CleanScan(step) => step.id(),
         }
     }
@@ -50,6 +53,7 @@ impl Step {
             Self::Avif(step) => step.input_formats(),
             Self::Jxl(step) => step.input_formats(),
             Self::Denoise(step) => step.input_formats(),
+            Self::FlattenSandTone(step) => step.input_formats(),
             Self::CleanScan(step) => step.input_formats(),
         }
     }
@@ -60,6 +64,7 @@ impl Step {
             Self::Avif(step) => step.output_format(),
             Self::Jxl(step) => step.output_format(),
             Self::Denoise(step) => step.output_format(),
+            Self::FlattenSandTone(step) => step.output_format(),
             Self::CleanScan(step) => step.output_format(),
         }
     }
@@ -70,6 +75,7 @@ impl Step {
             Self::Avif(step) => step.default_jobs(),
             Self::Jxl(step) => step.default_jobs(),
             Self::Denoise(step) => step.default_jobs(),
+            Self::FlattenSandTone(step) => step.default_jobs(),
             Self::CleanScan(step) => step.default_jobs(),
         }
     }
@@ -79,6 +85,7 @@ impl Step {
             Self::Avif(step) => step.validate(),
             Self::Jxl(step) => step.validate(),
             Self::Denoise(step) => step.validate(),
+            Self::FlattenSandTone(step) => step.validate(),
             Self::CleanScan(step) => step.validate(),
         }
     }
@@ -88,6 +95,7 @@ impl Step {
             Self::Avif(step) => step.run(input, output),
             Self::Jxl(step) => step.run(input, output),
             Self::Denoise(step) => step.run(input, output),
+            Self::FlattenSandTone(step) => step.run(input, output),
             Self::CleanScan(step) => step.run(input, output),
         }
     }
@@ -97,6 +105,7 @@ impl Step {
             Self::Avif(step) => step.required_tools(tools),
             Self::Jxl(step) => step.required_tools(tools),
             Self::Denoise(step) => step.required_tools(tools),
+            Self::FlattenSandTone(step) => step.required_tools(tools),
             Self::CleanScan(step) => step.required_tools(tools),
         }
     }

@@ -187,6 +187,13 @@ Speed 5 is the current starting point. Lower values may improve density, but com
 
 It can be excellent on genuinely grainy color art. It can be disastrous on crisp screentone. In the reference sharp-screentone sample, the old global grain setting was larger, slower, and dropped SSIMULACRA2 from about 90 to 43. Grain must remain an unselected alternative until reviewed.
 
+The current textured-color reference confirms the useful case: at low-resolution
+quality 68, direct 4:4:4 AVIF used 295,362 bytes, compact 4:2:0 used 189,911,
+and 4:2:0 with AOM noise estimation/grain synthesis used 154,280. The decoded
+grain candidate remained visually acceptable. This does not generalize to
+grayscale manga sand tone: on the heavy sand sample the same switch changed
+817,735 bytes to 818,186 while reducing the metric score.
+
 ### Color profiles and alpha
 
 Alpha is encoded losslessly. Exif and XMP are stripped, but ICC profiles are retained. Never discard ICC and then assert sRGB metadata unless the pixels were actually converted to sRGB first. Otherwise a small metadata saving can produce a real color shift.
@@ -271,66 +278,92 @@ Under the current AVIF recipe, this mode did not improve the stylized-noise samp
 
 `-despeckle` has no numeric parameter. `imgo` rejects a `strength` value in this mode rather than silently ignoring it. Repeating the operation would create a stronger, different preset, so repetition count must be treated as a parameter. On the stylized-noise reference it saved about 8% but visibly altered texture and reduced the reference metric. It remains review-only.
 
-### Noise/sand tone: mean-shift
+### Manga sand tone: adaptive flattening
 
 Clip Studio calls this intentional manga texture `砂目ノイズトーン`
-(noise/sand tone) and exposes it as tone type `ノイズ`. It behaves like
-spatially varying stochastic dithering: local dot density represents gray, so
-AVIF sees expensive unpredictable high-frequency detail rather than a smooth
-tone. See [Clip Studio's tone guide](https://tips.clip-studio.com/en-us/articles/9181).
+(noise/sand tone) and exposes it as tone type `ノイズ`. Local dot density
+represents gray, so AVIF sees expensive high-frequency detail instead of a
+smooth tone. See [Clip Studio's tone guide](https://tips.clip-studio.com/en-us/articles/9181).
 
-The project policy explicitly values storage and preservation of the main
-subject over this styling. A high-confidence noise-tone group therefore
-selects destructive preprocessing by default:
+The project policy values storage and main-content legibility over preserving
+this styling. Mean-shift was too conservative for that policy. Its color
+distance rejects high-contrast black/white dots, so larger spatial windows do
+not necessarily merge them. On the new 837×3390 heavy-tone sample at quality
+55 and AVIF speed 2:
 
-```text
--mean-shift 5x5+15%
-AVIF quality = normal scale quality
-AVIF speed = 2
-AVIF depth = 10
-```
+| Preprocessing | Bytes | Saving |
+|---|---:|---:|
+| none | 817,735 | — |
+| mean-shift `5x5+15%` | 803,416 | 1.8% |
+| mean-shift `7x7+50%` | 660,741 | 19.2% |
+| adaptive heavy flattening | 148,377 | 81.9% |
 
-ImageMagick mean-shift performs iterative spatial/color clustering. Unlike a
-Gaussian blur, it simplified one-pixel noise tone while keeping panel borders,
-text, hair, and other large edges sharp in the measured crops.
+The selected pipeline uses ordinary ImageMagick operations, but in a deliberate
+multi-stage composition:
 
-The generated candidate set is:
+1. composite transparency onto white and convert to grayscale;
+2. blur a base image with a resolution-scaled sigma;
+3. disable dithering and posterize the base;
+4. threshold the original at 20%, invert it, morphologically open it, and
+   invert it again to retain solid dark line work while dropping small dots;
+5. darken-compose that line layer over the flattened base.
 
-| Role | Mean-shift | Purpose |
-|---|---|---|
-| selected | `5x5+15%` | measured storage/focus balance |
-| mild | `3x3+10%` | retain more tone texture |
-| aggressive | `5x5+20%` | remove more styling |
-| fallback | none, AVIF speed 5 | preserve the source style |
+The base sigma is
+`clamp(longest_edge / 1400, 0.8, 2.8) × strength_multiplier`.
+The presets are:
 
-On the 1980x1572 reference at quality 65:
+| Strength | Measured microtexture burden | Multiplier | Gray levels |
+|---|---:|---:|---:|
+| light | below 25% | 0.6 | 12 |
+| medium | 25% to below 45% | 0.9 | 8 |
+| heavy | 45% or above | 1.1 | 6 |
 
-| Recipe | Bytes | Saving | Native score | 1200px score |
-|---|---:|---:|---:|---:|
-| direct, speed 5 | 243,236 | — | 87.91 | 92.10 |
-| direct, speed 2 | 227,227 | 6.6% | 87.73 | 91.96 |
-| mild, speed 2 | 206,617 | 15.1% | 82.49 | 89.60 |
-| selected, speed 2 | 181,239 | 25.5% | 70.22 | 81.90 |
-| aggressive, speed 2 | 173,046 | 28.9% | 65.14 | 79.08 |
+Line-layer opening uses `Disk:1` below 1800 pixels, `Disk:1.5` below 3500,
+and `Disk:2` otherwise. This is not semantic segmentation: long or thick
+decorative marks can survive with line art. It does preserve speech text,
+panel borders, and character outlines on the measured samples without
+reintroducing most fine stipple.
 
-Across the three references, the selected preset saved 10–29% versus direct
-speed-5 AVIF. Speed 2 alone saved 6.6% on the full page at about six times the
-encode time; speed 0 bought only another 0.7% while taking 2.4 times as long as
-speed 2. Speed 2 is scoped to noise-tone recipes rather than changing every
-AVIF route.
+Across five representative target samples, both sides use AVIF speed 2 and
+each resolution bucket's normal quality:
 
-Twelve-bit output saved another 2–3% in this corpus, but remains manual because
-decoder compatibility is a separate policy. AOM grain synthesis saved less
-than 0.2%; bilateral blur preserved the costly dots; adaptive blur increased
-size; wavelet/Kuwahara/G'MIC denoise were dominated; lossy JPEG XL was much
-larger at comparable or worse quality.
+| Sample | Direct bytes | Flattened bytes | Saving |
+|---|---:|---:|---:|
+| heavy crosshatched sand tone | 817,735 | 148,377 | 81.9% |
+| mixed sharp screentone and sand patches | 309,872 | 157,570 | 49.1% |
+| very fine low-resolution sand tone | 127,009 | 27,227 | 78.6% |
+| smooth main subject with a large tone field | 544,631 | 180,462 | 66.9% |
+| sparse tone on a 4441×4503 page | 895,682 | 501,738 | 44.0% |
 
-This classification is heuristic, not proof of authoring intent. It requires
-grayscale texture, entropy at least 4.5, near-black/white occupancy at least
-25%, worst-tile soft noise at least 20%, and smooth midtones from 25% through
-35%. Those independent signals encode the observed pattern: noisy
-corners/backgrounds surrounding smooth grayscale focus regions. The plan still
-marks the group for review and retains direct AVIF as a one-field override.
+Reference metrics become very low because removal of the reference texture is
+the intended result. Candidate inspection therefore checks main-content
+legibility and encoded size, not fidelity to disposable stipple. Direct AVIF
+and all three flattening strengths remain in the review bundle.
+
+Complex edge masks were not automatically better. Canny detected the tone
+itself as edges even after coarse smoothing; median, morphology-only,
+Kuwahara, bilateral, and stronger mean-shift retained expensive patterns or
+damaged lines for less storage gain. Research-grade manga separation combines
+Laplacian-of-Gaussian and flow-based difference-of-Gaussian masks
+([Ito et al., 2015](https://diglib7.eg.org/items/79cb54a0-109d-492e-ae83-0827a4eaccae)).
+That is a specialized line-extraction system, not a useful amount of
+ImageMagick command complexity for this storage-first route.
+
+AV1 grain synthesis is also the wrong representation. AOM's model first
+denoises the image and estimates zero-mean autoregressive grain from selected
+flat regions
+([AOMedia film-grain report](https://aomedia.org/docs/CWG-C051o_TR_AOMedia_film_grain_synthesis_technology_v2.pdf)).
+Authored high-contrast manga tone is not stationary film grain. On the heavy
+sample, enabling libaom noise estimation changed 817,735 bytes to 818,186
+bytes (+0.06%) and reduced SSIMULACRA2 from 84.83 to 82.44.
+
+Automatic routing requires multiple independent signals. Directional
+coherence is computed from the sampled microtexture gradient structure tensor:
+isotropic sand tone measured 0.01–0.10 in the new target set, while the
+explicit non-sand vertical texture measured 0.28 and the strip-pattern sample
+measured 0.37. The destructive class still requires entropy, occupancy,
+binary-error, local-noise, smooth-region, and microtexture guards in addition
+to coherence.
 
 ### Clean scan: unsharp plus threshold
 
@@ -373,16 +406,22 @@ Current 8-bit feature rules include:
 - color occupancy and the grayscale histogram scan every decoded pixel;
 - an image is color when at least 1% of pixels are chromatic;
 - exact bilevel means no chromatic pixels and only grayscale values 0 and 255;
+- sampled “detail” uses Laplacian magnitude above 24;
 - sampled “soft noise” uses Laplacian magnitude 4–20 with local gradient at most 24;
+- microtexture is the non-overlapping sum of detail and soft-noise occupancy;
 - sampled smooth midtones use luminance 33–222, gradient at most 6, and Laplacian at most 12;
+- microtexture directional coherence is the normalized eigenvalue difference of its sampled gradient structure tensor;
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
-- noise-tone is a grayscale-textured subset requiring entropy at least 4.5,
-  near-black/white occupancy at least 25%, worst-tile soft noise at least 20%,
-  and smooth midtones from 25% through 35%;
-- scale buckets use longest edges below 1800, below 3000, and 3000 or above;
+- manga sand tone additionally requires entropy at least 4.2, microtexture at
+  least 20%, near-black/white occupancy at least 25%, worst-tile soft noise at
+  least 20%, mean binary error at least 19.5/255, smooth midtones at most 42%,
+  and directional coherence at most 0.15;
+- sand-tone burden is light below 25% microtexture, medium below 45%, and heavy
+  otherwise;
+- resolution buckets use longest edges below 1800, below 3000, and 3000 or above;
 - ambiguous near-bilevel grayscale gets a review-only clean-scan candidate at 68%;
-- `clean-scan-jxl` is selected for medium/large pages at 65% near-black/white when mean binary error is at most 18/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
+- the `degraded-scan` category is selected for standard/high-resolution pages at 65% near-black/white when mean binary error is at most 18/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
 
 The second degraded-scan reference measured 65.5%, 17.8/255, 4.2%, and
 0.38% on those four axes. Clean grayscale guards still fail the independent
@@ -391,9 +430,10 @@ two axes rather than reduced to a single lower near-black/white cutoff.
 
 Palette/color and threshold-band facts scan the full image. Local
 edge/texture analysis samples at most two million coordinates and divides each
-image into an 8×8 tile grid. Threshold-stable pages get a distinct group before
-group metrics are averaged, preventing one damaged page from routing clean
-grayscale neighbors destructively. Tiny localized defects can still be diluted.
+image into an 8×8 tile grid. Each image receives one content category before
+group metrics are averaged, preventing a degraded scan or sand-tone page from
+routing clean grayscale neighbors destructively. Tiny localized defects can
+still be diluted.
 
 When tuning routing thresholds, measure two costs:
 
@@ -429,3 +469,6 @@ A constant without its measurement and anti-target is folklore. Keep it as an al
 - [libjxl `cjxl` manual](https://github.com/libjxl/libjxl/blob/main/doc/man/cjxl.txt)
 - [libjxl lossless API contract](https://github.com/libjxl/libjxl/blob/main/lib/include/jxl/encode.h)
 - [ImageMagick command-line option reference](https://imagemagick.org/command-line-options/)
+- [AOMedia film-grain synthesis technical report](https://aomedia.org/docs/CWG-C051o_TR_AOMedia_film_grain_synthesis_technology_v2.pdf)
+- [Ito et al., “Separation of Manga Line Drawings and Screentones”](https://diglib7.eg.org/items/79cb54a0-109d-492e-ae83-0827a4eaccae)
+- [Clip Studio tone guide](https://tips.clip-studio.com/en-us/articles/9181)
