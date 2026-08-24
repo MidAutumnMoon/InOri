@@ -132,28 +132,39 @@ page cannot make an averaged mixed group destructive. It still has
 `review_required = true`, and direct AVIF remains a candidate.
 
 Manga sand-tone routing is also automatic because the storage policy
-explicitly discards that styling. It requires a textured grayscale page with:
+explicitly discards that styling. Two evidence paths share page-level guards
+of at least 25% near-black/white occupancy, mean binary error at least
+19.5/255, at most 42% smooth midtones, and directional coherence at most
+0.15:
 
-- entropy at least 4.2;
-- at least 20% sampled microtexture;
-- at least 20% soft noise in the noisiest 8×8 tile;
-- at least 25% near-black/white occupancy;
-- mean binary error at least 19.5/255;
-- at most 42% smooth midtones;
-- microtexture directional coherence at most 0.15.
+- global evidence requires entropy at least 4.2, at least 20% sampled
+  microtexture, and at least 20% soft noise in the noisiest 8×8 tile;
+- regional evidence divides the sampled page into 16×16 tiles and requires at
+  least one qualifying tile (approximately 0.35% page coverage) plus at least
+  45% local microtexture. Each qualifying tile independently satisfies the
+  occupancy, binary-error, smoothness, and coherence guards.
 
-Microtexture below 25% is light, 25–45% is medium, and 45% or above is heavy.
-The selected recipe low-pass filters the page, quantizes it to 12, 8, or 6
-gray levels, then restores solid dark line work with a resolution-scaled
-morphological mask. All three strengths and unprocessed direct AVIF remain
-candidates.
+This catches full pages whose dense tone panels are diluted by large clean
+areas. Existing globally detected pages keep the 25%/45% light-medium-heavy
+boundaries. Region-only pages use medium strength below 50% local
+microtexture and heavy strength otherwise.
+
+The selected recipe computes a dense high-frequency mask, removes small
+connected detections, feathers its boundaries, and applies low-pass filtering
+and 12/8/6-level quantization only inside the surviving regions. Smooth
+gradients and text outside those regions remain original. All three strengths
+and unprocessed direct AVIF remain candidates.
 
 Other destructive operations remain unselected candidates:
 
-- bilateral or light adaptive denoise followed by AVIF;
-- despeckle for broad pencil-like grayscale texture;
-- AOM denoise/grain synthesis for densely textured color images;
-- lower-quality and, for color, 4:2:0 compact AVIF variants.
+- every textured grayscale group gets a masked light sand-tone candidate even
+  without confident classification;
+- non-scan grayscale groups with weak regional evidence get a matching masked
+  light/medium candidate;
+- bilateral denoise remains available for general grayscale texture;
+- despeckle remains available for broad pencil-like grayscale texture;
+- AOM denoise/grain synthesis remains available for densely textured color;
+- lower-quality and, for color, 4:2:0 compact AVIF variants remain available.
 
 Near-black/white percentage or histogram shape alone is insufficient: sharp
 clean screentone and degraded scans overlap on both.

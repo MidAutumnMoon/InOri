@@ -19,6 +19,13 @@ const SAND_TONE_SIGMA_DIVISOR: f64 = 1400.0;
 const SAND_TONE_MIN_BASE_SIGMA: f64 = 0.8;
 const SAND_TONE_MAX_BASE_SIGMA: f64 = 2.8;
 const SAND_TONE_LINE_THRESHOLD: &str = "20%";
+const SAND_TONE_DETAIL_SIGMA_DIVISOR: f64 = 4000.0;
+const SAND_TONE_MIN_DETAIL_SIGMA: f64 = 0.8;
+const SAND_TONE_MAX_DETAIL_SIGMA: f64 = 1.5;
+const SAND_TONE_REGION_SIGMA_DIVISOR: f64 = 500.0;
+const SAND_TONE_MIN_REGION_SIGMA: f64 = 4.0;
+const SAND_TONE_MAX_REGION_SIGMA: f64 = 12.0;
+const SAND_TONE_COMPONENT_AREA_DIVISOR: u64 = 2000;
 
 /// `ImageMagick` preprocessing modes. Each destructive transformation is an
 /// explicit recipe step; classifier policy chooses whether that recipe is a
@@ -137,7 +144,7 @@ pub enum SandToneStrength {
     Heavy,
 }
 
-/// Low-pass and quantize sand tone, then restore only solid dark line work.
+/// Flatten detected sand-tone regions while preserving smooth content.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -146,9 +153,15 @@ pub struct FlattenSandTone {
 }
 
 struct SandTonePreset {
-    sigma: f64,
+    flatten_sigma: f64,
     gray_levels: &'static str,
     line_opening: &'static str,
+    detail_sigma: f64,
+    region_sigma: f64,
+    mask_opening: u32,
+    mask_closing: u32,
+    mask_feather_sigma: f64,
+    mask_threshold: &'static str,
 }
 
 impl FlattenSandTone {
@@ -166,10 +179,32 @@ impl FlattenSandTone {
             1800..3500 => "Disk:1.5",
             _ => "Disk:2",
         };
+        let mask_threshold = match longest_edge {
+            0..1800 => "6%",
+            1800..3500 => "8%",
+            _ => "10%",
+        };
+        let detail_sigma = (f64::from(longest_edge)
+            / SAND_TONE_DETAIL_SIGMA_DIVISOR)
+            .clamp(SAND_TONE_MIN_DETAIL_SIGMA, SAND_TONE_MAX_DETAIL_SIGMA);
+        let region_sigma = (f64::from(longest_edge)
+            / SAND_TONE_REGION_SIGMA_DIVISOR)
+            .clamp(SAND_TONE_MIN_REGION_SIGMA, SAND_TONE_MAX_REGION_SIGMA);
+        let mask_closing = longest_edge
+            .saturating_add(625)
+            .checked_div(1250)
+            .unwrap_or_default()
+            .clamp(2, 5);
         SandTonePreset {
-            sigma: base_sigma * multiplier,
+            flatten_sigma: base_sigma * multiplier,
             gray_levels,
             line_opening,
+            detail_sigma,
+            region_sigma,
+            mask_opening: mask_closing.div_ceil(2),
+            mask_closing,
+            mask_feather_sigma: region_sigma / 4.0,
+            mask_threshold,
         }
     }
 }
@@ -207,7 +242,20 @@ impl Operation for FlattenSandTone {
                 format!("read dimensions of {}", input.display())
             })?;
         let preset = self.preset(width.max(height));
-        let blur = format!("0x{:.2}", preset.sigma);
+        let flatten_blur = format!("0x{:.2}", preset.flatten_sigma);
+        let detail_blur = format!("0x{:.2}", preset.detail_sigma);
+        let region_blur = format!("0x{:.2}", preset.region_sigma);
+        let mask_opening = format!("Disk:{}", preset.mask_opening);
+        let mask_closing = format!("Disk:{}", preset.mask_closing);
+        let mask_feather = format!("0x{:.2}", preset.mask_feather_sigma);
+        let component_area = u64::from(width)
+            .saturating_mul(u64::from(height))
+            .checked_div(SAND_TONE_COMPONENT_AREA_DIVISOR)
+            .unwrap_or_default()
+            .max(256);
+        let component_area = format!(
+            "connected-components:area-threshold={component_area}"
+        );
 
         let mut command = Tool::Magick.command();
         command.arg(input);
@@ -227,7 +275,7 @@ impl Operation for FlattenSandTone {
         command.args([
             "mpr:source",
             "-blur",
-            &blur,
+            &flatten_blur,
             "+dither",
             "-posterize",
             preset.gray_levels,
@@ -253,6 +301,53 @@ impl Operation for FlattenSandTone {
             "mpr:lines",
             "-compose",
             "Darken",
+            "-composite",
+            "-write",
+            "mpr:flat",
+            "+delete",
+        ]);
+        command.args([
+            "mpr:source",
+            "-blur",
+            &detail_blur,
+            "-write",
+            "mpr:low",
+            "+delete",
+        ]);
+        command.args([
+            "mpr:source",
+            "mpr:low",
+            "-compose",
+            "Difference",
+            "-composite",
+            "-blur",
+            &region_blur,
+            "-threshold",
+            preset.mask_threshold,
+            "-morphology",
+            "Open",
+            &mask_opening,
+            "-morphology",
+            "Close",
+            &mask_closing,
+            "-define",
+            &component_area,
+            "-define",
+            "connected-components:mean-color=true",
+            "-connected-components",
+            "8",
+            "-blur",
+            &mask_feather,
+            "-write",
+            "mpr:mask",
+            "+delete",
+        ]);
+        command.args([
+            "mpr:source",
+            "mpr:flat",
+            "mpr:mask",
+            "-compose",
+            "Over",
             "-composite",
             "-strip",
             "-define",
@@ -379,21 +474,35 @@ mod tests {
             strength: SandToneStrength::Heavy,
         }
         .preset(749);
-        assert!((small.sigma - 0.88).abs() < f64::EPSILON);
+        assert!((small.flatten_sigma - 0.88).abs() < f64::EPSILON);
         assert_eq!(small.gray_levels, "6");
         assert_eq!(small.line_opening, "Disk:1");
+        assert!((small.detail_sigma - 0.8).abs() < f64::EPSILON);
+        assert!((small.region_sigma - 4.0).abs() < f64::EPSILON);
+        assert_eq!(small.mask_opening, 1);
+        assert_eq!(small.mask_closing, 2);
+        assert_eq!(small.mask_threshold, "6%");
 
         let standard = FlattenSandTone::default().preset(2266);
-        assert!((standard.sigma - 1.456_714_285_714_285_6).abs() < 1e-12);
+        assert!(
+            (standard.flatten_sigma - 1.456_714_285_714_285_6).abs()
+                < 1e-12
+        );
         assert_eq!(standard.gray_levels, "8");
         assert_eq!(standard.line_opening, "Disk:1.5");
+        assert_eq!(standard.mask_threshold, "8%");
 
         let high = FlattenSandTone {
             strength: SandToneStrength::Light,
         }
         .preset(4503);
-        assert!((high.sigma - 1.68).abs() < f64::EPSILON);
+        assert!((high.flatten_sigma - 1.68).abs() < f64::EPSILON);
         assert_eq!(high.gray_levels, "12");
         assert_eq!(high.line_opening, "Disk:2");
+        assert!((high.detail_sigma - 1.125_75).abs() < f64::EPSILON);
+        assert!((high.region_sigma - 9.006).abs() < f64::EPSILON);
+        assert_eq!(high.mask_opening, 2);
+        assert_eq!(high.mask_closing, 4);
+        assert_eq!(high.mask_threshold, "10%");
     }
 }

@@ -48,9 +48,9 @@ use crate::transcoder::magick::FlattenSandTone;
 use crate::transcoder::magick::Mode;
 use crate::transcoder::magick::SandToneStrength;
 
-const PLAN_VERSION: u32 = 4;
+const PLAN_VERSION: u32 = 5;
 const DEFAULT_PLAN_NAME: &str = "imgo-plan.json";
-const REVIEW_VERSION: u32 = 3;
+const REVIEW_VERSION: u32 = 4;
 const REVIEW_MANIFEST_NAME: &str = ".imgo-review.json";
 
 const SMALL_AVIF_QUALITY: u8 = 68;
@@ -62,6 +62,8 @@ const PENCIL_MAX_NEAR_BW_PERCENT: f64 = 40.0;
 const PENCIL_MIN_GRAY_ENTROPY: f64 = 5.5;
 const PENCIL_MIN_SOFT_NOISE_PERCENT: f64 = 8.0;
 const SAND_TONE_AVIF_SPEED: u8 = 2;
+const REGIONAL_SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT: f64 = 35.0;
+const REGIONAL_SAND_TONE_MEDIUM_MAX_MICROTEXTURE_PERCENT: f64 = 50.0;
 
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -152,6 +154,10 @@ struct GroupMetrics {
     max_tile_soft_noise_percent: f64,
     microtexture_percent: f64,
     texture_directional_coherence: f64,
+    #[serde(default)]
+    sand_tone_region_percent: f64,
+    #[serde(default)]
+    sand_tone_region_microtexture_percent: f64,
     #[serde(default)]
     threshold_stability_percent: f64,
     #[serde(default)]
@@ -1127,14 +1133,39 @@ fn recipes_for_group(
             metrics.threshold_stability_percent,
             metrics.smooth_midtone_percent,
         ));
+        let has_regional_tone = metrics.sand_tone_region_percent > 0.0;
+        if key.content != ContentClass::DegradedScan
+            && (key.content == ContentClass::TexturedGrayscale
+                || has_regional_tone)
+        {
+            let strength = regional_sand_tone_strength(metrics);
+            let regional_name = format!(
+                "flatten-sand-tone-{}-{resolution}",
+                sand_tone_strength_name(strength),
+            );
+            recommendation.alternatives.push(regional_name.clone());
+            recommendation.recipes.push((
+                regional_name,
+                flatten_sand_tone_avif_recipe(quality, strength),
+            ));
+            recommendation.review_required = true;
+            if has_regional_tone {
+                recommendation.reasons.push(format!(
+                    "Regional analysis found {:.1}% candidate tone area at {:.1}% local microtexture; selective flattening is offered without changing smooth regions.",
+                    metrics.sand_tone_region_percent,
+                    metrics.sand_tone_region_microtexture_percent,
+                ));
+            } else {
+                recommendation.reasons.push(
+                    "The page is textured but lacks confident sand-tone evidence; selective light flattening remains review-only and its mask may leave the page unchanged."
+                        .to_owned(),
+                );
+            }
+        }
         if key.content == ContentClass::TexturedGrayscale {
             let bilateral_name =
                 format!("grayscale-bilateral-{resolution}");
-            let adaptive_name =
-                format!("grayscale-adaptive-light-{resolution}");
-            recommendation
-                .alternatives
-                .extend([bilateral_name.clone(), adaptive_name.clone()]);
+            recommendation.alternatives.push(bilateral_name.clone());
             recommendation.recipes.push((
                 bilateral_name,
                 Recipe::pair(
@@ -1142,21 +1173,7 @@ fn recipes_for_group(
                     Step::Avif(avif_options(quality, Chroma::Auto, false)),
                 ),
             ));
-            recommendation.recipes.push((
-                adaptive_name,
-                Recipe::pair(
-                    Step::Denoise(Denoise {
-                        mode: Mode::AdaptiveBlur,
-                        strength: Some("1x0.5".to_owned()),
-                    }),
-                    Step::Avif(avif_options(quality, Chroma::Auto, false)),
-                ),
-            ));
             recommendation.review_required = true;
-            recommendation.reasons.push(
-                "Grayscale texture is not a confident sand-tone match; destructive denoise candidates remain review-only."
-                    .to_owned(),
-            );
         }
         if metrics.near_bw_percent >= NEAR_BILEVEL_REVIEW_PERCENT
             || key.content == ContentClass::DegradedScan
@@ -1261,14 +1278,14 @@ fn sand_tone_recommendation(
         review_required: true,
         reasons: vec![
             format!(
-                "Manga sand-tone evidence: {:.1}% microtexture, {:.2} directional coherence, {:.2} entropy, {:.1}% near black/white.",
+                "Manga sand-tone evidence: {:.1}% global microtexture, {:.1}% regional coverage at {:.1}% local microtexture, {:.2} directional coherence.",
                 metrics.microtexture_percent,
+                metrics.sand_tone_region_percent,
+                metrics.sand_tone_region_microtexture_percent,
                 metrics.texture_directional_coherence,
-                metrics.gray_entropy,
-                metrics.near_bw_percent,
             ),
             format!(
-                "{} sand-tone burden selects destructive low-pass filtering, grayscale quantization, and solid-line restoration.",
+                "{} sand-tone burden selects masked low-pass filtering and grayscale quantization only inside large dense-texture regions.",
                 sand_tone_burden_name(burden),
             ),
         ],
@@ -1296,6 +1313,34 @@ fn sand_tone_recommendation(
             ),
             (safe_name, safe_recipe),
         ],
+    }
+}
+
+const fn sand_tone_strength_name(
+    strength: SandToneStrength,
+) -> &'static str {
+    match strength {
+        SandToneStrength::Light => "light",
+        SandToneStrength::Medium => "medium",
+        SandToneStrength::Heavy => "heavy",
+    }
+}
+
+fn regional_sand_tone_strength(metrics: GroupMetrics) -> SandToneStrength {
+    match metrics.sand_tone_region_microtexture_percent {
+        microtexture
+            if microtexture
+                < REGIONAL_SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT =>
+        {
+            SandToneStrength::Light
+        }
+        microtexture
+            if microtexture
+                < REGIONAL_SAND_TONE_MEDIUM_MAX_MICROTEXTURE_PERCENT =>
+        {
+            SandToneStrength::Medium
+        }
+        _ => SandToneStrength::Heavy,
     }
 }
 
@@ -1387,6 +1432,12 @@ fn group_metrics(images: &[AnalyzedImage]) -> GroupMetrics {
         texture_directional_coherence: average(|features| {
             features.texture_directional_coherence
         }),
+        sand_tone_region_percent: average(|features| {
+            features.sand_tone_region_percent
+        }),
+        sand_tone_region_microtexture_percent: average(|features| {
+            features.sand_tone_region_microtexture_percent
+        }),
         threshold_stability_percent: average(|features| {
             features.threshold_stability_percent
         }),
@@ -1439,6 +1490,14 @@ fn feature_distance(
         + (features.texture_directional_coherence
             - metrics.texture_directional_coherence)
             .abs()
+        + (features.sand_tone_region_percent
+            - metrics.sand_tone_region_percent)
+            .abs()
+            / 100.0
+        + (features.sand_tone_region_microtexture_percent
+            - metrics.sand_tone_region_microtexture_percent)
+            .abs()
+            / 100.0
 }
 
 fn relative_to(workspace: &Path, path: &Path) -> anyhow::Result<PathBuf> {
@@ -1544,6 +1603,8 @@ mod tests {
             max_tile_soft_noise_percent: 12.0,
             microtexture_percent: 14.0,
             texture_directional_coherence: 0.2,
+            sand_tone_region_percent: 0.0,
+            sand_tone_region_microtexture_percent: 0.0,
             threshold_stability_percent: 10.0,
             binary_error_mean: 20.0,
             smooth_midtone_percent: 10.0,
@@ -1616,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    fn measured_sand_tone_selects_adaptive_flattening() {
+    fn measured_sand_tone_selects_masked_flattening() {
         let mut sand_metrics = metrics(54.3);
         sand_metrics.gray_entropy = 5.08;
         sand_metrics.soft_noise_percent = 7.0;
@@ -1658,6 +1719,26 @@ mod tests {
         assert!(recommendation.recipes.iter().any(|(name, recipe)| {
             name == "flatten-sand-tone-medium-standard-resolution"
                 && recipe == &expected
+        }));
+    }
+
+    #[test]
+    fn weak_regional_evidence_offers_unselected_masked_flattening() {
+        let mut regional_metrics = metrics(60.0);
+        regional_metrics.sand_tone_region_percent = 0.8;
+        regional_metrics.sand_tone_region_microtexture_percent = 31.0;
+        let recommendation = recipes_for_group(
+            GroupKey {
+                content: ContentClass::Grayscale,
+                scale: ScaleClass::Large,
+            },
+            regional_metrics,
+        );
+
+        assert_eq!(recommendation.selected, "avif-safe-high-resolution");
+        assert!(recommendation.review_required);
+        assert!(recommendation.alternatives.iter().any(|name| {
+            name == "flatten-sand-tone-light-high-resolution"
         }));
     }
 

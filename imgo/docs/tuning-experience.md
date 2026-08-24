@@ -278,7 +278,7 @@ Under the current AVIF recipe, this mode did not improve the stylized-noise samp
 
 `-despeckle` has no numeric parameter. `imgo` rejects a `strength` value in this mode rather than silently ignoring it. Repeating the operation would create a stronger, different preset, so repetition count must be treated as a parameter. On the stylized-noise reference it saved about 8% but visibly altered texture and reduced the reference metric. It remains review-only.
 
-### Manga sand tone: adaptive flattening
+### Manga sand tone: regional flattening
 
 Clip Studio calls this intentional manga texture `砂目ノイズトーン`
 (noise/sand tone) and exposes it as tone type `ノイズ`. Local dot density
@@ -288,66 +288,73 @@ smooth tone. See [Clip Studio's tone guide](https://tips.clip-studio.com/en-us/a
 The project policy values storage and main-content legibility over preserving
 this styling. Mean-shift was too conservative for that policy. Its color
 distance rejects high-contrast black/white dots, so larger spatial windows do
-not necessarily merge them. On the new 837×3390 heavy-tone sample at quality
-55 and AVIF speed 2:
+not necessarily merge them. On the 837×3390 heavy-tone sample at quality 55
+and AVIF speed 2:
 
 | Preprocessing | Bytes | Saving |
 |---|---:|---:|
 | none | 817,735 | — |
 | mean-shift `5x5+15%` | 803,416 | 1.8% |
 | mean-shift `7x7+50%` | 660,741 | 19.2% |
-| adaptive heavy flattening | 148,377 | 81.9% |
+| original global heavy flattening | 148,377 | 81.9% |
 
-The selected pipeline uses ordinary ImageMagick operations, but in a deliberate
-multi-stage composition:
+Global posterization caused visible concentric rings in smooth gradients on
+full pages. The replacement uses ordinary ImageMagick operations to build a
+regional mask:
 
 1. composite transparency onto white and convert to grayscale;
-2. blur a base image with a resolution-scaled sigma;
-3. disable dithering and posterize the base;
-4. threshold the original at 20%, invert it, morphologically open it, and
-   invert it again to retain solid dark line work while dropping small dots;
-5. darken-compose that line layer over the flattened base.
+2. build a flattened candidate with the existing blur, posterization, and
+   solid-dark-line restoration;
+3. subtract a lightly blurred source from the source, then blur that
+   high-frequency residual into a local texture-density map;
+4. threshold the density map at 6%, 8%, or 10% for low, standard, or high
+   resolution; morphologically open before closing; and remove connected
+   components smaller than 0.05% of the page;
+5. feather the surviving mask and composite the flattened candidate only
+   inside it.
 
-The base sigma is
+Opening before closing prevents nearby text strokes from first merging into a
+false texture region. Connected-component filtering removed the remaining
+small text and edge detections in the regression pages. Smooth gradients
+outside the mask stay byte-for-byte equivalent at the preprocessing stage, so
+posterization cannot create rings there.
+
+The flattening sigma remains
 `clamp(longest_edge / 1400, 0.8, 2.8) × strength_multiplier`.
 The presets are:
 
-| Strength | Measured microtexture burden | Multiplier | Gray levels |
+| Strength | Global microtexture burden | Multiplier | Gray levels |
 |---|---:|---:|---:|
 | light | below 25% | 0.6 | 12 |
 | medium | 25% to below 45% | 0.9 | 8 |
 | heavy | 45% or above | 1.1 | 6 |
 
-Line-layer opening uses `Disk:1` below 1800 pixels, `Disk:1.5` below 3500,
-and `Disk:2` otherwise. This is not semantic segmentation: long or thick
-decorative marks can survive with line art. It does preserve speech text,
-panel borders, and character outlines on the measured samples without
-reintroducing most fine stipple.
+Region-only detections use local microtexture: below 50% selects medium and
+50% or above selects heavy. Line-layer opening remains `Disk:1` below 1800
+pixels, `Disk:1.5` below 3500, and `Disk:2` otherwise.
 
-Across five representative target samples, both sides use AVIF speed 2 and
-each resolution bucket's normal quality:
+Operational candidate measurements from the regression/full-page corpus:
 
-| Sample | Direct bytes | Flattened bytes | Saving |
+| Sample | Safe direct AVIF | Selected regional AVIF | Saving |
 |---|---:|---:|---:|
-| heavy crosshatched sand tone | 817,735 | 148,377 | 81.9% |
-| mixed sharp screentone and sand patches | 309,872 | 157,570 | 49.1% |
-| very fine low-resolution sand tone | 127,009 | 27,227 | 78.6% |
-| smooth main subject with a large tone field | 544,631 | 180,462 | 66.9% |
-| sparse tone on a 4441×4503 page | 895,682 | 501,738 | 44.0% |
+| ring regression, light | 2,086,747 | 1,331,843 | 36.2% |
+| previously missed full page, heavy | 1,417,027 | 613,963 | 56.7% |
+| second heavy full page | 1,466,393 | 868,517 | 40.8% |
+| low-resolution fine tone | 127,594 | 51,262 | 59.8% |
 
-Reference metrics become very low because removal of the reference texture is
-the intended result. Candidate inspection therefore checks main-content
-legibility and encoded size, not fidelity to disposable stipple. Direct AVIF
-and all three flattening strengths remain in the review bundle.
+The ring page's regional-heavy candidate is 968,299 bytes, but light remains
+selected from its global burden. Decoded AVIF inspection confirmed that both
+regional strengths remove the ring regression while preserving the smooth
+gradient and speech text. Direct AVIF and all three strengths remain in the
+review bundle.
 
-Complex edge masks were not automatically better. Canny detected the tone
-itself as edges even after coarse smoothing; median, morphology-only,
-Kuwahara, bilateral, and stronger mean-shift retained expensive patterns or
-damaged lines for less storage gain. Research-grade manga separation combines
+Canny masks were still unsuitable because they detected the tone itself as
+edges. Dense high-frequency residuals plus minimum connected-region area are
+the useful distinction here. Research-grade manga separation combines
 Laplacian-of-Gaussian and flow-based difference-of-Gaussian masks
-([Ito et al., 2015](https://diglib7.eg.org/items/79cb54a0-109d-492e-ae83-0827a4eaccae)).
-That is a specialized line-extraction system, not a useful amount of
-ImageMagick command complexity for this storage-first route.
+([Ito et al., 2015](https://diglib7.eg.org/items/79cb54a0-109d-492e-ae83-0827a4eaccae)),
+but the measured regional mask reaches the required content protection
+without that specialized implementation.
 
 AV1 grain synthesis is also the wrong representation. AOM's model first
 denoises the image and estimates zero-mean autoregressive grain from selected
@@ -357,13 +364,13 @@ Authored high-contrast manga tone is not stationary film grain. On the heavy
 sample, enabling libaom noise estimation changed 817,735 bytes to 818,186
 bytes (+0.06%) and reduced SSIMULACRA2 from 84.83 to 82.44.
 
-Automatic routing requires multiple independent signals. Directional
-coherence is computed from the sampled microtexture gradient structure tensor:
-isotropic sand tone measured 0.01–0.10 in the new target set, while the
-explicit non-sand vertical texture measured 0.28 and the strip-pattern sample
-measured 0.37. The destructive class still requires entropy, occupancy,
-binary-error, local-noise, smooth-region, and microtexture guards in addition
-to coherence.
+Automatic routing now has global and regional evidence paths. Directional
+coherence is computed from the sampled microtexture gradient structure tensor.
+The regional path uses a 16×16 grid; qualifying tiles independently check
+microtexture, near-black/white occupancy, binary error, smooth midtones, and
+coherence. At least 0.35% coverage and 45% local microtexture are required.
+This routed the formerly missed pages at 5.9–8.2% coverage and approximately
+52% local microtexture while the clean color control remained at 0%.
 
 ### Clean scan: unsharp plus threshold
 
@@ -413,12 +420,17 @@ Current 8-bit feature rules include:
 - microtexture directional coherence is the normalized eigenvalue difference of its sampled gradient structure tensor;
 - color texture triggers at 20% global soft noise or 35% in the worst tile;
 - grayscale texture triggers at 8% global or 20% in the worst tile;
-- manga sand tone additionally requires entropy at least 4.2, microtexture at
-  least 20%, near-black/white occupancy at least 25%, worst-tile soft noise at
-  least 20%, mean binary error at least 19.5/255, smooth midtones at most 42%,
-  and directional coherence at most 0.15;
-- sand-tone burden is light below 25% microtexture, medium below 45%, and heavy
-  otherwise;
+- global manga sand tone additionally requires entropy at least 4.2,
+  microtexture at least 20%, worst-tile soft noise at least 20%,
+  near-black/white occupancy at least 25%, mean binary error at least
+  19.5/255, smooth midtones at most 42%, and directional coherence at most
+  0.15;
+- regional manga sand tone uses 16×16 tiles and requires at least 0.35%
+  qualifying coverage with at least 45% local microtexture, under the same
+  page-level occupancy, binary-error, smoothness, and coherence guards;
+- globally detected burden is light below 25% microtexture, medium below 45%,
+  and heavy otherwise; region-only burden is medium below 50% local
+  microtexture and heavy otherwise;
 - resolution buckets use longest edges below 1800, below 3000, and 3000 or above;
 - ambiguous near-bilevel grayscale gets a review-only clean-scan candidate at 68%;
 - the `degraded-scan` category is selected for standard/high-resolution pages at 65% near-black/white when mean binary error is at most 18/255, threshold-sensitive band is at most 5%, and smooth midtones are at most 1%.
@@ -429,11 +441,12 @@ threshold-band or smooth-midtone checks; this is why the rule was widened on
 two axes rather than reduced to a single lower near-black/white cutoff.
 
 Palette/color and threshold-band facts scan the full image. Local
-edge/texture analysis samples at most two million coordinates and divides each
-image into an 8×8 tile grid. Each image receives one content category before
-group metrics are averaged, preventing a degraded scan or sand-tone page from
-routing clean grayscale neighbors destructively. Tiny localized defects can
-still be diluted.
+edge/texture analysis samples at most two million coordinates. The legacy
+worst-noise check uses an 8×8 grid; regional sand-tone evidence uses 16×16.
+Each image receives one content category before group metrics are averaged,
+preventing a degraded scan or high-confidence sand-tone page from routing
+clean grayscale neighbors destructively. Weak regional evidence remains a
+review-only masked candidate.
 
 When tuning routing thresholds, measure two costs:
 

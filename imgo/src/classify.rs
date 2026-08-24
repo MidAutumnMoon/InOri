@@ -8,6 +8,8 @@ const MAX_LOCAL_SAMPLES: usize = 2_000_000;
 const TILE_COUNT: usize = 8;
 const TILE_TOTAL: usize = TILE_COUNT * TILE_COUNT;
 
+const REGION_TILE_COUNT: usize = 16;
+const REGION_TILE_TOTAL: usize = REGION_TILE_COUNT * REGION_TILE_COUNT;
 const COLOR_CHANNEL_DELTA: u8 = 8;
 const IMAGE_COLOR_PERCENT: f64 = 1.0;
 const NEAR_BLACK_MAX: u8 = 8;
@@ -29,6 +31,9 @@ const SAND_TONE_MAX_SMOOTH_MIDTONE_PERCENT: f64 = 42.0;
 const SAND_TONE_MAX_DIRECTIONAL_COHERENCE: f64 = 0.15;
 const SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT: f64 = 25.0;
 const SAND_TONE_MEDIUM_MAX_MICROTEXTURE_PERCENT: f64 = 45.0;
+const SAND_TONE_MIN_REGION_PERCENT: f64 = 0.35;
+const SAND_TONE_MIN_REGION_MICROTEXTURE_PERCENT: f64 = 45.0;
+const SAND_TONE_HEAVY_REGION_MICROTEXTURE_PERCENT: f64 = 50.0;
 const SMALL_EDGE_LIMIT: u32 = 1800;
 const MEDIUM_EDGE_LIMIT: u32 = 3000;
 
@@ -58,6 +63,8 @@ pub struct ImageFeatures {
     pub soft_noise_percent: f64,
     pub max_tile_soft_noise_percent: f64,
     pub texture_directional_coherence: f64,
+    pub sand_tone_region_percent: f64,
+    pub sand_tone_region_microtexture_percent: f64,
     pub threshold_stability_percent: f64,
     pub binary_error_mean: f64,
     pub smooth_midtone_percent: f64,
@@ -76,6 +83,124 @@ impl ImageFeatures {
     #[must_use]
     pub fn microtexture_percent(self) -> f64 {
         self.detail_percent + self.soft_noise_percent
+    }
+}
+
+struct RegionalTexture {
+    samples: [u32; REGION_TILE_TOTAL],
+    microtexture: [u32; REGION_TILE_TOTAL],
+    near_bw: [u32; REGION_TILE_TOTAL],
+    smooth_midtone: [u32; REGION_TILE_TOTAL],
+    binary_error_sum: [u64; REGION_TILE_TOTAL],
+    horizontal_energy: [u64; REGION_TILE_TOTAL],
+    vertical_energy: [u64; REGION_TILE_TOTAL],
+    cross_energy: [i64; REGION_TILE_TOTAL],
+}
+
+impl Default for RegionalTexture {
+    fn default() -> Self {
+        Self {
+            samples: [0; REGION_TILE_TOTAL],
+            microtexture: [0; REGION_TILE_TOTAL],
+            near_bw: [0; REGION_TILE_TOTAL],
+            smooth_midtone: [0; REGION_TILE_TOTAL],
+            binary_error_sum: [0; REGION_TILE_TOTAL],
+            horizontal_energy: [0; REGION_TILE_TOTAL],
+            vertical_energy: [0; REGION_TILE_TOTAL],
+            cross_energy: [0; REGION_TILE_TOTAL],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RegionalSandToneEvidence {
+    region_percent: f64,
+    microtexture_percent: f64,
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "tile indices are bounded by tile_index"
+)]
+impl RegionalTexture {
+    fn record_sample(
+        &mut self,
+        tile: usize,
+        luminance: u8,
+        is_microtexture: bool,
+        is_smooth_midtone: bool,
+    ) {
+        self.samples[tile] += 1;
+        self.microtexture[tile] += u32::from(is_microtexture);
+        self.near_bw[tile] += u32::from(
+            luminance <= NEAR_BLACK_MAX || luminance >= NEAR_WHITE_MIN,
+        );
+        self.smooth_midtone[tile] += u32::from(is_smooth_midtone);
+        let binary_error =
+            if usize::from(luminance) >= CLEAN_SCAN_WHITE_CUTOFF {
+                255 - luminance
+            } else {
+                luminance
+            };
+        self.binary_error_sum[tile] += u64::from(binary_error);
+    }
+
+    fn record_gradient(
+        &mut self,
+        tile: usize,
+        horizontal: i64,
+        vertical: i64,
+    ) {
+        self.horizontal_energy[tile] +=
+            (horizontal * horizontal).unsigned_abs();
+        self.vertical_energy[tile] += (vertical * vertical).unsigned_abs();
+        self.cross_energy[tile] += horizontal * vertical;
+    }
+
+    fn sand_tone_evidence(&self) -> RegionalSandToneEvidence {
+        let mut region_samples = 0_u64;
+        let mut region_microtexture = 0_u64;
+        let mut total_samples = 0_u64;
+        for tile in 0..REGION_TILE_TOTAL {
+            let samples = self.samples[tile];
+            if samples == 0 {
+                continue;
+            }
+            total_samples += u64::from(samples);
+            let samples_f64 = f64::from(samples);
+            let microtexture_percent =
+                f64::from(self.microtexture[tile]) * 100.0 / samples_f64;
+            let near_bw_percent =
+                f64::from(self.near_bw[tile]) * 100.0 / samples_f64;
+            let smooth_midtone_percent =
+                f64::from(self.smooth_midtone[tile]) * 100.0 / samples_f64;
+            let binary_error_mean =
+                count_as_f64(self.binary_error_sum[tile]) / samples_f64;
+            let coherence = directional_coherence(
+                self.horizontal_energy[tile],
+                self.vertical_energy[tile],
+                self.cross_energy[tile],
+            );
+            if microtexture_percent >= SAND_TONE_MIN_MICROTEXTURE_PERCENT
+                && near_bw_percent >= SAND_TONE_MIN_NEAR_BW_PERCENT
+                && binary_error_mean >= SAND_TONE_MIN_BINARY_ERROR
+                && smooth_midtone_percent
+                    <= SAND_TONE_MAX_SMOOTH_MIDTONE_PERCENT
+                && coherence <= SAND_TONE_MAX_DIRECTIONAL_COHERENCE
+            {
+                region_samples += u64::from(samples);
+                region_microtexture += u64::from(self.microtexture[tile]);
+            }
+        }
+        let total_samples = total_samples.max(1);
+        let region_samples_nonzero = region_samples.max(1);
+        RegionalSandToneEvidence {
+            region_percent: count_as_f64(region_samples) * 100.0
+                / count_as_f64(total_samples),
+            microtexture_percent: count_as_f64(region_microtexture)
+                * 100.0
+                / count_as_f64(region_samples_nonzero),
+        }
     }
 }
 
@@ -162,12 +287,12 @@ impl GroupKey {
                 >= GRAY_TEXTURE_GLOBAL_PERCENT
                 || features.max_tile_soft_noise_percent
                     >= GRAY_TEXTURE_TILE_PERCENT;
-            if !is_textured {
-                ContentClass::Grayscale
-            } else if is_manga_sand_tone(features) {
+            if is_manga_sand_tone(features) {
                 ContentClass::MangaSandTone(sand_tone_burden(features))
-            } else {
+            } else if is_textured {
                 ContentClass::TexturedGrayscale
+            } else {
+                ContentClass::Grayscale
             }
         };
         Self { content, scale }
@@ -193,21 +318,38 @@ fn is_threshold_stable_scan(
 }
 
 fn is_manga_sand_tone(features: ImageFeatures) -> bool {
-    features.gray_entropy >= SAND_TONE_MIN_GRAY_ENTROPY
-        && features.microtexture_percent()
-            >= SAND_TONE_MIN_MICROTEXTURE_PERCENT
-        && features.max_tile_soft_noise_percent
-            >= SAND_TONE_MIN_TILE_SOFT_NOISE_PERCENT
-        && features.near_bw_percent >= SAND_TONE_MIN_NEAR_BW_PERCENT
+    let page_context = features.near_bw_percent
+        >= SAND_TONE_MIN_NEAR_BW_PERCENT
         && features.binary_error_mean >= SAND_TONE_MIN_BINARY_ERROR
         && features.smooth_midtone_percent
             <= SAND_TONE_MAX_SMOOTH_MIDTONE_PERCENT
         && features.texture_directional_coherence
-            <= SAND_TONE_MAX_DIRECTIONAL_COHERENCE
+            <= SAND_TONE_MAX_DIRECTIONAL_COHERENCE;
+    let global_evidence = features.gray_entropy
+        >= SAND_TONE_MIN_GRAY_ENTROPY
+        && features.microtexture_percent()
+            >= SAND_TONE_MIN_MICROTEXTURE_PERCENT
+        && features.max_tile_soft_noise_percent
+            >= SAND_TONE_MIN_TILE_SOFT_NOISE_PERCENT;
+    let regional_evidence = features.sand_tone_region_percent
+        >= SAND_TONE_MIN_REGION_PERCENT
+        && features.sand_tone_region_microtexture_percent
+            >= SAND_TONE_MIN_REGION_MICROTEXTURE_PERCENT;
+    page_context && (global_evidence || regional_evidence)
 }
 
 fn sand_tone_burden(features: ImageFeatures) -> SandToneBurden {
-    match features.microtexture_percent() {
+    let global_microtexture = features.microtexture_percent();
+    if global_microtexture < SAND_TONE_MIN_MICROTEXTURE_PERCENT {
+        return if features.sand_tone_region_microtexture_percent
+            >= SAND_TONE_HEAVY_REGION_MICROTEXTURE_PERCENT
+        {
+            SandToneBurden::Heavy
+        } else {
+            SandToneBurden::Medium
+        };
+    }
+    match global_microtexture {
         microtexture
             if microtexture < SAND_TONE_LIGHT_MAX_MICROTEXTURE_PERCENT =>
         {
@@ -305,6 +447,7 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     let mut horizontal_texture_energy = 0_u64;
     let mut vertical_texture_energy = 0_u64;
     let mut cross_texture_energy = 0_i64;
+    let mut regional_texture = RegionalTexture::default();
     for y in (0..height).step_by(stride) {
         for x in (0..width).step_by(stride) {
             if x == 0 || y == 0 || x + 1 >= width || y + 1 >= height {
@@ -336,30 +479,28 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
             if is_soft_noise {
                 soft_noise += 1;
             }
-            if center > SMOOTH_MIDTONE_MIN
+            let is_smooth_midtone = center > SMOOTH_MIDTONE_MIN
                 && center < SMOOTH_MIDTONE_MAX
                 && gradient <= SMOOTH_MIDTONE_GRADIENT_MAX
-                && laplacian <= SMOOTH_MIDTONE_LAPLACIAN_MAX
-            {
+                && laplacian <= SMOOTH_MIDTONE_LAPLACIAN_MAX;
+            if is_smooth_midtone {
                 smooth_midtone += 1;
             }
             local_samples += 1;
 
-            let tile_x = x
-                .saturating_mul(TILE_COUNT)
-                .checked_div(width)
-                .unwrap_or_default()
-                .min(TILE_COUNT - 1);
-            let tile_y = y
-                .saturating_mul(TILE_COUNT)
-                .checked_div(height)
-                .unwrap_or_default()
-                .min(TILE_COUNT - 1);
-            let tile = tile_y * TILE_COUNT + tile_x;
+            let tile = tile_index(x, y, width, height, TILE_COUNT);
             tile_samples[tile] += 1;
             if is_soft_noise {
                 tile_soft[tile] += 1;
             }
+            let region_tile =
+                tile_index(x, y, width, height, REGION_TILE_COUNT);
+            regional_texture.record_sample(
+                region_tile,
+                center,
+                is_detail || is_soft_noise,
+                is_smooth_midtone,
+            );
             if is_detail || is_soft_noise {
                 let gradient_x = i64::from(right) - i64::from(left);
                 let gradient_y = i64::from(down) - i64::from(up);
@@ -368,6 +509,11 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
                 vertical_texture_energy +=
                     (gradient_y * gradient_y).unsigned_abs();
                 cross_texture_energy += gradient_x * gradient_y;
+                regional_texture.record_gradient(
+                    region_tile,
+                    gradient_x,
+                    gradient_y,
+                );
             }
         }
     }
@@ -417,6 +563,7 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         vertical_texture_energy,
         cross_texture_energy,
     );
+    let regional_sand_tone = regional_texture.sand_tone_evidence();
 
     ImageFeatures {
         width: pixels.width(),
@@ -430,6 +577,9 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         soft_noise_percent: f64::from(soft_noise) * 100.0 / local_f64,
         max_tile_soft_noise_percent,
         texture_directional_coherence,
+        sand_tone_region_percent: regional_sand_tone.region_percent,
+        sand_tone_region_microtexture_percent: regional_sand_tone
+            .microtexture_percent,
         threshold_stability_percent: count_as_f64(
             threshold_stability_pixels,
         ) * 100.0
@@ -438,6 +588,26 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
         smooth_midtone_percent: f64::from(smooth_midtone) * 100.0
             / local_f64,
     }
+}
+
+fn tile_index(
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    tile_count: usize,
+) -> usize {
+    let tile_x = x
+        .saturating_mul(tile_count)
+        .checked_div(width)
+        .unwrap_or_default()
+        .min(tile_count - 1);
+    let tile_y = y
+        .saturating_mul(tile_count)
+        .checked_div(height)
+        .unwrap_or_default()
+        .min(tile_count - 1);
+    tile_y * tile_count + tile_x
 }
 
 fn local_sample_stride(width: usize, height: usize) -> usize {
@@ -655,6 +825,8 @@ mod tests {
             soft_noise_percent: 9.0,
             max_tile_soft_noise_percent: 26.0,
             texture_directional_coherence: 0.0,
+            sand_tone_region_percent: 0.0,
+            sand_tone_region_microtexture_percent: 0.0,
             threshold_stability_percent: 4.21,
             binary_error_mean: 17.76,
             smooth_midtone_percent: 0.38,
@@ -691,6 +863,8 @@ mod tests {
             soft_noise_percent: 9.8,
             max_tile_soft_noise_percent: 49.9,
             texture_directional_coherence: 0.09,
+            sand_tone_region_percent: 0.0,
+            sand_tone_region_microtexture_percent: 0.0,
             threshold_stability_percent: 8.0,
             binary_error_mean: 30.5,
             smooth_midtone_percent: 29.8,
@@ -736,6 +910,52 @@ mod tests {
         assert_eq!(
             GroupKey::from_features(heavy).content,
             ContentClass::MangaSandTone(SandToneBurden::Heavy)
+        );
+    }
+
+    #[test]
+    fn regional_sand_tone_routes_pages_with_clean_global_statistics() {
+        let missed_full_page = ImageFeatures {
+            width: 3439,
+            height: 4857,
+            color_percent: 0.0,
+            exact_bilevel: false,
+            gray_entropy: 3.34,
+            gray_levels: 256,
+            near_bw_percent: 62.9,
+            detail_percent: 15.0,
+            soft_noise_percent: 1.7,
+            max_tile_soft_noise_percent: 4.1,
+            texture_directional_coherence: 0.02,
+            sand_tone_region_percent: 5.9,
+            sand_tone_region_microtexture_percent: 52.2,
+            threshold_stability_percent: 6.9,
+            binary_error_mean: 22.2,
+            smooth_midtone_percent: 23.2,
+        };
+        assert_eq!(
+            GroupKey::from_features(missed_full_page).content,
+            ContentClass::MangaSandTone(SandToneBurden::Heavy)
+        );
+
+        let weak_periodic_region = ImageFeatures {
+            sand_tone_region_microtexture_percent:
+                SAND_TONE_MIN_REGION_MICROTEXTURE_PERCENT - 0.1,
+            ..missed_full_page
+        };
+        assert_eq!(
+            GroupKey::from_features(weak_periodic_region).content,
+            ContentClass::Grayscale
+        );
+
+        let directional_region = ImageFeatures {
+            texture_directional_coherence:
+                SAND_TONE_MAX_DIRECTIONAL_COHERENCE + 0.01,
+            ..missed_full_page
+        };
+        assert_eq!(
+            GroupKey::from_features(directional_region).content,
+            ContentClass::Grayscale
         );
     }
 
