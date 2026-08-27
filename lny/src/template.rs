@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -155,6 +156,16 @@ impl<'de> Deserialize<'de> for RenderedPath {
                 tmpl,
                 path.display(),
             );
+            ensure!(
+                !path.components().any(|component| matches!(
+                    component,
+                    Component::ParentDir
+                )),
+                r#"Path must not contain ".." components. \
+                    Raw: "{}" Rendered: "{}""#,
+                tmpl,
+                path.display(),
+            );
             Ok(path)
         }
         let raw = String::deserialize(deserializer)?;
@@ -188,6 +199,8 @@ mod test {
         let tmpls_to_err = [
             // not absolute
             "wow",
+            // topology must remain lexical
+            "/home/../etc",
             // invalid template
             "{{ home",
             "{{ what-no-kidding }}",

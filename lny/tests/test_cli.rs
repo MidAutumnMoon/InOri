@@ -63,6 +63,19 @@ fn assert_success(output: &std::process::Output) {
     );
 }
 
+fn run_migration(
+    new_blueprint: &Path,
+    old_blueprint: &Path,
+) -> std::process::Output {
+    make_app!()
+        .arg("--new-blueprint")
+        .arg(new_blueprint)
+        .arg("--old-blueprint")
+        .arg(old_blueprint)
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn typical_workload() {
     use std::os::unix::fs::symlink;
@@ -229,6 +242,21 @@ fn typical_workload() {
 }
 
 #[test]
+fn unchanged_declaration_repairs_missing_symlink() {
+    let top = make_tempdir!();
+    let source = top.child("source").tap(|it| it.touch().unwrap());
+    let destination = top.child("destination");
+    let symlinks = [(source.path(), destination.path())];
+    let old_blueprint = write_blueprint(&top, "old.json", &symlinks);
+    let new_blueprint = write_blueprint(&top, "new.json", &symlinks);
+
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+
+    assert_success(&output);
+    assert_eq!(destination.read_link().unwrap(), source.path());
+}
+
+#[test]
 fn collapse_children_into_parent_symlink() {
     let top = make_tempdir!();
     let source_dir = top
@@ -265,13 +293,7 @@ fn collapse_children_into_parent_symlink() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = make_app!()
-        .arg("--new-blueprint")
-        .arg(new_blueprint.path())
-        .arg("--old-blueprint")
-        .arg(old_blueprint.path())
-        .output()
-        .unwrap();
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
 
     assert_success(&output);
     assert!(destination_dir.is_symlink());
@@ -279,7 +301,7 @@ fn collapse_children_into_parent_symlink() {
 }
 
 #[test]
-fn collapse_retry_does_not_traverse_new_parent_symlink() {
+fn collapse_missing_tree_and_completed_retry() {
     let top = make_tempdir!();
     let source_dir = top
         .child("fish/conf.d")
@@ -292,7 +314,6 @@ fn collapse_retry_does_not_traverse_new_parent_symlink() {
         .child("config/fish")
         .tap(|it| it.create_dir_all().unwrap());
     let destination_dir = destination_parent.child("conf.d");
-    destination_dir.symlink_to_dir(&source_dir).unwrap();
     let old_destination = destination_dir.child("__moonstep.fish");
 
     let old_blueprint = write_blueprint(
@@ -306,17 +327,56 @@ fn collapse_retry_does_not_traverse_new_parent_symlink() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = make_app!()
-        .arg("--new-blueprint")
-        .arg(new_blueprint.path())
-        .arg("--old-blueprint")
-        .arg(old_blueprint.path())
-        .output()
-        .unwrap();
+    let first_run =
+        run_migration(new_blueprint.path(), old_blueprint.path());
+    assert_success(&first_run);
+    assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
+
+    let retry = run_migration(new_blueprint.path(), old_blueprint.path());
+    assert_success(&retry);
+    assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
+    assert_eq!(std::fs::read_to_string(source_file).unwrap(), "moonstep");
+}
+
+#[test]
+fn collapse_recovers_missing_nested_descendant() {
+    let top = make_tempdir!();
+    let source_dir =
+        top.child("source").tap(|it| it.create_dir_all().unwrap());
+    let nested_source_dir = source_dir
+        .child("nested")
+        .tap(|it| it.create_dir_all().unwrap());
+    let source_file = nested_source_dir
+        .child("file")
+        .tap(|it| it.write_str("content").unwrap());
+
+    let destination_dir = top
+        .child("destination")
+        .tap(|it| it.create_dir_all().unwrap());
+    let nested_destination_dir = destination_dir
+        .child("nested")
+        .tap(|it| it.create_dir_all().unwrap());
+    let missing_destination = nested_destination_dir.child("file");
+
+    let old_blueprint = write_blueprint(
+        &top,
+        "old.json",
+        &[(source_file.path(), missing_destination.path())],
+    );
+    let new_blueprint = write_blueprint(
+        &top,
+        "new.json",
+        &[(source_dir.path(), destination_dir.path())],
+    );
+
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
 
     assert_success(&output);
     assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
-    assert_eq!(std::fs::read_to_string(source_file).unwrap(), "moonstep");
+    assert_eq!(
+        std::fs::read_to_string(missing_destination).unwrap(),
+        "content"
+    );
 }
 
 #[test]
@@ -357,13 +417,7 @@ fn expand_parent_symlink_into_child_symlinks() {
         ],
     );
 
-    let output = make_app!()
-        .arg("--new-blueprint")
-        .arg(new_blueprint.path())
-        .arg("--old-blueprint")
-        .arg(old_blueprint.path())
-        .output()
-        .unwrap();
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
 
     assert_success(&output);
     assert!(destination_dir.symlink_metadata().unwrap().is_dir());
@@ -388,6 +442,25 @@ fn expand_parent_symlink_into_child_symlinks() {
             .try_exists_no_traverse()
             .unwrap()
     );
+
+    // Retry from a partially expanded real directory. Existing unmanaged
+    // entries remain, and missing desired links are restored.
+    std::fs::remove_file(second_destination.path()).unwrap();
+    let unmanaged = destination_dir
+        .child("unmanaged")
+        .tap(|it| it.write_str("keep").unwrap());
+    let retry = run_migration(new_blueprint.path(), old_blueprint.path());
+
+    assert_success(&retry);
+    assert_eq!(
+        first_destination.read_link().unwrap(),
+        first_source.path()
+    );
+    assert_eq!(
+        second_destination.read_link().unwrap(),
+        second_source.path()
+    );
+    assert_eq!(std::fs::read_to_string(unmanaged).unwrap(), "keep");
 }
 
 #[test]
@@ -419,13 +492,7 @@ fn collapse_refuses_unmanaged_directory_entries_before_mutating() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = make_app!()
-        .arg("--new-blueprint")
-        .arg(new_blueprint.path())
-        .arg("--old-blueprint")
-        .arg(old_blueprint.path())
-        .output()
-        .unwrap();
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
 
     assert!(!output.status.success());
     assert!(
@@ -471,13 +538,7 @@ fn collapse_refuses_retargeted_child_before_mutating() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = make_app!()
-        .arg("--new-blueprint")
-        .arg(new_blueprint.path())
-        .arg("--old-blueprint")
-        .arg(old_blueprint.path())
-        .output()
-        .unwrap();
+    let output = run_migration(new_blueprint.path(), old_blueprint.path());
 
     assert!(!output.status.success());
     assert!(

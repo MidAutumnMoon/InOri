@@ -19,7 +19,7 @@ use tracing::debug;
 use tracing::info;
 use tracing::trace;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StepQueue {
     steps: VecDeque<Step>,
 }
@@ -64,17 +64,21 @@ impl StepQueue {
                 }
             }
 
-            let step = if let Some(old_symlink) = found_old_symlink {
-                if old_symlink.same_src(&new_symlink) {
-                    Step::Nothing
-                } else {
-                    Step::Replace {
-                        new_symlink,
-                        old_symlink,
+            let step = match found_old_symlink {
+                Some(old_symlink)
+                    if old_symlink.same_src(&new_symlink) =>
+                {
+                    Step::Ensure {
+                        symlink: new_symlink,
                     }
                 }
-            } else {
-                Step::Create { new_symlink }
+                Some(old_symlink) => Step::Replace {
+                    new_symlink,
+                    old_symlink,
+                },
+                None => Step::Ensure {
+                    symlink: new_symlink,
+                },
             };
             trace!(?step);
             planned_steps.push(Some(step));
@@ -85,8 +89,8 @@ impl StepQueue {
         // Remove steps would either reject the existing directory in the
         // feasibility pass or traverse the newly created symlink on retry.
         for planned_step in &mut planned_steps {
-            let Some(Step::Create {
-                new_symlink: collapse_symlink,
+            let Some(Step::Ensure {
+                symlink: collapse_symlink,
             }) = planned_step.as_ref()
             else {
                 continue;
@@ -107,8 +111,8 @@ impl StepQueue {
             if collapsed_symlinks.is_empty() {
                 continue;
             }
-            let Some(Step::Create {
-                new_symlink: collapsed_parent,
+            let Some(Step::Ensure {
+                symlink: collapsed_parent,
             }) = planned_step.take()
             else {
                 bail!("[BUG] collapse source is not a create step");
@@ -134,8 +138,8 @@ impl StepQueue {
             {
                 let should_expand =
                     planned_step.as_ref().is_some_and(|planned_step| {
-                        let Step::Create {
-                            new_symlink: expanded_symlink,
+                        let Step::Ensure {
+                            symlink: expanded_symlink,
                         } = planned_step
                         else {
                             return false;
@@ -147,8 +151,8 @@ impl StepQueue {
                     continue;
                 }
 
-                let Some(Step::Create {
-                    new_symlink: expanded_symlink,
+                let Some(Step::Ensure {
+                    symlink: expanded_symlink,
                 }) = planned_step.take()
                 else {
                     bail!("[BUG] expansion target is not a create step");
@@ -215,8 +219,9 @@ impl Iterator for StepQueue {
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
-    Create {
-        new_symlink: Symlink,
+    /// Ensure a desired symlink exists, creating it when absent.
+    Ensure {
+        symlink: Symlink,
     },
     Remove {
         old_symlink: Symlink,
@@ -235,7 +240,6 @@ pub enum Step {
         new_symlinks: Vec<Symlink>,
         old_symlink: Symlink,
     },
-    Nothing,
 }
 
 impl Step {
@@ -259,8 +263,8 @@ impl Step {
     fn real_execute(&self, dry: bool) -> AnyResult<()> {
         trace!(?self);
         match self {
-            Self::Create { new_symlink } => {
-                Self::create_symlink(new_symlink, dry)?;
+            Self::Ensure { symlink } => {
+                Self::create_symlink(symlink, dry)?;
             }
             Self::Replace {
                 new_symlink,
@@ -277,11 +281,6 @@ impl Step {
                 new_symlinks,
                 old_symlink,
             } => Self::expand_symlinks(new_symlinks, old_symlink, dry)?,
-            Self::Nothing => {
-                let _span =
-                    tracing::trace_span!("nothing_to_do").entered();
-                debug!("do nothing");
-            }
         }
         Ok(())
     }
@@ -859,7 +858,7 @@ mod test {
             let queue = StepQueue::new(vec![], vec![]);
             assert!(queue.is_ok_and(|it| it.steps.is_empty()));
         }
-        // create
+        // ensure
         {
             let sym = make_symlink!();
             let queue = StepQueue::new(vec![sym.clone()], vec![]);
@@ -867,7 +866,7 @@ mod test {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
                     && it.steps.pop_back().unwrap()
-                        == Step::Create { new_symlink: sym }
+                        == Step::Ensure { symlink: sym }
                 } )
             };
         }
@@ -900,17 +899,20 @@ mod test {
                 } )
             };
         }
-        // Nothing
+        // unchanged declarations are still enforced
         {
             let new_symlink = make_symlink!("/src_x", "/dst");
             let old_symlink = make_symlink!("/src_x", "/dst");
 
-            let queue =
-                StepQueue::new(vec![new_symlink], vec![old_symlink]);
+            let queue = StepQueue::new(
+                vec![new_symlink.clone()],
+                vec![old_symlink],
+            );
             assert! {
                 queue.is_ok_and( |mut it| {
                     it.steps.len() == 1
-                    && it.steps.pop_back().unwrap() == Step::Nothing
+                    && it.steps.pop_back().unwrap()
+                        == Step::Ensure { symlink: new_symlink }
                 } )
             };
         }
@@ -931,7 +933,7 @@ mod test {
             ];
 
             let old_symlinks = vec![
-                unc_symlink,
+                unc_symlink.clone(),
                 del_symlink.clone(),
                 rep_symlink_old.clone(),
             ];
@@ -943,9 +945,11 @@ mod test {
             assert! {
                 queue.steps.into_iter()
                     .all( |it|
-                        it == Step::Nothing
-                        || it == Step::Create {
-                            new_symlink: new_symlink.clone()
+                        it == Step::Ensure {
+                            symlink: unc_symlink.clone()
+                        }
+                        || it == Step::Ensure {
+                            symlink: new_symlink.clone()
                         }
                         || it == Step::Remove {
                             old_symlink: del_symlink.clone()
@@ -958,12 +962,10 @@ mod test {
         }
     }
 
-    /// Regression for BUGS.md #4: the iterator must yield steps in
-    /// insertion order (FIFO), not LIFO.
+    /// The iterator must yield steps in insertion order (FIFO), not LIFO.
     #[test]
     fn step_queue_is_fifo() {
-        // Push order: new-bp symlinks first (Create/Replace/Nothing),
-        // then leftover old-bp symlinks (Remove).
+        // New-generation steps precede unrelated old-generation removals.
         let new_symlinks = vec![
             make_symlink!("/a", "/dst_a"),
             make_symlink!("/b", "/dst_b"),
@@ -973,8 +975,8 @@ mod test {
         let mut queue =
             StepQueue::new(new_symlinks, old_symlinks).unwrap();
 
-        assert_matches!(queue.next(), Some(Step::Create { .. }));
-        assert_matches!(queue.next(), Some(Step::Create { .. }));
+        assert_matches!(queue.next(), Some(Step::Ensure { .. }));
+        assert_matches!(queue.next(), Some(Step::Ensure { .. }));
         assert_matches!(queue.next(), Some(Step::Remove { .. }));
         assert!(queue.next().is_none());
     }
@@ -1066,7 +1068,7 @@ mod test {
 
         let sym =
             make_symlink!(src.to_str().unwrap(), dst.to_str().unwrap());
-        let step = Step::Create { new_symlink: sym };
+        let step = Step::Ensure { symlink: sym };
 
         // 1. create symlink normally
         step.clone().execute().unwrap();
@@ -1082,8 +1084,8 @@ mod test {
         // 3. dst is symlink but not ours
         let foreign_sym =
             make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
-        let foreign_step = Step::Create {
-            new_symlink: foreign_sym,
+        let foreign_step = Step::Ensure {
+            symlink: foreign_sym,
         };
         remove_file(dst.path()).unwrap();
         symlink(src.path(), dst.path()).unwrap();
@@ -1102,9 +1104,7 @@ mod test {
                 nested_src.to_str().unwrap(),
                 nested_dst.to_str().unwrap()
             );
-            let symlink = Step::Create {
-                new_symlink: symlink,
-            };
+            let symlink = Step::Ensure { symlink };
 
             symlink.execute().unwrap();
             assert!(dir.try_exists_no_traverse().unwrap());

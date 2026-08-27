@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use anyhow::Context as _;
 use anyhow::Result as AnyResult;
+use anyhow::bail;
 use anyhow::ensure;
 use itertools::Itertools as _;
 use serdev::Deserialize;
@@ -49,16 +50,18 @@ impl Blueprint {
             CURRENT_BLUEPRINT_VERSION,
             self.version
         };
-        ensure! {
-            self.symlinks.iter().array_combinations::<2>().all(
-                |[left, right]| {
-                    !left.same_dst(right)
-                        && !left.dst_is_ancestor_of(right)
-                        && !right.dst_is_ancestor_of(left)
-                },
-            ),
-            "Some symlinks in the blueprint have conflicting destination paths"
-        };
+        if let Some([left, right]) = self
+            .symlinks
+            .iter()
+            .array_combinations::<2>()
+            .find(|[left, right]| left.dst_overlaps(right))
+        {
+            bail!(
+                r#"Conflicting symlink destinations "{}" and "{}" overlap"#,
+                left.dst.display(),
+                right.dst.display()
+            );
+        }
         ensure! {
             self.symlinks
                 .iter()
@@ -99,6 +102,12 @@ impl Symlink {
         self.dst != other.dst && other.dst.starts_with(&self.dst)
     }
 
+    pub fn dst_overlaps(&self, other: &Self) -> bool {
+        self.same_dst(other)
+            || self.dst_is_ancestor_of(other)
+            || other.dst_is_ancestor_of(self)
+    }
+
     pub fn same_src(&self, other: &Self) -> bool {
         self.src == other.src
     }
@@ -107,7 +116,6 @@ impl Symlink {
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests")]
 #[expect(clippy::expect_used, reason = "Tests")]
-#[expect(clippy::use_debug, reason = "Tests")]
 mod test {
 
     use super::*;
@@ -122,16 +130,12 @@ mod test {
                 { "src": "/b", "dst": "/tar" },
             ]
         } };
-        let der = json.into_deserializer();
-        let res = Blueprint::deserialize(der);
-        assert!(res.is_err());
-        assert!(
-            res.err()
-                .unwrap()
-                .tap(|it| eprintln!("{it:?}"))
-                .to_string()
-                .contains("conflicting")
-        );
+        let error = Blueprint::deserialize(json.into_deserializer())
+            .expect_err("duplicate destinations should be rejected");
+        let message = error.to_string();
+
+        assert!(message.contains("Conflicting"));
+        assert!(message.contains("/tar"));
     }
 
     #[test]
@@ -143,15 +147,12 @@ mod test {
                 { "src": "/b", "dst": "/target/child" },
             ]
         } };
-        let result = Blueprint::deserialize(json.into_deserializer());
+        let error = Blueprint::deserialize(json.into_deserializer())
+            .expect_err("nested destinations should be rejected");
+        let message = error.to_string();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .expect_err("nested destinations should be rejected")
-                .to_string()
-                .contains("conflicting")
-        );
+        assert!(message.contains("/target"));
+        assert!(message.contains("/target/child"));
     }
 
     #[test]
