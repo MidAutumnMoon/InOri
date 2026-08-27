@@ -18,6 +18,10 @@ qrcode = { version = "0", features = ["svg"] }
 rootcause.workspace = true
 tracing.workspace = true
 uuid = { version = "1", features = ["v7"] }
+gix-discover = { version = "0.55.0", features = [ "sha1" ] }
+
+[dev-dependencies]
+assert_fs.workspace = true
 
 [lints]
 workspace = true

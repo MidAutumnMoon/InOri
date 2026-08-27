@@ -15,7 +15,6 @@ pub fn cli() -> OptionParser<()> {
     bpaf::pure(())
         .to_options()
         .descr("Print a freshly generated UUIDv7")
-        .version(env!("CARGO_PKG_VERSION"))
 }
 
 pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {

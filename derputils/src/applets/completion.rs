@@ -85,7 +85,6 @@ pub fn cli() -> OptionParser<CompletionArgs> {
     construct!(CompletionArgs { shell, applet })
         .to_options()
         .descr("Generate shell completion scripts for applets")
-        .version(env!("CARGO_PKG_VERSION"))
 }
 
 pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {

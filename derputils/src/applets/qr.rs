@@ -43,7 +43,6 @@ pub fn cli() -> OptionParser<Source> {
         .descr(
             "Generate a QR code from stdin or the clipboard and open it",
         )
-        .version(env!("CARGO_PKG_VERSION"))
 }
 
 pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {

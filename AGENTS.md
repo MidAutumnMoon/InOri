@@ -18,6 +18,7 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 - When unsure about a library, tool, or API, use web search or Context7 before guessing.
 - Prefer Context7 for library docs — it pulls real examples and up-to-date signatures.
 - Don't hallucinate option names, function signatures, or CLI flags. Look it up.
+- Use `$CARGO_HOME` instead of `~/.cargo`.
 
 ## No `| tail` / `| head`
 

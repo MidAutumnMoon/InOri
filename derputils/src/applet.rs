@@ -44,6 +44,11 @@ pub const APPLETS: &[Applet] = &[
         descr: "Generate shell completion scripts for applets",
         run: applets::completion::applet_main,
     },
+    Applet {
+        name: applets::upwards::NAME,
+        descr: applets::upwards::DESCR,
+        run: applets::upwards::applet_main,
+    },
 ];
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
