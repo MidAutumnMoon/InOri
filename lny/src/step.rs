@@ -19,8 +19,6 @@ use tracing::debug;
 use tracing::info;
 use tracing::trace;
 
-// TODO: move dst conflict check here?
-
 #[derive(Debug, Clone)]
 pub struct StepQueue {
     steps: VecDeque<Step>,
@@ -29,101 +27,161 @@ pub struct StepQueue {
 impl StepQueue {
     #[tracing::instrument(name = "step_queue_new", skip_all)]
     pub fn new(
-        new_symlinks: Vec<Symlink>,
-        old_symlinks: Vec<Symlink>,
+        new_generation: Vec<Symlink>,
+        old_generation: Vec<Symlink>,
     ) -> AnyResult<Self> {
         info!("Actualize blueprint");
         debug!("actualize blueprint into steps");
-        trace!(?new_symlinks, ?old_symlinks);
+        trace!(
+            new_symlinks = ?new_generation,
+            old_symlinks = ?old_generation
+        );
 
+        let capacity = new_generation.len() + old_generation.len();
         let (mut new_blueprint_symlinks, mut old_blueprint_symlinks) =
-            [new_symlinks, old_symlinks]
+            [new_generation, old_generation]
                 .map(|symlinks| symlinks.into_iter().map(Some))
                 .map(|iter| {
                     iter.collect_vec().tap(|symlinks| trace!(?symlinks))
                 })
                 .into();
+        let mut planned_steps = Vec::with_capacity(capacity);
 
-        let mut steps = VecDeque::with_capacity(
-            new_blueprint_symlinks
-                .len()
-                .max(old_blueprint_symlinks.len()),
-        );
-
-        // This is inefficient, but also not complex and works well
-        // for few thousands or even few tens of thousands items.
-        // Considering home-manager uses the f bash to implement the same
-        // thing and yet no one has complained about the performance,
-        // we can assume the scale we are dealing are pretty damn small.
-        // No need to switch algorithm in the near future.
-
-        // intersection + difference (new only)
-        //
-        // 1. If two symlinks with the same dst exist in both new and old
-        //  1.1 if the src are the same, then it'll be nothing
-        //  1.2 if the src are different then it'll be a replace
-        // 2. If the symlink only exists in new, then it'll be a create
+        // First resolve destinations that exist in both generations.
         for new_symlink in &mut new_blueprint_symlinks {
-            use tracing::trace_span;
-
             let Some(new_symlink) = new_symlink.take() else {
                 continue;
             };
             let mut found_old_symlink = None;
 
-            let _iter_new_span =
-                trace_span!("iter_new", ?new_symlink).entered();
-
             for old_symlink in &mut old_blueprint_symlinks {
-                let _iter_old_span =
-                    trace_span!("iter_old", ?old_symlink).entered();
-                if let Some(old) = old_symlink.as_ref()
-                    && old.same_dst(&new_symlink)
+                if old_symlink
+                    .as_ref()
+                    .is_some_and(|old| old.same_dst(&new_symlink))
                 {
                     found_old_symlink = old_symlink.take();
-                    trace!(?found_old_symlink, "matched symlink from old");
+                    break;
                 }
             }
 
             let step = if let Some(old_symlink) = found_old_symlink {
                 if old_symlink.same_src(&new_symlink) {
-                    trace!("same src, do nothing");
-                    // N.B. We keep `Nothing` steps in the queue rather than
-                    // filtering them out. They carry no filesystem effect,
-                    // but retaining them makes the step stream match 1:1
-                    // with the blueprint entries — useful for tracing and
-                    // for users who want to confirm lny considered each
-                    // entry. The cost (an extra iteration per Nothing in
-                    // both passes) is negligible at lny's scale.
                     Step::Nothing
                 } else {
-                    trace!("replace symlink");
                     Step::Replace {
                         new_symlink,
                         old_symlink,
                     }
                 }
             } else {
-                trace!("create new symlink");
                 Step::Create { new_symlink }
             };
             trace!(?step);
-            steps.push_back(step);
+            planned_steps.push(Some(step));
         }
 
-        // At this point, the remaining symlinks in the old blueprint
-        // are ones need to be removed, because they didn't match
-        // any in the new blueprint.
+        // A newly managed ancestor replaces all old managed descendants as
+        // one topology transition. Keeping these as independent Create and
+        // Remove steps would either reject the existing directory in the
+        // feasibility pass or traverse the newly created symlink on retry.
+        for planned_step in &mut planned_steps {
+            let Some(Step::Create {
+                new_symlink: collapse_symlink,
+            }) = planned_step.as_ref()
+            else {
+                continue;
+            };
+            let collapsed_symlinks = old_blueprint_symlinks
+                .iter_mut()
+                .filter_map(|old_symlink| {
+                    if old_symlink.as_ref().is_some_and(|old_symlink| {
+                        collapse_symlink.dst_is_ancestor_of(old_symlink)
+                    }) {
+                        old_symlink.take()
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            if collapsed_symlinks.is_empty() {
+                continue;
+            }
+            let Some(Step::Create {
+                new_symlink: collapsed_parent,
+            }) = planned_step.take()
+            else {
+                bail!("[BUG] collapse source is not a create step");
+            };
+            *planned_step = Some(Step::Collapse {
+                new_symlink: collapsed_parent,
+                old_symlinks: collapsed_symlinks,
+            });
+        }
+
+        // The inverse transition also has to be one step: remove the old
+        // ancestor before creating descendants, otherwise creation follows
+        // the old symlink and writes into its source directory.
         for old_symlink in &mut old_blueprint_symlinks {
-            let _s =
-                tracing::trace_span!("iter_one_remaning", ?old_symlink)
-                    .entered();
+            let Some(old_symlink_ref) = old_symlink.as_ref() else {
+                continue;
+            };
+            let mut first_new_index = None;
+            let mut expanded_symlinks = Vec::new();
+
+            for (index, planned_step) in
+                planned_steps.iter_mut().enumerate()
+            {
+                let should_expand =
+                    planned_step.as_ref().is_some_and(|planned_step| {
+                        let Step::Create {
+                            new_symlink: expanded_symlink,
+                        } = planned_step
+                        else {
+                            return false;
+                        };
+                        old_symlink_ref
+                            .dst_is_ancestor_of(expanded_symlink)
+                    });
+                if !should_expand {
+                    continue;
+                }
+
+                let Some(Step::Create {
+                    new_symlink: expanded_symlink,
+                }) = planned_step.take()
+                else {
+                    bail!("[BUG] expansion target is not a create step");
+                };
+                first_new_index.get_or_insert(index);
+                expanded_symlinks.push(expanded_symlink);
+            }
+
+            let Some(first_new_index) = first_new_index else {
+                continue;
+            };
+            let Some(old_symlink) = old_symlink.take() else {
+                bail!("[BUG] expansion source was already consumed");
+            };
+            let Some(first_new_step) =
+                planned_steps.get_mut(first_new_index)
+            else {
+                bail!("[BUG] expansion target index is out of bounds");
+            };
+            *first_new_step = Some(Step::Expand {
+                new_symlinks: expanded_symlinks,
+                old_symlink,
+            });
+        }
+
+        // Remaining old destinations are unrelated removals.
+        for old_symlink in &mut old_blueprint_symlinks {
             let Some(old_symlink) = old_symlink.take() else {
                 continue;
             };
             let step = Step::Remove { old_symlink };
             trace!(?step);
-            steps.push_back(step);
+            planned_steps.push(Some(step));
         }
 
         ensure!(
@@ -134,7 +192,15 @@ impl StepQueue {
             "[BUG] symlinks are not completely drained"
         );
 
+        let steps = planned_steps.into_iter().flatten().collect();
         Ok(Self { steps })
+    }
+
+    pub fn check_feasibility(&self) -> AnyResult<()> {
+        for step in &self.steps {
+            step.check_feasibility()?;
+        }
+        Ok(())
     }
 }
 
@@ -159,6 +225,16 @@ pub enum Step {
         new_symlink: Symlink,
         old_symlink: Symlink,
     },
+    /// Replace managed descendants and their directory tree with one link.
+    Collapse {
+        new_symlink: Symlink,
+        old_symlinks: Vec<Symlink>,
+    },
+    /// Replace one managed ancestor link with links below its destination.
+    Expand {
+        new_symlinks: Vec<Symlink>,
+        old_symlink: Symlink,
+    },
     Nothing,
 }
 
@@ -170,7 +246,7 @@ impl Step {
     /// for the rationale. ENOSPC, permission errors, and similar surface
     /// only at [`Self::execute`] time.
     #[inline]
-    pub fn check_feasibility(self) -> AnyResult<()> {
+    pub fn check_feasibility(&self) -> AnyResult<()> {
         self.real_execute(true)
     }
 
@@ -180,24 +256,30 @@ impl Step {
     }
 
     #[tracing::instrument(name = "step_execute", skip(self))]
-    fn real_execute(self, dry: bool) -> AnyResult<()> {
+    fn real_execute(&self, dry: bool) -> AnyResult<()> {
         trace!(?self);
         match self {
             Self::Create { new_symlink } => {
                 Self::create_symlink(new_symlink, dry)?;
             }
-
             Self::Replace {
                 new_symlink,
                 old_symlink,
             } => Self::replace_symlink(new_symlink, old_symlink, dry)?,
-
             Self::Remove { old_symlink } => {
                 Self::remove_symlink(old_symlink, dry)?;
             }
-
+            Self::Collapse {
+                new_symlink,
+                old_symlinks,
+            } => Self::collapse_symlinks(new_symlink, old_symlinks, dry)?,
+            Self::Expand {
+                new_symlinks,
+                old_symlink,
+            } => Self::expand_symlinks(new_symlinks, old_symlink, dry)?,
             Self::Nothing => {
-                let _s = tracing::trace_span!("nothig_to_do").entered();
+                let _span =
+                    tracing::trace_span!("nothing_to_do").entered();
                 debug!("do nothing");
             }
         }
@@ -206,9 +288,9 @@ impl Step {
 
     #[tracing::instrument]
     #[inline]
-    fn create_symlink(new_symlink: Symlink, dry: bool) -> AnyResult<()> {
+    fn create_symlink(new_symlink: &Symlink, dry: bool) -> AnyResult<()> {
         let Symlink { src, dst } = new_symlink;
-        let dst_fact = DstFact::check(&src, &dst)?;
+        let dst_fact = DstFact::check(src, dst)?;
 
         if dst_fact.is_collision() {
             debug!("dst collides");
@@ -228,10 +310,9 @@ impl Step {
             );
         }
 
-        // N.B. early return
         if dry {
             debug!("dry run, check feasibility");
-            Self::ensure_creatable_topology(&dst)?;
+            Self::ensure_creatable_topology(dst)?;
             return Ok(());
         }
 
@@ -247,7 +328,7 @@ impl Step {
         }
 
         debug!("ready to create the real symlink");
-        symlink(&src, &dst).with_context(|| {
+        symlink(src, dst).with_context(|| {
             format!(r#"Failed to create symlink "{}""#, dst.display())
         })?;
 
@@ -257,8 +338,8 @@ impl Step {
     #[tracing::instrument]
     #[inline]
     fn replace_symlink(
-        new_symlink: Symlink,
-        old_symlink: Symlink,
+        new_symlink: &Symlink,
+        old_symlink: &Symlink,
         dry: bool,
     ) -> AnyResult<()> {
         let Symlink {
@@ -273,8 +354,7 @@ impl Step {
         ensure!(new_dst == old_dst, "[BUG] new_dst not equals to old_dst");
 
         let dst = new_dst;
-        drop(old_dst);
-        let dst_fact = DstFact::check(&old_src, &dst)?;
+        let dst_fact = DstFact::check(old_src, dst)?;
 
         if dst_fact.is_collision() {
             debug!("dst collides");
@@ -285,16 +365,13 @@ impl Step {
             );
         }
 
-        // If dst does not exist, replace essentially becomes create
-        // with extra steps
         if matches!(dst_fact, DstFact::NotExist) {
             debug!("dst not exist, ignore");
         }
 
-        // N.B. early rerun
         if dry {
             debug!("dry run, check feasibility");
-            Self::ensure_creatable_topology(&dst)?;
+            Self::ensure_creatable_topology(dst)?;
             return Ok(());
         }
 
@@ -305,15 +382,12 @@ impl Step {
             return Ok(());
         }
 
-        // N.B. dst may not exist (e.g. old blueprint was never applied
-        // or dst was removed out of band), in which case replace behaves
-        // like create and we must materialize the parent dirs before
-        // linking to the temporary target.
+        // dst may not exist if the old blueprint was never applied or was
+        // removed out of band. In that case replacement behaves like create.
         if let Some(parent) = dst.parent() {
             Self::create_parent_dirs(parent)?;
         }
 
-        // attempt to atomic replace
         let tmp_dst = {
             use rand::distr::Alphanumeric;
             trace!("generate temporary dst");
@@ -335,14 +409,11 @@ impl Step {
                 tmp_dst.display(),
             )
         })?;
-        // posix says it's atomic
-        let rename_ret = rename(&tmp_dst, &dst).with_context(|| {
+        let rename_ret = rename(&tmp_dst, dst).with_context(|| {
             format!(r#"Failed to replace symlink "{}""#, dst.display())
         });
         if let Err(rename_err) = rename_ret {
             debug!("error when renaming symlink, remove tmp file");
-            // If cleanup fails too, surface both — the original rename
-            // error is what the user actually needs to diagnose.
             if let Err(cleanup_err) = remove_file(&tmp_dst) {
                 return Err(cleanup_err).context(format!(
                     r#"Failed to remove intermediate symlink \
@@ -356,9 +427,9 @@ impl Step {
         Ok(())
     }
 
-    fn remove_symlink(old_symlink: Symlink, dry: bool) -> AnyResult<()> {
+    fn remove_symlink(old_symlink: &Symlink, dry: bool) -> AnyResult<()> {
         let Symlink { src, dst } = old_symlink;
-        let dst_fact = DstFact::check(&src, &dst)?;
+        let dst_fact = DstFact::check(src, dst)?;
 
         if dst_fact.is_collision() {
             debug!("dst collides");
@@ -369,21 +440,19 @@ impl Step {
             );
         }
 
-        // N.B. early return
         if dry {
             debug!("dry run");
             return Ok(());
         }
 
         debug!("not dry run, remove symlink");
-
         if matches!(dst_fact, DstFact::NotExist) {
-            debug!("dst not exist, do nothing");
+            debug!("dst does not exist, do nothing");
             return Ok(());
         }
 
         debug!("ready to remove the old symlink");
-        remove_file(&dst).with_context(|| {
+        remove_file(dst).with_context(|| {
             format!(r#"Failed to remove symlink "{}""#, dst.display())
         })?;
 
@@ -392,6 +461,192 @@ impl Step {
         }
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(old_symlinks))]
+    fn collapse_symlinks(
+        new_symlink: &Symlink,
+        old_symlinks: &[Symlink],
+        dry: bool,
+    ) -> AnyResult<()> {
+        ensure!(
+            !old_symlinks.is_empty()
+                && old_symlinks.iter().all(|old_symlink| {
+                    new_symlink.dst_is_ancestor_of(old_symlink)
+                }),
+            "[BUG] invalid collapse topology"
+        );
+
+        match DstFact::check(&new_symlink.src, &new_symlink.dst)? {
+            DstFact::SymlinkToSrc => {
+                // A previous run completed the collapse. Descendant paths now
+                // traverse the new link and must not be treated as old links.
+                debug!("collapsed symlink already exists, do nothing");
+                return Ok(());
+            }
+            DstFact::NotExist => {
+                if dry {
+                    Self::ensure_creatable_topology(&new_symlink.dst)?;
+                    return Ok(());
+                }
+                return Self::create_symlink(new_symlink, false);
+            }
+            DstFact::SymlinkNotSrc => {
+                bail!(
+                    r#"Symlink target "{}" is occupied by another symlink"#,
+                    new_symlink.dst.display()
+                );
+            }
+            DstFact::Exist => {
+                let metadata =
+                    new_symlink.dst.symlink_metadata().with_context(|| {
+                        format!(
+                            r#"Failed to inspect collapse destination "{}""#,
+                            new_symlink.dst.display()
+                        )
+                    })?;
+                ensure!(
+                    metadata.is_dir(),
+                    r#"Symlink target "{}" is occupied by another file"#,
+                    new_symlink.dst.display()
+                );
+            }
+        }
+
+        // Refuse before mutation if any declared child is no longer ours or
+        // any unrelated entry would keep the destination directory alive.
+        for old_symlink in old_symlinks {
+            Self::remove_symlink(old_symlink, true)?;
+        }
+        ensure!(
+            Self::directory_will_be_pruned(
+                &new_symlink.dst,
+                old_symlinks
+            )?,
+            r#"Directory "{}" contains paths not controlled by lny, \
+                refuse to replace it with a symlink"#,
+            new_symlink.dst.display()
+        );
+        Self::ensure_creatable_topology(&new_symlink.dst)?;
+
+        if dry {
+            return Ok(());
+        }
+
+        for old_symlink in old_symlinks {
+            Self::remove_symlink(old_symlink, false)?;
+        }
+        // Missing descendants may leave empty directories from an
+        // interrupted prior run. This cleanup is safe here because the
+        // feasibility pass proved the entire tree is managed by this
+        // collapse transition.
+        for old_symlink in old_symlinks {
+            if let Some(parent) = old_symlink.dst.parent() {
+                Self::remove_empty_parent_dirs(parent)?;
+            }
+        }
+        Self::create_symlink(new_symlink, false)
+    }
+
+    #[tracing::instrument(skip(new_symlinks))]
+    fn expand_symlinks(
+        new_symlinks: &[Symlink],
+        old_symlink: &Symlink,
+        dry: bool,
+    ) -> AnyResult<()> {
+        ensure!(
+            !new_symlinks.is_empty()
+                && new_symlinks.iter().all(|new_symlink| {
+                    old_symlink.dst_is_ancestor_of(new_symlink)
+                }),
+            "[BUG] invalid expansion topology"
+        );
+
+        let dst_fact = DstFact::check(&old_symlink.src, &old_symlink.dst)?;
+        match dst_fact {
+            DstFact::SymlinkToSrc => {
+                // All descendant destinations disappear when this link is
+                // removed, so checking them through the link would inspect
+                // the old source tree rather than the future filesystem.
+                Self::ensure_creatable_topology(&old_symlink.dst)?;
+                if dry {
+                    return Ok(());
+                }
+                Self::remove_symlink(old_symlink, false)?;
+            }
+            DstFact::NotExist => {}
+            DstFact::Exist => {
+                let metadata =
+                    old_symlink.dst.symlink_metadata().with_context(|| {
+                        format!(
+                            r#"Failed to inspect expansion destination "{}""#,
+                            old_symlink.dst.display()
+                        )
+                    })?;
+                ensure!(
+                    metadata.is_dir(),
+                    r#"Symlink target "{}" is not controlled by us, \
+                        refuse to expand"#,
+                    old_symlink.dst.display()
+                );
+            }
+            DstFact::SymlinkNotSrc => {
+                bail!(
+                    r#"Symlink target "{}" is not controlled by us, \
+                        refuse to expand"#,
+                    old_symlink.dst.display()
+                );
+            }
+        }
+
+        for new_symlink in new_symlinks {
+            Self::create_symlink(new_symlink, dry)?;
+        }
+        Ok(())
+    }
+
+    fn directory_will_be_pruned(
+        path: &Path,
+        old_symlinks: &[Symlink],
+    ) -> AnyResult<bool> {
+        let has_managed_descendant = old_symlinks
+            .iter()
+            .any(|old_symlink| old_symlink.dst.starts_with(path));
+        if !has_managed_descendant {
+            return Ok(false);
+        }
+
+        let entries = path.read_dir().with_context(|| {
+            format!(r#"Failed to inspect directory "{}""#, path.display())
+        })?;
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!(
+                    r#"Failed to inspect an entry in directory "{}""#,
+                    path.display()
+                )
+            })?;
+            let entry_path = entry.path();
+            if old_symlinks.iter().any(|old_symlink| {
+                old_symlink.dst.as_ref() == entry_path.as_path()
+            }) {
+                continue;
+            }
+
+            let file_type = entry.file_type().with_context(|| {
+                format!(r#"Failed to inspect "{}""#, entry_path.display())
+            })?;
+            if file_type.is_dir()
+                && Self::directory_will_be_pruned(
+                    &entry_path,
+                    old_symlinks,
+                )?
+            {
+                continue;
+            }
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     #[inline]
@@ -458,22 +713,45 @@ impl Step {
     fn remove_empty_parent_dirs(path: &Path) -> AnyResult<()> {
         debug!("attempt to remove empty parent dirs");
         trace!(?path);
-        for ances in path.ancestors() {
-            trace!(?ances, "parent's ancestor");
-            let metadata = ances
-                .symlink_metadata()
-                .context("Failed to read ancestor metadata")?;
-            if metadata.is_dir() && ances.read_dir()?.next().is_none() {
-                debug!("ancestor dir is empty, remove it");
-                std::fs::remove_dir( ances )
-                    .with_context( || format!(
-                        r#"Failed to remove empty ancestor directory "{}""#,
-                        ances.display()
-                    ) )?;
-            } else {
+        for ancestor in path.ancestors() {
+            trace!(?ancestor, "parent's ancestor");
+            let metadata = match ancestor.symlink_metadata() {
+                Ok(metadata) => metadata,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    continue;
+                }
+                Err(err) => {
+                    return Err(err).with_context(|| {
+                        format!(
+                            r#"Failed to read ancestor metadata for "{}""#,
+                            ancestor.display()
+                        )
+                    });
+                }
+            };
+            let is_empty_dir = metadata.is_dir()
+                && ancestor
+                    .read_dir()
+                    .with_context(|| {
+                        format!(
+                            r#"Failed to read ancestor directory "{}""#,
+                            ancestor.display()
+                        )
+                    })?
+                    .next()
+                    .is_none();
+            if !is_empty_dir {
                 debug!("not empty, skip remaining ancestors");
                 return Ok(());
             }
+
+            debug!("ancestor dir is empty, remove it");
+            std::fs::remove_dir(ancestor).with_context(|| {
+                format!(
+                    r#"Failed to remove empty ancestor directory "{}""#,
+                    ancestor.display()
+                )
+            })?;
         }
         Ok(())
     }
@@ -860,6 +1138,26 @@ mod test {
         // 3. dst already deleted
         remove_file(&dst).unwrap();
         step.execute().unwrap();
+
+        // A missing managed link is a no-op, including its empty parent.
+        {
+            let empty_parent = top
+                .child(make_random_str!())
+                .tap(|it| it.create_dir_all().unwrap());
+            let missing_dst = empty_parent.child(make_random_str!());
+            let missing_symlink = make_symlink!(
+                src.to_str().unwrap(),
+                missing_dst.to_str().unwrap()
+            );
+
+            Step::Remove {
+                old_symlink: missing_symlink,
+            }
+            .execute()
+            .unwrap();
+
+            assert!(empty_parent.try_exists_no_traverse().unwrap());
+        }
 
         // 4. clean up the remaining dirs
         {

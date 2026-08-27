@@ -49,13 +49,15 @@ impl Blueprint {
             CURRENT_BLUEPRINT_VERSION,
             self.version
         };
-        // TODO report which ones are conflicting
         ensure! {
-            self.symlinks
-                .iter()
-                .map(|it| &it.dst)
-                .all_unique(),
-            "Some symlinks in the blueprint have conflicting destination path"
+            self.symlinks.iter().array_combinations::<2>().all(
+                |[left, right]| {
+                    !left.same_dst(right)
+                        && !left.dst_is_ancestor_of(right)
+                        && !right.dst_is_ancestor_of(left)
+                },
+            ),
+            "Some symlinks in the blueprint have conflicting destination paths"
         };
         ensure! {
             self.symlinks
@@ -93,6 +95,10 @@ impl Symlink {
         self.dst == other.dst
     }
 
+    pub fn dst_is_ancestor_of(&self, other: &Self) -> bool {
+        self.dst != other.dst && other.dst.starts_with(&self.dst)
+    }
+
     pub fn same_src(&self, other: &Self) -> bool {
         self.src == other.src
     }
@@ -123,6 +129,26 @@ mod test {
             res.err()
                 .unwrap()
                 .tap(|it| eprintln!("{it:?}"))
+                .to_string()
+                .contains("conflicting")
+        );
+    }
+
+    #[test]
+    fn reject_nested_destinations() {
+        let json = serde_json::json! { {
+            "version": CURRENT_BLUEPRINT_VERSION,
+            "symlinks": [
+                { "src": "/a", "dst": "/target" },
+                { "src": "/b", "dst": "/target/child" },
+            ]
+        } };
+        let result = Blueprint::deserialize(json.into_deserializer());
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .expect_err("nested destinations should be rejected")
                 .to_string()
                 .contains("conflicting")
         );

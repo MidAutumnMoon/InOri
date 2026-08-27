@@ -27,6 +27,8 @@ Options:
 1. Current `version` is **1**
 2. Both symlink paths may contain [Minijinja](https://docs.rs/minijinja/latest/minijinja/) template markers
 3. Both symlink paths must be absolute.
+4. Destinations must not overlap: each must be unique, and no destination
+   may be an ancestor of another destination in the same blueprint.
 
 ## Builtin Template Constants
 

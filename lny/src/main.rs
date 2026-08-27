@@ -63,11 +63,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
 
     info!("Check feasibility");
 
-    // TODO: use new type for checked steps?
-    // TODO: structural error for reporting
-    for step in step_queue.clone() {
-        step.check_feasibility()?;
-    }
+    step_queue.check_feasibility()?;
 
     info!("Execute blueprint");
 
