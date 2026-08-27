@@ -29,7 +29,6 @@ struct CliOpts {
     old_blueprint: Option<PathBuf>,
 }
 
-#[tracing::instrument(name = "app_run", skip_all)]
 fn run(cliopts: CliOpts) -> AnyResult<()> {
     info!("Preparing blueprints");
 
