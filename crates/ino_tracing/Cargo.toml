@@ -1,6 +1,6 @@
 [package]
 name = "ino_tracing"
-version = "0.1.1"
+version = "1.0.0"
 description = "Custom tracing_subcriber configuration."
 authors.workspace = true
 edition.workspace = true
@@ -10,6 +10,7 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+tracing-appender = "0.2.5"
 tracing-subscriber.workspace = true
 
 [lints]
