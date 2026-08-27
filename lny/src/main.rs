@@ -79,7 +79,7 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
 }
 
 fn main() -> AnyResult<()> {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
 
     info!("Stretch hands");
 

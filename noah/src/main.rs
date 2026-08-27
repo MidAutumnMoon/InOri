@@ -57,7 +57,7 @@ pub enum NixVariant {
 }
 
 fn main() -> rootcause::Result<()> {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
 
     // Panic diagnostics: point users at the issue tracker for bug reports.
     std::panic::set_hook(Box::new(|info| {

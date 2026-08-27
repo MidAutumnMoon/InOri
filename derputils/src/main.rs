@@ -10,7 +10,7 @@ use derputils::applet::select;
 use derputils::applet::usage;
 
 fn main() -> ExitCode {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
 
     let mut argv_iter = std::env::args_os();
     // `argv[0]` always exists in practice; default to the dispatcher name.

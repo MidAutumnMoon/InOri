@@ -14,7 +14,7 @@ use ino_color::style;
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
 fn main() -> AnyResult<()> {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
     <App as clap::Parser>::parse().run()
 }
 

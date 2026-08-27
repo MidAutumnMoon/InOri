@@ -83,7 +83,7 @@ enum CliOpts {
 }
 
 fn main() -> anyhow::Result<()> {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
     let options = <CliOpts as clap::Parser>::parse();
 
     match Resource::NOFILE.get() {

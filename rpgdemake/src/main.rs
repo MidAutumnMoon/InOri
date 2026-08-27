@@ -40,7 +40,7 @@ struct CliOpts {
 }
 
 fn main() -> anyhow::Result<()> {
-    ino_tracing::init_tracing_subscriber();
+    let _log_guard = ino_tracing::init_tracing_subscriber();
     rlimit::increase_nofile_limit(u64::MAX)?;
 
     let cliopts = CliOpts::parse();
