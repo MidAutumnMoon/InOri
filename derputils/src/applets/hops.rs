@@ -2,7 +2,10 @@
 //!
 //! Prints the whole chain of an executable or a path: the path itself,
 //! every symlink hop, and the final target, annotating well-known
-//! Nix-related locations.
+//! Nix-related locations. Relative targets are joined against the
+//! parent directory resolved through its symlinks — falling back to
+//! the lexical spelling when that fails — so the hops match what the
+//! kernel reaches. A start path that does not exist is an error.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -18,6 +21,8 @@ use ino_color::cprint;
 use ino_color::fg;
 use ino_color::style;
 use ino_path::is_executable::IsExecutable as _;
+use ino_path::PathExt as _;
+use rootcause::bail;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
 use tracing::debug;
@@ -62,19 +67,31 @@ fn run(program: &str) -> rootcause::Result<()> {
     };
     debug!(?starter);
 
-    let ancestors = SymlinkAncestor::new(starter)
-        .collect::<rootcause::Result<Vec<_>>>()
-        .context("Unable to walk through the symlink chain")?;
+    // A dangling symlink is a legitimate chain, but a start path that
+    // does not exist at all is a typo.
+    if !starter
+        .as_ref()
+        .try_exists_no_traverse()
+        .context("Unable to inspect the start path")?
+    {
+        bail!(r#"Path "{starter}" does not exist"#);
+    }
 
-    explain_paths(&ancestors);
+    // Print each hop as it is walked, so a failure keeps the hops
+    // that led up to it.
+    for hop in SymlinkAncestor::new(starter) {
+        explain_path(hop?);
+    }
 
     Ok(())
 }
 
 /// Finds the first executable named `program` in `$PATH`.
 ///
-/// Returns `None` when `$PATH` is unset or nothing matches, leaving
-/// the failure message to the caller which knows the program name.
+/// Directories are skipped even though they pass the executable
+/// check, since exec would reject them too. Returns `None` when
+/// `$PATH` is unset or nothing matches, leaving the failure message
+/// to the caller which knows the program name.
 fn find_in_path(program: &str) -> Option<PathBuf> {
     let env_path = std::env::var_os("PATH")?;
 
@@ -82,7 +99,7 @@ fn find_in_path(program: &str) -> Option<PathBuf> {
         .map(|dir| dir.join(program))
         .find(|candidate| {
             trace!(?candidate, "Looking into");
-            candidate.is_executable()
+            candidate.is_executable() && !candidate.is_dir()
         })
         .inspect(|hit| debug!(?hit, "Found executable"))
 }
@@ -111,8 +128,10 @@ impl AbsolutePath {
     /// parent directory.
     ///
     /// If `target` is absolute, it is wrapped and cleaned.
-    /// If relative, it is joined with this path's parent
-    /// directory and cleaned, producing an absolute path.
+    /// If relative, it is joined with this path's parent directory —
+    /// resolved through the symlinks inside it, falling back to the
+    /// lexical spelling when that fails — and cleaned, producing an
+    /// absolute path that matches the kernel's resolution.
     fn resolve_target(&self, target: &Path) -> Self {
         let resolved = if target.is_relative() {
             #[expect(
@@ -121,7 +140,19 @@ impl AbsolutePath {
             )]
             let parent_dir =
                 self.0.parent().expect("symlink path always has a parent");
-            path_clean::PathClean::clean(&parent_dir.join(target))
+            let joined = match std::fs::canonicalize(parent_dir) {
+                Ok(real_parent) => real_parent.join(target),
+                Err(err) => {
+                    trace!(
+                        ?parent_dir,
+                        %err,
+                        "Failed to resolve the parent directory, \
+                         joining lexically"
+                    );
+                    parent_dir.join(target)
+                }
+            };
+            path_clean::PathClean::clean(&joined)
         } else {
             path_clean::PathClean::clean(target)
         };
@@ -262,22 +293,20 @@ impl Subject {
     }
 }
 
-fn explain_paths(paths: &[AbsolutePath]) {
-    for it in paths {
-        trace!(?it);
+fn explain_path(path: AbsolutePath) {
+    trace!(?path);
 
-        let subject = Subject::new(it.clone());
+    let subject = Subject::new(path);
 
-        cprint!(fg::Blue, "{}", subject.path);
-        if !matches!(subject.kind, SubjectKind::Normal) {
-            cprint!(
-                (fg::Default, style::Italic),
-                " <- {}",
-                subject.describe()
-            );
-        }
-        println!();
+    cprint!(fg::Blue, "{}", subject.path);
+    if !matches!(subject.kind, SubjectKind::Normal) {
+        cprint!(
+            (fg::Default, style::Italic),
+            " <- {}",
+            subject.describe()
+        );
     }
+    println!();
 }
 
 #[cfg(test)]
@@ -352,9 +381,78 @@ mod test {
         let chain = walk(link.path()).unwrap();
         let expected = vec![
             AbsolutePath::resolve(link.path()).unwrap(),
-            AbsolutePath::resolve(real.path()).unwrap(),
+            // The parent is resolved through its own symlinks before
+            // the join, so the hop carries the canonical spelling.
+            AbsolutePath(std::fs::canonicalize(real.path()).unwrap()),
         ];
         assert_eq!(chain, expected);
+    }
+
+    #[test]
+    fn relative_target_joins_the_resolved_parent() {
+        let tmp = TempDir::new().unwrap();
+        tmp.child("real/sub").create_dir_all().unwrap();
+        tmp.child("side").create_dir_all().unwrap();
+        tmp.child("deep/er").create_dir_all().unwrap();
+
+        let jump = tmp.child("deep/er/jump");
+        jump.symlink_to_dir(tmp.child("real").path()).unwrap();
+        let rel = tmp.child("real/sub/rel");
+        rel.symlink_to_file("../../side").unwrap();
+
+        let starter = tmp.child("deep/er/jump/sub/rel");
+        let chain = walk(starter.path()).unwrap();
+
+        // The kernel reaches `../../side` from the *resolved* parent,
+        // landing at `tmp/side`; the lexical join would produce the
+        // nonexistent `deep/er/side`.
+        let expected = vec![
+            AbsolutePath::resolve(starter.path()).unwrap(),
+            AbsolutePath(std::fs::canonicalize(tmp.child("side").path()).unwrap()),
+        ];
+        assert_eq!(chain, expected);
+    }
+
+    #[test]
+    fn nonexistent_start_path_fails() {
+        let tmp = TempDir::new().unwrap();
+        let absent = tmp.child("absent");
+
+        let result = run(absent.path().to_str().unwrap());
+        assert_matches!(result, Err(_));
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("does not exist"), "{message}");
+    }
+
+    #[test]
+    fn path_lookup_skips_directories() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let tmp = TempDir::new().unwrap();
+        let fakebin = tmp.child("fakebin");
+        fakebin.child("prog").create_dir_all().unwrap();
+        let realbin = tmp.child("realbin");
+        let real_prog = realbin.child("prog");
+        real_prog.write_str("ELF").unwrap();
+        std::fs::set_permissions(
+            real_prog.path(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+
+        // SAFETY: no other test in this binary reads `$PATH`; the only
+        // reader, `find_in_path`, is driven by this test exclusively.
+        unsafe { std::env::set_var("PATH", fakebin.path()); }
+        assert_eq!(find_in_path("prog"), None);
+
+        let both = format!(
+            "{}:{}",
+            fakebin.path().display(),
+            realbin.path().display()
+        );
+        // SAFETY: see above.
+        unsafe { std::env::set_var("PATH", both); }
+        assert_eq!(find_in_path("prog"), Some(real_prog.path().to_path_buf()));
     }
 
     #[test]
