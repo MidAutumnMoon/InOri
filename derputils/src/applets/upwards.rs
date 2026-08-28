@@ -1,12 +1,13 @@
 //! `upwards` — print the "toplevel" directory of the CWD.
 //!
-//! Prints an absolute path, or nothing when there is no upward boundary
-//! to report.
+//! Exits successfully with the absolute toplevel path on stdout, or with
+//! status 1 and no output when there is no upward boundary to report.
 
 use std::env::current_dir;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use bpaf::Args;
 use bpaf::Parser as _;
@@ -23,7 +24,7 @@ pub const NAME: &str = "upwards";
 pub const DESCR: &str = "Find upward boundaries that `feel` right";
 const NIX_STORE: &str = "/nix/store";
 
-pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
+pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     bpaf::pure(())
         .to_options()
         .descr(DESCR)
@@ -33,7 +34,7 @@ pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
 }
 
 #[instrument]
-fn run() -> rootcause::Result<()> {
+fn run() -> rootcause::Result<ExitCode> {
     let cwd = current_dir().context("Failed to get CWD")?;
 
     // Heuristics run cheapest-first: pure path comparison before parent
@@ -45,10 +46,14 @@ fn run() -> rootcause::Result<()> {
     debug!(?decision);
 
     match decision {
-        Decision::StayHere => {}
-        Decision::GoUpward(toplevel) => print_toplevel(&toplevel)?,
+        // Fail silently, so a shell wrapper can tell "found" from "not
+        // found" by the exit status alone.
+        Decision::StayHere => Ok(ExitCode::FAILURE),
+        Decision::GoUpward(toplevel) => {
+            print_toplevel(&toplevel)?;
+            Ok(ExitCode::SUCCESS)
+        }
     }
-    Ok(())
 }
 
 /// Writes `toplevel` to stdout as raw bytes. Callers consume the output
@@ -67,7 +72,7 @@ fn print_toplevel(toplevel: &Path) -> rootcause::Result<()> {
 /// What a heuristic concluded about the CWD.
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
-    /// The CWD is already the desired toplevel; print nothing.
+    /// No upward path to report; the caller stays put.
     StayHere,
     /// Print this path as the toplevel of the CWD.
     GoUpward(PathBuf),

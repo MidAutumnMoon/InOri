@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 
     match select(&invoked_as, &args) {
         Selection::Run { applet, args } => match (applet.run)(args) {
-            Ok(()) => ExitCode::SUCCESS,
+            Ok(exit_code) => exit_code,
             Err(RunFailure::Cli(failure)) => {
                 // 100 is bpaf's own default max width.
                 failure.print_message(100);

@@ -10,6 +10,7 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::process::Command;
+use std::process::ExitCode;
 use std::str::FromStr;
 
 use bpaf::Args;
@@ -87,11 +88,12 @@ pub fn cli() -> OptionParser<CompletionArgs> {
         .descr("Generate shell completion scripts for applets")
 }
 
-pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
+pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     let args = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
-    run(&args).map_err(RunFailure::Applet)
+    run(&args).map_err(RunFailure::Applet)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run(args: &CompletionArgs) -> rootcause::Result<()> {

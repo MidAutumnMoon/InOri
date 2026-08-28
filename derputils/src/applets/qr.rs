@@ -3,6 +3,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use bpaf::Args;
 use bpaf::OptionParser;
@@ -45,11 +46,12 @@ pub fn cli() -> OptionParser<Source> {
         )
 }
 
-pub fn applet_main(args: &[OsString]) -> Result<(), RunFailure> {
+pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     let source = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
-    run(source).map_err(RunFailure::Applet)
+    run(source).map_err(RunFailure::Applet)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run(source: Source) -> rootcause::Result<()> {

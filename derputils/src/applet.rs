@@ -3,6 +3,7 @@
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Path;
+use std::process::ExitCode;
 
 use crate::BIN_NAME;
 use crate::applets;
@@ -23,8 +24,9 @@ pub struct Applet {
     pub name: &'static str,
     /// One-liner shown in the applet listing.
     pub descr: &'static str,
-    /// Parse `args` (the applet's own `argv[1..]`), run, and print any output.
-    pub run: fn(args: &[OsString]) -> Result<(), RunFailure>,
+    /// Parse `args` (the applet's own `argv[1..]`), run, print any
+    /// output, and produce the process exit code.
+    pub run: fn(args: &[OsString]) -> Result<ExitCode, RunFailure>,
 }
 
 /// All applets, in listing order; names are unique.
