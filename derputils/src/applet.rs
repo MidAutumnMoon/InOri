@@ -51,6 +51,11 @@ pub const APPLETS: &[Applet] = &[
         descr: applets::upwards::DESCR,
         run: applets::upwards::applet_main,
     },
+    Applet {
+        name: applets::coruma_reverse::NAME,
+        descr: applets::coruma_reverse::DESCR,
+        run: applets::coruma_reverse::applet_main,
+    },
 ];
 
 fn find_applet(name: &str) -> Option<&'static Applet> {

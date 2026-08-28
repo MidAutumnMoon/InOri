@@ -12,6 +12,8 @@ repository.workspace = true
 
 [dependencies]
 ino_shell.workspace = true
+ino_color.workspace = true
+ino_path.workspace = true
 bpaf.workspace = true
 ino_tracing.workspace = true
 qrcode = { version = "0", features = ["svg"] }
@@ -19,6 +21,7 @@ rootcause.workspace = true
 tracing.workspace = true
 uuid = { version = "1", features = ["v7"] }
 gix-discover = { version = "0.55.0", features = [ "sha1" ] }
+path-clean.workspace = true
 
 [dev-dependencies]
 assert_fs.workspace = true

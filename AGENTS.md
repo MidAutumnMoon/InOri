@@ -30,7 +30,6 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 | Crate | Description |
 |---|---|
-| `coruma` | Comma replacement and symlink reverse-tracing |
 | `derputils` | Miscellaneous utilities |
 | `imgo` | Image batch processing and transcoding |
 | `lny` | Symlink manager driven by JSON blueprints with templates |
