@@ -52,9 +52,9 @@ pub const APPLETS: &[Applet] = &[
         run: applets::upwards::applet_main,
     },
     Applet {
-        name: applets::coruma_reverse::NAME,
-        descr: applets::coruma_reverse::DESCR,
-        run: applets::coruma_reverse::applet_main,
+        name: applets::hops::NAME,
+        descr: applets::hops::DESCR,
+        run: applets::hops::applet_main,
     },
 ];
 

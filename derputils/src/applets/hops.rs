@@ -1,4 +1,4 @@
-//! `coruma-reverse` — trace a symlink to its origin.
+//! `hops` — trace a symlink to its origin.
 //!
 //! Prints the whole chain of an executable or a path: the path itself,
 //! every symlink hop, and the final target, annotating well-known
@@ -26,7 +26,7 @@ use tracing::trace;
 
 use crate::applet::RunFailure;
 
-pub const NAME: &str = "coruma-reverse";
+pub const NAME: &str = "hops";
 pub const DESCR: &str = "Trace a symlink to its origin";
 
 /// The most symlink hops allowed before assuming an unbroken loop.
