@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
 
-use anyhow::Context as _;
-use anyhow::ensure;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
 use serde::Serialize;
 use tempfile::Builder;
@@ -80,7 +81,7 @@ impl Step {
         }
     }
 
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> rootcause::Result<()> {
         match self {
             Self::Avif(step) => step.validate(),
             Self::Jxl(step) => step.validate(),
@@ -90,7 +91,7 @@ impl Step {
         }
     }
 
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
         match self {
             Self::Avif(step) => step.run(input, output),
             Self::Jxl(step) => step.run(input, output),
@@ -151,18 +152,21 @@ impl Recipe {
     pub fn validate_for(
         &self,
         input_format: ImageFormat,
-    ) -> anyhow::Result<ImageFormat> {
-        ensure!(!self.steps.is_empty(), "recipe has no steps");
+    ) -> rootcause::Result<ImageFormat> {
+        if self.steps.is_empty() {
+            bail!("recipe has no steps");
+        }
         let mut format = input_format;
         for step in &self.steps {
             step.validate()
-                .with_context(|| format!("invalid {} step", step.id()))?;
-            ensure!(
-                step.input_formats().contains(&format),
-                "{} does not accept {:?} input produced before it",
-                step.id(),
-                format
-            );
+                .context_with(|| format!("invalid {} step", step.id()))?;
+            if !step.input_formats().contains(&format) {
+                bail!(
+                    "{} does not accept {:?} input produced before it",
+                    step.id(),
+                    format
+                );
+            }
             format = step.output_format();
         }
         Ok(format)
@@ -188,7 +192,7 @@ impl Recipe {
         input: &Path,
         input_format: ImageFormat,
         output: &Path,
-    ) -> anyhow::Result<()> {
+    ) -> rootcause::Result<()> {
         self.validate_for(input_format)?;
 
         let mut current_path = input.to_path_buf();
@@ -198,7 +202,7 @@ impl Recipe {
             let is_final = index + 1 == self.steps.len();
             if is_final {
                 step.run(&current_path, output)
-                    .with_context(|| format!("run {}", step.id()))?;
+                    .context_with(|| format!("run {}", step.id()))?;
             } else {
                 let extension =
                     step.output_format()
@@ -207,14 +211,14 @@ impl Recipe {
                 let temporary = Builder::new()
                     .suffix(&format!(".{extension}"))
                     .tempfile()
-                    .with_context(|| {
+                    .context_with(|| {
                         format!(
                             "create intermediate output for {}",
                             step.id()
                         )
                     })?;
                 step.run(&current_path, temporary.path())
-                    .with_context(|| format!("run {}", step.id()))?;
+                    .context_with(|| format!("run {}", step.id()))?;
                 intermediates.push(temporary);
                 current_path = intermediates
                     .last()

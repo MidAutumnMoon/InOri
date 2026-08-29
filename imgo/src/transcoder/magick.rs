@@ -1,10 +1,15 @@
 use std::collections::BTreeSet;
+use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Path;
+use std::str::FromStr;
 use std::thread::available_parallelism;
 
-use anyhow::Context as _;
-use anyhow::ensure;
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -31,7 +36,7 @@ const SAND_TONE_COMPONENT_AREA_DIVISOR: u64 = 2000;
 /// explicit recipe step; classifier policy chooses whether that recipe is a
 /// default or a review-only candidate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[derive(clap::ValueEnum, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
     /// Edge-preserving bilateral filtering. The default geometry is `3x3`.
@@ -45,17 +50,73 @@ pub enum Mode {
     Despeckle,
 }
 
+impl Mode {
+    /// Canonical CLI and serde name, shared by `Display` and `FromStr`.
+    #[must_use]
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Artifact => "artifact",
+            Self::AdaptiveBlur => "adaptive-blur",
+            Self::FakePencil => "fake-pencil",
+            Self::Despeckle => "despeckle",
+        }
+    }
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Mode {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "artifact" => Ok(Self::Artifact),
+            "adaptive-blur" => Ok(Self::AdaptiveBlur),
+            "fake-pencil" => Ok(Self::FakePencil),
+            "despeckle" => Ok(Self::Despeckle),
+            other => Err(format!(
+                "expected one of `artifact`, `adaptive-blur`, `fake-pencil`, \
+                 `despeckle`, got `{other}`"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[derive(clap::Args, Serialize, Deserialize)]
-#[group(skip)]
+#[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Denoise {
-    #[arg(long, short, value_enum, default_value_t = Self::default().mode)]
     pub mode: Mode,
 
     /// `ImageMagick` geometry or percentage used by the chosen mode.
-    #[arg(long, short)]
     pub strength: Option<String>,
+}
+
+/// CLI parser for [`Denoise`].
+#[must_use]
+pub fn denoise_cli() -> impl Parser<Denoise> {
+    let mode = long("mode")
+        .short('m')
+        .argument::<Mode>("MODE")
+        .help(
+            "Preprocessing mode: `artifact` (bilateral blur), \
+             `adaptive-blur`, `fake-pencil` (median plus contrast stretch) \
+             or `despeckle`",
+        )
+        .fallback(Denoise::default().mode)
+        .display_fallback();
+    let strength = long("strength")
+        .short('s')
+        .argument::<String>("GEOMETRY")
+        .help(
+            "`ImageMagick` geometry or percentage used by the chosen mode",
+        )
+        .optional();
+    construct!(Denoise { mode, strength })
 }
 
 impl Meta for Denoise {
@@ -81,21 +142,21 @@ impl Meta for Denoise {
 }
 
 impl Operation for Denoise {
-    fn validate(&self) -> anyhow::Result<()> {
-        ensure!(
-            self.strength
-                .as_deref()
-                .is_none_or(|strength| !strength.trim().is_empty()),
-            "denoise strength cannot be empty"
-        );
-        ensure!(
-            self.mode != Mode::Despeckle || self.strength.is_none(),
-            "despeckle does not accept --strength"
-        );
+    fn validate(&self) -> rootcause::Result<()> {
+        if self
+            .strength
+            .as_deref()
+            .is_some_and(|strength| strength.trim().is_empty())
+        {
+            bail!("denoise strength cannot be empty");
+        }
+        if self.mode == Mode::Despeckle && self.strength.is_some() {
+            bail!("despeckle does not accept --strength");
+        }
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
         self.validate()?;
         let mut command = Tool::Magick.command();
         command.arg(input);
@@ -232,13 +293,13 @@ impl Meta for FlattenSandTone {
 }
 
 impl Operation for FlattenSandTone {
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> rootcause::Result<()> {
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
         let (width, height) = image::image_dimensions(input)
-            .with_context(|| {
+            .context_with(|| {
                 format!("read dimensions of {}", input.display())
             })?;
         let preset = self.preset(width.max(height));
@@ -364,25 +425,42 @@ impl Operation for FlattenSandTone {
 
 /// Convert degraded near-bilevel pages to crisp one-bit grayscale.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(clap::Args, Serialize, Deserialize)]
-#[group(skip)]
+#[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CleanScan {
     /// Fixed global threshold percentage. Cannot be supplied with `--otsu`.
-    #[arg(
-        long,
-        default_value_t = Self::default().threshold,
-        conflicts_with = "otsu"
-    )]
     pub threshold: u8,
 
     /// Select a global threshold from the image histogram.
-    #[arg(long, default_value_t = Self::default().otsu)]
     pub otsu: bool,
 
     /// Disable the mild pre-threshold unsharp mask.
-    #[arg(long = "no-sharpen", action = clap::ArgAction::SetFalse)]
     pub sharpen: bool,
+}
+
+/// CLI parser for [`CleanScan`].
+#[must_use]
+pub fn clean_scan_cli() -> impl Parser<CleanScan> {
+    let threshold = long("threshold")
+        .argument::<u8>("PERCENT")
+        .help(
+            "Fixed global threshold percentage. Cannot be supplied with \
+             `--otsu`",
+        )
+        .fallback(CleanScan::default().threshold)
+        .display_fallback();
+    let otsu = long("otsu")
+        .switch()
+        .help("Select a global threshold from the image histogram");
+    let no_sharpen = long("no-sharpen")
+        .switch()
+        .help("Disable the mild pre-threshold unsharp mask");
+    let sharpen = no_sharpen.map(|no_sharpen| !no_sharpen);
+    construct!(CleanScan {
+        threshold,
+        otsu,
+        sharpen,
+    })
 }
 
 impl Default for CleanScan {
@@ -414,19 +492,17 @@ impl Meta for CleanScan {
 }
 
 impl Operation for CleanScan {
-    fn validate(&self) -> anyhow::Result<()> {
-        ensure!(
-            self.threshold <= 100,
-            "clean-scan threshold must be in 0..=100"
-        );
-        ensure!(
-            !self.otsu || self.threshold == DEFAULT_CLEAN_SCAN_THRESHOLD,
-            "--threshold cannot be customized together with --otsu"
-        );
+    fn validate(&self) -> rootcause::Result<()> {
+        if self.threshold > 100 {
+            bail!("clean-scan threshold must be in 0..=100");
+        }
+        if self.otsu && self.threshold != DEFAULT_CLEAN_SCAN_THRESHOLD {
+            bail!("--threshold cannot be customized together with --otsu");
+        }
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
         self.validate()?;
 
         let mut command = Tool::Magick.command();

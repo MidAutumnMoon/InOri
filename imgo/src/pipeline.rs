@@ -11,9 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context as _;
-use anyhow::bail;
-use anyhow::ensure;
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use bpaf::positional;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
@@ -22,6 +23,10 @@ use ino_color::fg::Red;
 use ino_color::fg::Yellow;
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report_collection::ReportCollection;
 use tempfile::Builder;
 use tracing::debug;
 
@@ -35,24 +40,19 @@ use crate::recipe::Recipe;
 use crate::transcoder::Pixel;
 
 /// Shared CLI options for direct, single-recipe commands.
-#[derive(clap::Args, Debug)]
-#[group(skip)]
+#[derive(Debug)]
 pub struct SharedOpts {
     /// Starting point for discovery and the `.backup` tree. Defaults to PWD.
-    #[arg(long, short = 'W')]
     pub workspace: Option<PathBuf>,
 
     /// Keep originals in place instead of moving them to `.backup`.
-    #[arg(long, short = 'N', default_value_t = false)]
     pub no_backup: bool,
 
     /// Number of images processed concurrently. Encoders may use multiple
     /// threads internally, so expensive encoders default to one image at once.
-    #[arg(long, short = 'J')]
     pub jobs: Option<NonZeroU64>,
 
     /// Only discover immediate children of each selected directory.
-    #[arg(long, short = 'R', default_value_t = false)]
     pub no_recursive: bool,
 
     /// Explicit files or directories. Manual selection keeps originals.
@@ -64,6 +64,42 @@ impl SharedOpts {
     pub fn skips_backup(&self) -> bool {
         self.no_backup || self.manual_selection.is_some()
     }
+}
+
+/// CLI parser for [`SharedOpts`].
+#[must_use]
+pub fn shared_cli() -> impl Parser<SharedOpts> {
+    let workspace = long("workspace")
+        .short('W')
+        .argument::<PathBuf>("DIR")
+        .help("Starting point for discovery and the `.backup` tree. Defaults to PWD")
+        .optional();
+    let no_backup = long("no-backup").short('N').switch().help(
+        "Keep originals in place instead of moving them to `.backup`",
+    );
+    let jobs = long("jobs")
+        .short('J')
+        .argument::<NonZeroU64>("N")
+        .help(
+            "Number of images processed concurrently. Encoders may use \
+             multiple threads internally, so expensive encoders default to \
+             one image at once",
+        )
+        .optional();
+    let no_recursive = long("no-recursive").short('R').switch().help(
+        "Only discover immediate children of each selected directory",
+    );
+    let manual_selection = positional::<PathBuf>("PATH")
+        .help("Explicit files or directories. Manual selection keeps originals")
+        .some("expect at least one image path or directory")
+        .optional();
+    construct!(SharedOpts {
+        workspace,
+        no_backup,
+        jobs,
+        no_recursive,
+        manual_selection,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -115,20 +151,21 @@ pub fn run_jobs(
     jobs: Vec<Job>,
     no_backup: bool,
     parallelism: NonZeroU64,
-) -> anyhow::Result<BatchSummary> {
+) -> rootcause::Result<BatchSummary> {
     let mut tools = BTreeSet::new();
     for job in &jobs {
-        job.recipe.validate_for(job.image.format).with_context(|| {
+        job.recipe.validate_for(job.image.format).context_with(|| {
             format!("validate recipe for {}", job.image.path.display())
         })?;
         if let Some(reviewed) = &job.reviewed_output {
-            ensure!(
-                std::fs::metadata(reviewed)
-                    .is_ok_and(|metadata| metadata.is_file()
-                        && metadata.len() > 0),
-                "reviewed output is missing or empty: {}",
-                reviewed.display()
-            );
+            if !std::fs::metadata(reviewed).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.len() > 0
+            }) {
+                bail!(
+                    "reviewed output is missing or empty: {}",
+                    reviewed.display()
+                );
+            }
         } else {
             job.recipe.required_tools(&mut tools);
         }
@@ -146,7 +183,7 @@ pub fn run_jobs(
         |job| job.recipe.validate_for(job.image.format),
         |job, input, output| {
             if let Some(reviewed) = &job.reviewed_output {
-                std::fs::copy(reviewed, output).with_context(|| {
+                std::fs::copy(reviewed, output).context_with(|| {
                     format!("reuse reviewed output {}", reviewed.display())
                 })?;
                 Ok(vec![format!(
@@ -171,7 +208,7 @@ pub fn run_jobs(
 pub fn run_pipeline_recipe(
     shared: &SharedOpts,
     recipe: Recipe,
-) -> anyhow::Result<BatchSummary> {
+) -> rootcause::Result<BatchSummary> {
     let first = recipe
         .first_input_formats()
         .context("recipe has no first step")?;
@@ -199,7 +236,7 @@ pub fn run_pipeline_recipe(
 pub fn run_pipeline_pixel(
     shared: &SharedOpts,
     transcoder: &dyn Pixel,
-) -> anyhow::Result<BatchSummary> {
+) -> rootcause::Result<BatchSummary> {
     ceprintln!(Yellow, "[Transcoder is {}]", transcoder.id());
     ceprintln!(
         Yellow,
@@ -220,7 +257,7 @@ pub fn run_pipeline_pixel(
         |_| Ok(output_format),
         |image, input, output| {
             let decoded = image::open(input)
-                .with_context(|| format!("decode {}", input.display()))?;
+                .context_with(|| format!("decode {}", input.display()))?;
             let mut warnings = Vec::new();
             let bits = decoded.color().bits_per_pixel();
             if bits > 32 {
@@ -238,7 +275,7 @@ pub fn run_pipeline_pixel(
             let mut rgba = decoded.to_rgba8();
             transcoder.transform(&mut rgba)?;
             rgba.save(output)
-                .with_context(|| format!("encode {}", output.display()))?;
+                .context_with(|| format!("encode {}", output.display()))?;
             Ok(warnings)
         },
     )
@@ -247,12 +284,12 @@ pub fn run_pipeline_pixel(
 fn collect_for(
     shared: &SharedOpts,
     input_formats: &[ImageFormat],
-) -> anyhow::Result<(PathBuf, Vec<Image>)> {
+) -> rootcause::Result<(PathBuf, Vec<Image>)> {
     let workspace = shared.workspace.clone().map_or_else(
         std::env::current_dir,
         Ok::<PathBuf, std::io::Error>,
     )?;
-    let workspace = workspace.canonicalize().with_context(|| {
+    let workspace = workspace.canonicalize().context_with(|| {
         format!("resolve workspace {}", workspace.display())
     })?;
 
@@ -296,13 +333,14 @@ fn orchestrate<T, ImageOf, OutputOf, Execute>(
     image_of: ImageOf,
     output_of: OutputOf,
     execute: Execute,
-) -> anyhow::Result<BatchSummary>
+) -> rootcause::Result<BatchSummary>
 where
     T: Send + Sync,
     ImageOf: Fn(&T) -> &Image + Send + Sync,
-    OutputOf: Fn(&T) -> anyhow::Result<ImageFormat> + Send + Sync,
-    Execute:
-        Fn(&T, &Path, &Path) -> anyhow::Result<Vec<String>> + Send + Sync,
+    OutputOf: Fn(&T) -> rootcause::Result<ImageFormat> + Send + Sync,
+    Execute: Fn(&T, &Path, &Path) -> rootcause::Result<Vec<String>>
+        + Send
+        + Sync,
 {
     if items.is_empty() {
         ceprintln!(Yellow, "No images to process.");
@@ -341,7 +379,7 @@ where
                     bar.suspend(|| {
                         ceprintln!(
                             Red,
-                            "Failed to process {}: {error:#}",
+                            "Failed to process {}: {error}",
                             image.path.display()
                         );
                     });
@@ -363,17 +401,21 @@ where
         }
     }
     if !failures.is_empty() {
-        let details = failures
-            .iter()
-            .take(10)
-            .map(|error| format!("- {error:#}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        bail!(
-            "{} image(s) failed; completed outputs remain resumable:\n{}",
-            failures.len(),
-            details
-        );
+        let total = failures.len();
+        let overflow = total.saturating_sub(10);
+        let shown: ReportCollection =
+            failures.into_iter().take(10).collect();
+        let suffix = if overflow > 0 {
+            format!(" (showing the first 10 of {total})")
+        } else {
+            String::new()
+        };
+        return Err(shown
+            .context(format!(
+                "{total} image(s) failed; completed outputs remain \
+                 resumable{suffix}",
+            ))
+            .into());
     }
     Ok(summary)
 }
@@ -384,10 +426,10 @@ fn preflight_states<T, ImageOf, OutputOf>(
     no_backup: bool,
     image_of: &ImageOf,
     output_of: &OutputOf,
-) -> anyhow::Result<Vec<PreparedState>>
+) -> rootcause::Result<Vec<PreparedState>>
 where
     ImageOf: Fn(&T) -> &Image,
-    OutputOf: Fn(&T) -> anyhow::Result<ImageFormat>,
+    OutputOf: Fn(&T) -> rootcause::Result<ImageFormat>,
 {
     let mut destinations: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
     let mut states = Vec::with_capacity(items.len());
@@ -396,9 +438,9 @@ where
         let destination = destination_path(&image.path, output_of(item)?);
         if let Some(previous) =
             destinations.insert(destination.clone(), image.path.clone())
+            && previous != image.path
         {
-            ensure!(
-                previous == image.path,
+            bail!(
                 "{} and {} both map to output {}",
                 previous.display(),
                 image.path.display(),
@@ -420,7 +462,7 @@ fn prepare_state(
     image: &Image,
     destination: PathBuf,
     no_backup: bool,
-) -> anyhow::Result<PreparedState> {
+) -> rootcause::Result<PreparedState> {
     let source = &image.path;
     let backup = backup_path(workspace, source);
     let source_exists = source.is_file();
@@ -429,12 +471,12 @@ fn prepare_state(
     let destination_exists = destination.is_file();
 
     if no_backup {
-        ensure!(source_exists, "source is missing: {}", source.display());
-        ensure!(
-            same_path || !destination_exists,
-            "output already exists: {}",
-            destination.display()
-        );
+        if !source_exists {
+            bail!("source is missing: {}", source.display());
+        }
+        if !same_path && destination_exists {
+            bail!("output already exists: {}", destination.display());
+        }
         return Ok(PreparedState::Pending(PendingJob {
             input: source.clone(),
             destination,
@@ -445,11 +487,12 @@ fn prepare_state(
     if same_path {
         return match (source_exists, backup_exists) {
             (true, true) => {
-                ensure!(
-                    std::fs::metadata(source)?.len() > 0,
-                    "completed output is empty: {}",
-                    source.display()
-                );
+                if std::fs::metadata(source)?.len() == 0 {
+                    bail!(
+                        "completed output is empty: {}",
+                        source.display()
+                    );
+                }
                 Ok(PreparedState::Complete)
             }
             (true, false) => Ok(PreparedState::Pending(PendingJob {
@@ -478,11 +521,12 @@ fn prepare_state(
             source_commit: SourceCommit::MoveToBackup(backup),
         })),
         (false, true, true) => {
-            ensure!(
-                std::fs::metadata(&destination)?.len() > 0,
-                "completed output is empty: {}",
-                destination.display()
-            );
+            if std::fs::metadata(&destination)?.len() == 0 {
+                bail!(
+                    "completed output is empty: {}",
+                    destination.display()
+                );
+            }
             Ok(PreparedState::Complete)
         }
         (false, true, false) => Ok(PreparedState::Pending(PendingJob {
@@ -513,8 +557,8 @@ fn process_one(
     image: &Image,
     pending: PendingJob,
     bar: &ProgressBar,
-    execute: impl FnOnce(&Path, &Path) -> anyhow::Result<Vec<String>>,
-) -> anyhow::Result<()> {
+    execute: impl FnOnce(&Path, &Path) -> rootcause::Result<Vec<String>>,
+) -> rootcause::Result<()> {
     let PendingJob {
         input,
         destination,
@@ -534,7 +578,7 @@ fn process_one(
         .prefix(".imgo-")
         .suffix(&suffix)
         .tempfile_in(parent)
-        .with_context(|| {
+        .context_with(|| {
             format!("create output beside {}", destination.display())
         })?;
 
@@ -543,11 +587,12 @@ fn process_one(
         bar.suspend(|| ceprintln!(Yellow, "{warning}"));
     }
     let metadata = std::fs::metadata(temporary.path())?;
-    ensure!(
-        metadata.len() > 0,
-        "encoder produced an empty output for {}",
-        image.path.display()
-    );
+    if metadata.len() == 0 {
+        bail!(
+            "encoder produced an empty output for {}",
+            image.path.display()
+        );
+    }
     let source_permissions = std::fs::metadata(&input)?.permissions();
     std::fs::set_permissions(temporary.path(), source_permissions)?;
     // External tools may replace the path's inode. Reopen the encoded path
@@ -556,24 +601,24 @@ fn process_one(
         .read(true)
         .write(true)
         .open(temporary.path())
-        .with_context(|| {
+        .context_with(|| {
             format!("open encoded output for {}", image.path.display())
         })?
         .sync_all()
-        .with_context(|| {
+        .context_with(|| {
             format!("flush encoded output for {}", image.path.display())
         })?;
 
     if let SourceCommit::MoveToBackup(backup) = source_commit {
         if let Some(backup_parent) = backup.parent() {
-            create_dir_all(backup_parent).with_context(|| {
+            create_dir_all(backup_parent).context_with(|| {
                 format!(
                     "create backup directory {}",
                     backup_parent.display()
                 )
             })?;
         }
-        rename(&input, &backup).with_context(|| {
+        rename(&input, &backup).context_with(|| {
             format!("move {} to {}", input.display(), backup.display())
         })?;
         debug!(path = %backup.display(), "source backed up");
@@ -582,13 +627,13 @@ fn process_one(
     temporary
         .persist(&destination)
         .map_err(|error| error.error)
-        .with_context(|| {
+        .context_with(|| {
             format!("commit encoded output to {}", destination.display())
         })?;
     Ok(())
 }
 
-fn progress_bar(length: usize) -> anyhow::Result<ProgressBar> {
+fn progress_bar(length: usize) -> rootcause::Result<ProgressBar> {
     let bar = ProgressBar::new(u64::try_from(length)?);
     let style = ProgressStyle::with_template(
         "{spinner:.green} [{elapsed_precise}] [{bar:40.blue/gray}] {pos}/{len} ({eta})",
@@ -611,7 +656,8 @@ mod tests {
     use crate::transcoder::avif::Avif;
 
     #[test]
-    fn commits_once_and_resumes_from_backup_state() -> anyhow::Result<()> {
+    fn commits_once_and_resumes_from_backup_state() -> rootcause::Result<()>
+    {
         let temporary = tempfile::tempdir()?;
         let workspace = temporary.path();
         let source = workspace.join("page.png");
@@ -663,7 +709,7 @@ mod tests {
             |_| Ok(ImageFormat::AVIF),
             |_, _, _| {
                 calls.fetch_add(1, Ordering::Relaxed);
-                anyhow::bail!("completed work must not execute again")
+                rootcause::bail!("completed work must not execute again")
             },
         )?;
         assert_eq!(resumed_summary.processed, 0);
@@ -674,7 +720,7 @@ mod tests {
 
     #[test]
     fn one_failure_does_not_cancel_independent_images()
-    -> anyhow::Result<()> {
+    -> rootcause::Result<()> {
         let temporary = tempfile::tempdir()?;
         let workspace = temporary.path();
         let failed = workspace.join("a.png");
@@ -698,7 +744,7 @@ mod tests {
             |_| Ok(ImageFormat::AVIF),
             |image, _, output| {
                 if image.path == failed {
-                    anyhow::bail!("deliberate failure");
+                    rootcause::bail!("deliberate failure");
                 }
                 std::fs::write(output, b"encoded")?;
                 Ok(Vec::new())
@@ -714,8 +760,8 @@ mod tests {
     }
 
     #[test]
-    fn reviewed_candidate_commits_without_reencoding() -> anyhow::Result<()>
-    {
+    fn reviewed_candidate_commits_without_reencoding()
+    -> rootcause::Result<()> {
         let temporary = tempfile::tempdir()?;
         let workspace = temporary.path();
         let source = workspace.join("page.png");

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use anyhow::Context as _;
+use rootcause::prelude::ResultExt as _;
 
 use crate::img::Image;
 
@@ -391,9 +391,9 @@ impl fmt::Display for GroupKey {
 /// # Errors
 ///
 /// Returns an error when the image cannot be opened or decoded.
-pub fn analyze(image: Image) -> anyhow::Result<AnalyzedImage> {
+pub fn analyze(image: Image) -> rootcause::Result<AnalyzedImage> {
     let decoded = image::open(&image.path)
-        .with_context(|| format!("decode {}", image.path.display()))?;
+        .context_with(|| format!("decode {}", image.path.display()))?;
     let pixels = decoded.into_rgba8();
     let features = analyze_rgba(&pixels);
     Ok(AnalyzedImage { image, features })

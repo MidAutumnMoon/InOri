@@ -3,9 +3,9 @@ use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::Context as _;
-use anyhow::bail;
 use image::RgbaImage;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
 
 use crate::img::ImageFormat;
 
@@ -55,7 +55,7 @@ impl Tool {
     ///
     /// Returns an error when the executable cannot be spawned or its version
     /// probe exits unsuccessfully.
-    pub fn verify(self) -> anyhow::Result<()> {
+    pub fn verify(self) -> rootcause::Result<()> {
         let mut command = self.command();
         command.arg(match self {
             Self::Magick => "-version",
@@ -63,7 +63,7 @@ impl Tool {
         });
         let output = command
             .output()
-            .with_context(|| format!("spawn {}", self.name()))?;
+            .context_with(|| format!("spawn {}", self.name()))?;
         if !output.status.success() {
             bail!(
                 "{} failed its version probe (exit {:?}):\n{}",
@@ -94,7 +94,7 @@ pub trait Operation: Meta {
     ///
     /// Returns an error when the configuration contains an invalid or ignored
     /// parameter combination.
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> rootcause::Result<()> {
         Ok(())
     }
 
@@ -104,7 +104,7 @@ pub trait Operation: Meta {
     ///
     /// Returns an error when parameters are invalid, process execution fails,
     /// or the output cannot be materialized.
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()>;
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()>;
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>);
 }
@@ -117,17 +117,17 @@ pub trait Pixel: Meta {
     /// # Errors
     ///
     /// Returns an error when parameters or image dimensions are invalid.
-    fn transform(&self, img: &mut RgbaImage) -> anyhow::Result<()>;
+    fn transform(&self, img: &mut RgbaImage) -> rootcause::Result<()>;
 }
 
 pub(crate) fn run_command(
     operation: &str,
     input: &Path,
     command: &mut Command,
-) -> anyhow::Result<()> {
+) -> rootcause::Result<()> {
     let output = command
         .output()
-        .with_context(|| format!("spawn {operation}"))?;
+        .context_with(|| format!("spawn {operation}"))?;
     if !output.status.success() {
         bail!(
             "{operation} failed for {} (exit {:?}):\nstdout: {}\nstderr: {}",

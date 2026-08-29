@@ -1,8 +1,9 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use anyhow::Context as _;
-use anyhow::ensure;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 use tracing::instrument;
 use walkdir::DirEntry;
@@ -25,12 +26,16 @@ pub fn collect_images(
     workspace: &Path,
     formats: &[ImageFormat],
     recursive: bool,
-) -> anyhow::Result<Vec<Image>> {
-    ensure!(!formats.is_empty(), "image formats cannot be empty");
-    let workspace = workspace.canonicalize().with_context(|| {
+) -> rootcause::Result<Vec<Image>> {
+    if formats.is_empty() {
+        bail!("image formats cannot be empty");
+    }
+    let workspace = workspace.canonicalize().context_with(|| {
         format!("resolve workspace {}", workspace.display())
     })?;
-    ensure!(workspace.is_dir(), "workspace is not a directory");
+    if !workspace.is_dir() {
+        bail!("workspace is not a directory");
+    }
 
     let walker = WalkDir::new(&workspace).follow_links(false);
     let walker = if recursive {
@@ -86,29 +91,28 @@ pub fn selected_image(
     workspace: &Path,
     selected: &Path,
     accepted: &[ImageFormat],
-) -> anyhow::Result<Image> {
+) -> rootcause::Result<Image> {
     let path = if selected.is_absolute() {
         selected.to_path_buf()
     } else {
         workspace.join(selected)
     };
-    let path = path.canonicalize().with_context(|| {
+    let path = path.canonicalize().context_with(|| {
         format!("resolve selected image {}", path.display())
     })?;
-    ensure!(
-        path.is_file(),
-        "selection is not a file: {}",
-        path.display()
-    );
-    let format = ImageFormat::from_path(&path).with_context(|| {
+    if !path.is_file() {
+        bail!("selection is not a file: {}", path.display());
+    }
+    let format = ImageFormat::from_path(&path).context_with(|| {
         format!("unsupported image extension: {}", path.display())
     })?;
-    ensure!(
-        accepted.contains(&format),
-        "format {:?} of {} is not accepted by this recipe",
-        format,
-        path.display()
-    );
+    if !accepted.contains(&format) {
+        bail!(
+            "format {:?} of {} is not accepted by this recipe",
+            format,
+            path.display()
+        );
+    }
     Ok(Image { path, format })
 }
 

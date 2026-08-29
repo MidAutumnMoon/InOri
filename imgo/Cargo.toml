@@ -10,9 +10,7 @@ rust-version.workspace = true
 [lib]
 
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
-clap_complete = "4.5.65"
+bpaf.workspace = true
 image = { workspace = true }
 indicatif = "0.18.3"
 ino_color.workspace = true
@@ -20,6 +18,7 @@ ino_tracing.workspace = true
 natord = "1.0.9"
 rayon.workspace = true
 rlimit = "0.11.0"
+rootcause.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true

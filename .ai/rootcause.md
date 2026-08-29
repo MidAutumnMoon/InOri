@@ -30,3 +30,8 @@ Gotchas and non-obvious behaviors from using [rootcause](https://crates.io/crate
 - `fn main() -> rootcause::Result<()>` works out of the box: on error the report is printed to stderr with exit code 1.
 - `Display` and `Debug` both print the **whole tree** — every context level and child on its own line, each annotated with the `file:line` where it was created. `Debug` additionally `{:?}`-formats the values.
 - `Report` implements `Display`, so it fits wherever a `Display`able error is expected, e.g. serde's `de::Error::custom`.
+
+## Aggregating reports
+
+- Collect failed `Report`s into a `ReportCollection` (`rootcause::report_collection::ReportCollection`) and wrap with `.context("N failed")` — they print as child nodes. The `Err` needs an explicit `.into()` (concrete context, see above).
+- Don't `bail!` a string of formatted reports: main prints via `Debug`, so it comes out quoted and `\n`-escaped, embedded trees included.

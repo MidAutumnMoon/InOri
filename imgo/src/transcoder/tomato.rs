@@ -1,8 +1,12 @@
 use std::num::NonZeroU64;
 
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use bpaf::short;
 use image::RgbaImage;
-
-use anyhow::bail;
+use rootcause::Result;
+use rootcause::bail;
 
 use crate::img::ImageFormat;
 use crate::tomato::scramble_image;
@@ -12,23 +16,44 @@ use crate::transcoder::Pixel;
 /// 番茄图: scramble/descramble images via a Gilbert-curve pixel
 /// permutation. Output is always PNG (lossless).
 #[derive(Debug)]
-#[derive(clap::Args)]
-#[group(skip)]
 pub struct Tomato {
     /// Scramble (obfuscate) the image. Exactly one of `--encrypt` /
     /// `--decrypt` must be given.
-    #[arg(long, short)]
     pub encrypt: bool,
 
     /// Descramble (restore) the image. Exactly one of `--encrypt` /
     /// `--decrypt` must be given.
-    #[arg(long, short)]
     pub decrypt: bool,
 
     /// Key controlling the offset along the Gilbert curve.
     /// The same key is required to reverse scrambling.
-    #[arg(long, default_value_t = 1.0)]
     pub key: f64,
+}
+
+/// CLI parser for [`Tomato`].
+#[must_use]
+pub fn cli() -> impl Parser<Tomato> {
+    let encrypt = short('e').long("encrypt").switch().help(
+        "Scramble (obfuscate) the image. Exactly one of `--encrypt` / \
+         `--decrypt` must be given",
+    );
+    let decrypt = short('d').long("decrypt").switch().help(
+        "Descramble (restore) the image. Exactly one of `--encrypt` / \
+         `--decrypt` must be given",
+    );
+    let key = long("key")
+        .argument::<f64>("KEY")
+        .help(
+            "Key controlling the offset along the Gilbert curve. The same \
+             key is required to reverse scrambling",
+        )
+        .fallback(1.0)
+        .display_fallback();
+    construct!(Tomato {
+        encrypt,
+        decrypt,
+        key,
+    })
 }
 
 impl Tomato {
@@ -39,7 +64,7 @@ impl Tomato {
     ///
     /// Returns an error if neither or both of `--encrypt` / `--decrypt`
     /// are set.
-    pub fn mode(&self) -> anyhow::Result<bool> {
+    pub fn mode(&self) -> Result<bool> {
         match (self.encrypt, self.decrypt) {
             (true, false) => Ok(true),
             (false, true) => Ok(false),
@@ -83,7 +108,7 @@ impl Meta for Tomato {
 }
 
 impl Pixel for Tomato {
-    fn transform(&self, img: &mut RgbaImage) -> anyhow::Result<()> {
+    fn transform(&self, img: &mut RgbaImage) -> Result<()> {
         let encrypt = self.mode()?;
         scramble_image(img, self.key, encrypt)
     }

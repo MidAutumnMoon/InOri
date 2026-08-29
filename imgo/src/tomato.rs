@@ -8,9 +8,10 @@
 
 #![warn(clippy::arithmetic_side_effects)]
 
-use anyhow::Context as _;
-use anyhow::ensure;
 use image::RgbaImage;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
 
 /// One axis of the traversal grid.
 #[derive(Clone, Copy)]
@@ -120,9 +121,10 @@ fn offset(pixel_count: usize, key: f64) -> usize {
 }
 
 /// Converts a dimension to `usize` as the traversal's index type.
-fn to_index(dimension: u32, name: &str) -> anyhow::Result<usize> {
-    usize::try_from(dimension)
-        .with_context(|| format!("{name} does not fit in `usize`"))
+fn to_index(dimension: u32, name: &str) -> rootcause::Result<usize> {
+    let index = usize::try_from(dimension)
+        .context_with(|| format!("{name} does not fit in `usize`"))?;
+    Ok(index)
 }
 
 /// Greatest common divisor (Euclidean algorithm).
@@ -136,7 +138,7 @@ fn gcd(mut left: usize, mut right: usize) -> usize {
 }
 
 /// Reads the 4-byte pixel at pixel `index`.
-fn pixel_at(pixels: &[u8], index: usize) -> anyhow::Result<[u8; 4]> {
+fn pixel_at(pixels: &[u8], index: usize) -> rootcause::Result<[u8; 4]> {
     let start = index
         .checked_mul(4)
         .context("pixel byte offset overflows `usize`")?;
@@ -156,7 +158,7 @@ fn set_pixel(
     pixels: &mut [u8],
     index: usize,
     pixel: [u8; 4],
-) -> anyhow::Result<()> {
+) -> rootcause::Result<()> {
     let start = index
         .checked_mul(4)
         .context("pixel byte offset overflows `usize`")?;
@@ -182,8 +184,13 @@ fn set_pixel(
 /// Returns an error if either dimension is zero or if the traversal's
 /// index arithmetic overflows (the latter cannot happen for dimensions
 /// whose pixel buffer fits in memory).
-pub fn gilbert2d(width: u32, height: u32) -> anyhow::Result<Vec<usize>> {
-    ensure!(width > 0 && height > 0, "dimensions must be non-zero");
+pub fn gilbert2d(
+    width: u32,
+    height: u32,
+) -> rootcause::Result<Vec<usize>> {
+    if width == 0 || height == 0 {
+        bail!("dimensions must be non-zero");
+    }
     let (width, height) =
         (to_index(width, "width")?, to_index(height, "height")?);
     gilbert2d_usize(width, height)
@@ -193,7 +200,7 @@ pub fn gilbert2d(width: u32, height: u32) -> anyhow::Result<Vec<usize>> {
 fn gilbert2d_usize(
     width: usize,
     height: usize,
-) -> anyhow::Result<Vec<usize>> {
+) -> rootcause::Result<Vec<usize>> {
     let pixel_count = width
         .checked_mul(height)
         .context("pixel count overflows `usize`")?;
@@ -316,11 +323,10 @@ pub fn scramble_rgba(
     height: u32,
     key: f64,
     encrypt: bool,
-) -> anyhow::Result<()> {
-    ensure!(
-        key.is_finite() && key >= 0.0,
-        "key must be finite and non-negative (got {key})"
-    );
+) -> rootcause::Result<()> {
+    if !(key.is_finite() && key >= 0.0) {
+        bail!("key must be finite and non-negative (got {key})");
+    }
 
     let (width, height) =
         (to_index(width, "width")?, to_index(height, "height")?);
@@ -330,11 +336,12 @@ pub fn scramble_rgba(
     let byte_count = pixel_count
         .checked_mul(4)
         .context("byte count overflows `usize`")?;
-    ensure!(
-        pixels.len() == byte_count,
-        "expected exactly {byte_count} bytes for {width}×{height} RGBA8, got {}",
-        pixels.len()
-    );
+    if pixels.len() != byte_count {
+        bail!(
+            "expected exactly {byte_count} bytes for {width}×{height} RGBA8, got {}",
+            pixels.len()
+        );
+    }
     if pixel_count == 0 {
         return Ok(());
     }
@@ -410,7 +417,7 @@ pub fn scramble_image(
     img: &mut RgbaImage,
     key: f64,
     encrypt: bool,
-) -> anyhow::Result<()> {
+) -> rootcause::Result<()> {
     let (width, height) = img.dimensions();
     scramble_rgba(img.as_mut(), width, height, key, encrypt)
 }

@@ -35,6 +35,9 @@ Each applet calls `cli().run_inner(Args::from(args).set_name(NAME))`. `set_name(
 
 For "exactly one of these flags" (e.g. `--clipboard` xor `--stdin`), use the array form `construct!([a, b, c])`. bpaf rejects both or neither on its own. The struct form `construct!(Struct { a, b })` requires field names to match the struct; see `qr.rs` / `completion.rs`.
 
+- The struct/variant form takes variable shorthand only: `construct!(T { field })`, not `field: expr` (macro error: "no rules expected `:`"). Bind to a same-named local first.
+- Array-form alternatives must all be `Parser<T>` for one `T`; map command outputs into the dispatch enum or build the variant directly (`construct!(CliOpts::Avif { transcoder, shared })`).
+
 ### `positional` must be last in `construct!`
 
 Compiles and parses fine anyway; panics only when usage is rendered (`--help`) with `bpaf usage BUG: all positional and command items must be placed in the right most position`.
@@ -43,6 +46,11 @@ Compiles and parses fine anyway; panics only when usage is rendered (`--help`) w
 
 - `run()` panics or exits directly. Fine for simple single-command CLIs.
 - `run_inner(args) -> Result<T, ParseFailure>` returns the parse result so you can handle errors yourself. The multicall dispatcher pattern needs this — `main` renders `ParseFailure` instead of bpaf exiting.
+
+## Subcommands
+
+- The free `command(name, subparser)` fn is deprecated (0.9.27); use `subparser.command(name)`.
+- The command's help line inherits the inner parser's `.descr()` — set it there once.
 
 ## `ParseFailure` variants
 
@@ -68,4 +76,4 @@ Use `run_inner` (not `run`, which exits). Match on `ParseFailure::Stderr` for pa
 - Clap's `#[arg(long, short, value_name = "PATH")]` maps to
   `long("name").short('n').argument::<T>("PATH").help("...").optional()`;
   attach `.help()` after `.argument()`.
-
+- `display_fallback` needs `T: Display`; `PathBuf` isn't, so path fallbacks can't show their default.

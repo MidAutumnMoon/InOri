@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 use std::path::Path;
 
-use anyhow::Context as _;
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -14,19 +17,23 @@ use crate::transcoder::run_command;
 
 /// Mathematically lossless JPEG XL encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(clap::Args, Serialize, Deserialize)]
-#[group(skip)]
+#[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Jxl {
     /// Try two lossless modular strategies and retain the smaller output. This
     /// costs an extra encode but avoids content-specific expert settings
     /// making some bilevel pages larger.
-    #[arg(
-        long = "no-optimize",
-        action = clap::ArgAction::SetFalse,
-        help = "Skip the second expert lossless strategy and use effort 9 only"
-    )]
     pub optimize: bool,
+}
+
+/// CLI parser for [`Jxl`]. `--no-optimize` inverts the default.
+#[must_use]
+pub fn cli() -> impl Parser<Jxl> {
+    let no_optimize = long("no-optimize").switch().help(
+        "Skip the second expert lossless strategy and use effort 9 only",
+    );
+    let optimize = no_optimize.map(|no_optimize| !no_optimize);
+    construct!(Jxl { optimize })
 }
 
 impl Default for Jxl {
@@ -54,7 +61,7 @@ impl Meta for Jxl {
 }
 
 impl Operation for Jxl {
-    fn run(&self, input: &Path, output: &Path) -> anyhow::Result<()> {
+    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
         let directory =
             tempfile::tempdir().context("create JXL work directory")?;
         let standard_path = directory.path().join("standard.jxl");
@@ -78,7 +85,7 @@ impl Operation for Jxl {
             standard_path
         };
 
-        std::fs::copy(&selected, output).with_context(|| {
+        std::fs::copy(&selected, output).context_with(|| {
             format!("copy selected JXL output to {}", output.display())
         })?;
         Ok(())
@@ -89,7 +96,7 @@ impl Operation for Jxl {
     }
 }
 
-fn encode_standard(input: &Path, output: &Path) -> anyhow::Result<()> {
+fn encode_standard(input: &Path, output: &Path) -> rootcause::Result<()> {
     let mut command = Tool::Cjxl.command();
     command.args(["--distance", "0"]);
     command.args(["--effort", "9"]);
@@ -98,7 +105,7 @@ fn encode_standard(input: &Path, output: &Path) -> anyhow::Result<()> {
     run_command("cjxl lossless", input, &mut command)
 }
 
-fn encode_expert(input: &Path, output: &Path) -> anyhow::Result<()> {
+fn encode_expert(input: &Path, output: &Path) -> rootcause::Result<()> {
     let mut command = Tool::Cjxl.command();
     command.arg("--allow_expert_options");
     command.args(["--effort", "8"]);
