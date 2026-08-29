@@ -204,6 +204,7 @@ pub fn cli() -> bpaf::OptionParser<Cli> {
     .to_options()
     .descr("Yet another nix helper.")
     .version(env!("CARGO_PKG_VERSION"))
+    .fallback_to_usage()
 }
 
 #[cfg(test)]
@@ -299,9 +300,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn missing_subcommand_is_rejected() {
-        let err = parse(&[]).unwrap_err();
-        assert!(!err.is_empty());
-    }
 }
