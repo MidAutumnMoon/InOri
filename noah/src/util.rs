@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::command::Command;
 use crate::command::Elevation;
 use crate::remote::SshConfig;
-use crate::runtime::RuntimeEnv;
+use crate::runtime::Env;
 
 /// Prompts the user for ssh key login if needed.
 ///
@@ -93,8 +93,8 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
     clippy::expect_used,
     reason = "re-exec failure is fatal; the `# Panics` section documents the contract"
 )]
-pub fn self_elevate(elevation: &Elevation, runtime_env: &RuntimeEnv) -> ! {
-    let mut cmd = Command::self_elevate_cmd(elevation, runtime_env)
+pub fn self_elevate(elevation: &Elevation, env: &Env) -> ! {
+    let mut cmd = Command::self_elevate_cmd(elevation, env)
         .expect("Failed to create self-elevation command");
     debug!("{:?}", cmd);
 

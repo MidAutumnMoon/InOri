@@ -6,9 +6,14 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 
+use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
+
+use crate::command::Elevation;
+use crate::command::ElevationStrategy;
+use crate::remote::SshConfig;
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",
@@ -26,14 +31,14 @@ const NIX_CHILD_ENV: &[&str] = &[
 /// Capture this once during startup. Application code reads configuration and
 /// explicit child-process environment values from the snapshot instead of
 /// consulting ambient process state at arbitrary points in execution.
-pub struct RuntimeEnv {
+pub struct Env {
     vars: HashMap<OsString, OsString>,
     executable: PathBuf,
     arguments: Vec<OsString>,
     current_dir: PathBuf,
 }
 
-impl RuntimeEnv {
+impl Env {
     /// Capture the current environment and invocation.
     ///
     /// # Errors
@@ -153,14 +158,51 @@ impl RuntimeEnv {
     }
 }
 
-impl fmt::Debug for RuntimeEnv {
+impl fmt::Debug for Env {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RuntimeEnv")
+        f.debug_struct("Env")
             .field("variable_count", &self.vars.len())
             .field("executable", &self.executable)
             .field("argument_count", &self.arguments.len())
             .field("current_dir", &self.current_dir)
             .finish()
+    }
+}
+
+/// Configuration for a single run, assembled once after CLI parsing.
+pub struct Config {
+    pub env: Env,
+    pub elevation: Elevation,
+    pub flake: FlakeConfig,
+    pub ssh: SshConfig,
+}
+
+impl Config {
+    /// Assemble the run's configuration from a captured [`Env`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the elevation policy or SSH settings cannot be
+    /// derived from the environment.
+    pub fn from_env(
+        env: Env,
+        elevation_strategy: Option<ElevationStrategy>,
+    ) -> Result<Self> {
+        let elevation = Elevation::new(elevation_strategy, &env)?;
+        let flake = FlakeConfig {
+            os_flake: env.non_empty_var("NH_OS_FLAKE").map(str::to_owned),
+            flake: env.non_empty_var("NH_FLAKE").map(str::to_owned),
+            file: env.non_empty_var("NH_FILE").map(str::to_owned),
+            attrp: env.var("NH_ATTRP").unwrap_or_default().to_owned(),
+        };
+        let ssh = SshConfig::from_env(&env)?;
+
+        Ok(Self {
+            env,
+            elevation,
+            flake,
+            ssh,
+        })
     }
 }
 
@@ -172,7 +214,7 @@ mod tests {
 
     #[test]
     fn preferred_shell_words_override_legacy_value() {
-        let env = RuntimeEnv::from_pairs([
+        let env = Env::from_pairs([
             ("NH_OPTS", "--option 'two words'"),
             ("NIX_OPTS", "--legacy"),
         ]);
@@ -185,10 +227,8 @@ mod tests {
 
     #[test]
     fn empty_preferred_shell_words_disable_legacy_value() {
-        let env = RuntimeEnv::from_pairs([
-            ("NH_OPTS", ""),
-            ("NIX_OPTS", "--legacy"),
-        ]);
+        let env =
+            Env::from_pairs([("NH_OPTS", ""), ("NIX_OPTS", "--legacy")]);
 
         assert!(
             env.shell_words("NH_OPTS", "NIX_OPTS").unwrap().is_empty()
@@ -197,7 +237,7 @@ mod tests {
 
     #[test]
     fn malformed_shell_words_are_rejected() {
-        let env = RuntimeEnv::from_pairs([("NH_OPTS", "'unterminated")]);
+        let env = Env::from_pairs([("NH_OPTS", "'unterminated")]);
 
         let error = env.shell_words("NH_OPTS", "NIX_OPTS").unwrap_err();
         assert!(error.to_string().contains("NH_OPTS"));
@@ -205,7 +245,7 @@ mod tests {
 
     #[test]
     fn debug_output_does_not_expose_environment_values() {
-        let env = RuntimeEnv::from_pairs([("SECRET_TOKEN", "hunter2")]);
+        let env = Env::from_pairs([("SECRET_TOKEN", "hunter2")]);
 
         let rendered = format!("{env:?}");
         assert!(rendered.contains("variable_count"));

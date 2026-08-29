@@ -21,9 +21,9 @@ use std::fs;
 use tracing::warn;
 
 use self::request::SpecialisationSelection;
-use crate::app::RuntimeConfig;
 use crate::command::Elevation;
-use crate::runtime::RuntimeEnv;
+use crate::runtime::Config;
+use crate::runtime::Env;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -103,20 +103,26 @@ fn has_elevation_status(
     Ok(!is_root)
 }
 
-pub fn run_rebuild(command: RebuildCommand, env: &RuntimeConfig) -> Result<()> {
-    rebuild::run(command, env)
+pub fn run_rebuild(
+    command: RebuildCommand,
+    config: &Config,
+) -> Result<()> {
+    rebuild::run(command, config)
 }
 
-pub fn run_rollback(request: RollbackRequest, env: &RuntimeConfig) -> Result<()> {
-    rollback::run(request, env)
+pub fn run_rollback(
+    request: RollbackRequest,
+    config: &Config,
+) -> Result<()> {
+    rollback::run(request, config)
 }
 
 pub fn run_repl(
     request: ReplRequest,
-    runtime_env: &RuntimeEnv,
+    env: &Env,
     flake_config: &FlakeConfig,
 ) -> Result<()> {
-    repl::run(request, runtime_env, flake_config)
+    repl::run(request, env, flake_config)
 }
 
 pub fn run_info(request: &GenerationsRequest) -> Result<()> {

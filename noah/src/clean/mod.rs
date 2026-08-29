@@ -19,7 +19,7 @@ use tracing::info;
 use tracing::instrument;
 use tracing::warn;
 
-use crate::app::RuntimeConfig;
+use crate::runtime::Config;
 #[derive(Debug, Clone)]
 pub struct Request {
     pub scope: Scope,
@@ -123,8 +123,8 @@ where
 /// # Errors
 ///
 /// Returns an error if any IO, Nix, or environment operation fails.
-pub fn run(request: &Request, env: &RuntimeConfig) -> Result<()> {
-    plan::run(request, env)
+pub fn run(request: &Request, config: &Config) -> Result<()> {
+    plan::run(request, config)
 }
 
 #[instrument(ret, level = "debug")]

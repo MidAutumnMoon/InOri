@@ -11,7 +11,7 @@ use std::sync::{Arc, LazyLock, atomic::Ordering};
 use std::time::Duration;
 
 use crate::command::Elevation;
-use crate::runtime::RuntimeEnv;
+use crate::runtime::Env;
 use nh_installable::Installable;
 use nix_command::CommandKind;
 use nix_command::NixCommand;
@@ -68,7 +68,7 @@ impl SshConfig {
     ///
     /// Returns an error if the selected SSH options contain unmatched shell
     /// quoting.
-    pub fn from_env(env: &RuntimeEnv) -> Result<Self> {
+    pub fn from_env(env: &Env) -> Result<Self> {
         let control_base = env
             .var_os("XDG_RUNTIME_DIR")
             .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
@@ -141,7 +141,7 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 fn build_remote_command(
     elevation: Option<&Elevation>,
     base_cmd: &str,
-    runtime_env: &RuntimeEnv,
+    env: &Env,
 ) -> Result<String> {
     let Some(elevation) = elevation else {
         return Ok(base_cmd.to_owned());
@@ -149,7 +149,7 @@ fn build_remote_command(
 
     // Resolve the program locally but use just its name on the remote host
     // so that the remote system resolves it via its own PATH.
-    let program = elevation.program(runtime_env)?;
+    let program = elevation.program(env)?;
     let program_name = program
         .file_name()
         .and_then(|name| name.to_str())
@@ -1138,7 +1138,7 @@ pub fn activate_remote(
     host: &Host,
     system_profile: &Path,
     config: &ActivateRemoteConfig<'_>,
-    runtime_env: &RuntimeEnv,
+    env: &Env,
     ssh_config: &SshConfig,
 ) -> Result<()> {
     match config.platform {
@@ -1146,7 +1146,7 @@ pub fn activate_remote(
             host,
             system_profile,
             config,
-            runtime_env,
+            env,
             ssh_config,
         ),
     }
@@ -1169,7 +1169,7 @@ fn activate_nixos_remote(
     host: &Host,
     system_profile: &Path,
     config: &ActivateRemoteConfig<'_>,
-    runtime_env: &RuntimeEnv,
+    env: &Env,
     ssh_config: &SshConfig,
 ) -> Result<()> {
     let ssh_opts = get_ssh_opts(ssh_config);
@@ -1229,11 +1229,8 @@ fn activate_nixos_remote(
                 false,
                 ssh_config,
             );
-            let remote_cmd = build_remote_command(
-                config.elevation,
-                &base_cmd,
-                runtime_env,
-            )?;
+            let remote_cmd =
+                build_remote_command(config.elevation, &base_cmd, env)?;
 
             ssh_cmd = ssh_cmd.arg(remote_cmd);
 
@@ -1279,11 +1276,8 @@ fn activate_nixos_remote(
                 NIXOS_SYSTEM_PROFILE,
                 shell_quote(&system_profile.to_string_lossy())
             );
-            let profile_remote_cmd = build_remote_command(
-                config.elevation,
-                &base_cmd,
-                runtime_env,
-            )?;
+            let profile_remote_cmd =
+                build_remote_command(config.elevation, &base_cmd, env)?;
 
             profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
 
@@ -1326,7 +1320,7 @@ fn activate_nixos_remote(
             let boot_remote_cmd = build_remote_command(
                 config.elevation,
                 &boot_activation_cmd,
-                runtime_env,
+                env,
             )?;
 
             boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
@@ -2235,7 +2229,7 @@ mod tests {
 
     #[test]
     fn ssh_configuration_is_parsed_from_the_startup_snapshot() {
-        let env = RuntimeEnv::from_pairs([
+        let env = Env::from_pairs([
             ("NH_SSHOPTS", "-p 2222 -o 'ProxyJump=bastion.example'"),
             ("NIX_SSHOPTS", "--legacy"),
             ("NH_REMOTE_CLEANUP", "0"),
@@ -2263,8 +2257,7 @@ mod tests {
 
     #[test]
     fn malformed_ssh_options_are_rejected_at_startup() {
-        let env =
-            RuntimeEnv::from_pairs([("NH_SSHOPTS", "'unterminated")]);
+        let env = Env::from_pairs([("NH_SSHOPTS", "'unterminated")]);
 
         let error = SshConfig::from_env(&env).unwrap_err();
         assert!(error.to_string().contains("NH_SSHOPTS"));

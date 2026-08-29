@@ -299,5 +299,4 @@ mod tests {
             Some(ElevationStrategy::None)
         ));
     }
-
 }

@@ -3,11 +3,11 @@ use nix_command::{CommandKind, NixCommand};
 use rootcause::{Result, bail};
 
 use super::request::ReplRequest;
-use crate::runtime::RuntimeEnv;
+use crate::runtime::Env;
 use crate::util::get_hostname;
 pub(super) fn run(
     request: ReplRequest,
-    runtime_env: &RuntimeEnv,
+    env: &Env,
     flake_config: &FlakeConfig,
 ) -> Result<()> {
     let mut target_installable =
@@ -30,7 +30,7 @@ pub(super) fn run(
 
     let status = NixCommand::new(CommandKind::Repl)
         .args(target_installable.to_args())
-        .envs(runtime_env.child_env())
+        .envs(env.child_env())
         .run_with_logs()?;
     if !status.success() {
         bail!("nix repl failed (exit status {status:?})");

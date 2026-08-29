@@ -17,8 +17,8 @@ use super::{
     cleanable_generations, filter_existing_dirs, gcroot_matches_filter,
     gcroot_path_to_remove, profiles_in_dir, remove_path_nofail,
 };
-use crate::app::RuntimeConfig;
 use crate::command::Command;
+use crate::runtime::Config;
 use crate::util::self_elevate;
 
 struct CleanPlan {
@@ -27,8 +27,8 @@ struct CleanPlan {
     orphan_gcroots: Vec<PathBuf>,
 }
 
-pub(super) fn run(request: &Request, env: &RuntimeConfig) -> Result<()> {
-    let plan = CleanPlan::build(request, env)?;
+pub(super) fn run(request: &Request, config: &Config) -> Result<()> {
+    let plan = CleanPlan::build(request, config)?;
     plan.render(&request.options);
 
     if request.options.ask
@@ -39,11 +39,11 @@ pub(super) fn run(request: &Request, env: &RuntimeConfig) -> Result<()> {
         bail!("User rejected the cleanup plan");
     }
 
-    plan.apply(&request.options, env)
+    plan.apply(&request.options, config)
 }
 
 impl CleanPlan {
-    fn build(request: &Request, env: &RuntimeConfig) -> Result<Self> {
+    fn build(request: &Request, config: &Config) -> Result<Self> {
         let options = &request.options;
         let mut profiles = Vec::new();
         let mut gcroots = Vec::new();
@@ -59,7 +59,7 @@ impl CleanPlan {
             }
             Scope::All => {
                 if !uid.is_root() {
-                    self_elevate(&env.elevation, &env.process);
+                    self_elevate(&config.elevation, &config.env);
                 }
 
                 let paths_to_check = [
@@ -429,7 +429,7 @@ impl CleanPlan {
         }
     }
 
-    fn apply(&self, options: &Options, env: &RuntimeConfig) -> Result<()> {
+    fn apply(&self, options: &Options, config: &Config) -> Result<()> {
         if !options.dry {
             for gcroot in &self.gcroots {
                 if gcroot.tbr {
@@ -460,7 +460,7 @@ impl CleanPlan {
                 gc_args.push("--max");
                 gc_args.push(max.as_str());
             }
-            Command::new("nix", &env.process, &env.elevation)
+            Command::new("nix", &config.env, &config.elevation)
                 .args(gc_args)
                 .dry(options.dry)
                 .message("Performing garbage collection on the nix store")
@@ -469,7 +469,7 @@ impl CleanPlan {
         }
 
         if options.optimise {
-            Command::new("nix-store", &env.process, &env.elevation)
+            Command::new("nix-store", &config.env, &config.elevation)
                 .arg("--optimise")
                 .dry(options.dry)
                 .message("Optimising the nix store")

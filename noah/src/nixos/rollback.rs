@@ -10,9 +10,9 @@ use super::{
     CURRENT_PROFILE, SYSTEM_PROFILE, generations, has_elevation_status,
     missing_switch_to_configuration_error, resolve_specialisation,
 };
-use crate::app::RuntimeConfig;
 use crate::command::Command;
 use crate::diff::{Mode as DiffMode, print_dix_report};
+use crate::runtime::Config;
 struct Rollback(ParsedRollbackRequest);
 
 impl Deref for Rollback {
@@ -23,8 +23,11 @@ impl Deref for Rollback {
     }
 }
 
-pub(super) fn run(request: ParsedRollbackRequest, env: &RuntimeConfig) -> Result<()> {
-    Rollback(request).rollback(env)
+pub(super) fn run(
+    request: ParsedRollbackRequest,
+    config: &Config,
+) -> Result<()> {
+    Rollback(request).rollback(config)
 }
 
 impl Rollback {
@@ -32,9 +35,11 @@ impl Rollback {
         clippy::too_many_lines,
         reason = "linear rollback flow whose errors carry their own context"
     )]
-    fn rollback(&self, env: &RuntimeConfig) -> Result<()> {
-        let elevate =
-            has_elevation_status(self.bypass_root_check, &env.elevation)?;
+    fn rollback(&self, config: &Config) -> Result<()> {
+        let elevate = has_elevation_status(
+            self.bypass_root_check,
+            &config.elevation,
+        )?;
 
         let generations = list_generations()?;
 
@@ -116,7 +121,7 @@ impl Rollback {
         info!("Setting system profile...");
 
         // Instead of direct symlink operations, use a command with proper elevation
-        Command::new("ln", &env.process, &env.elevation)
+        Command::new("ln", &config.env, &config.elevation)
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
             .arg(SYSTEM_PROFILE)
@@ -158,8 +163,8 @@ impl Rollback {
 
         match Command::new(
             &switch_to_configuration,
-            &env.process,
-            &env.elevation,
+            &config.env,
+            &config.elevation,
         )
         .arg("switch")
         .elevate(elevate)
@@ -180,7 +185,7 @@ impl Rollback {
                         current_generation.number
                     ));
 
-                    Command::new("ln", &env.process, &env.elevation)
+                    Command::new("ln", &config.env, &config.elevation)
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
                         .arg(SYSTEM_PROFILE)

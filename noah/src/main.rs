@@ -1,9 +1,5 @@
-#![expect(
-    clippy::exhaustive_enums,
-    reason = "App only, not published"
-)]
+#![expect(clippy::exhaustive_enums, reason = "App only, not published")]
 
-mod app;
 mod clean;
 mod cli;
 mod command;
@@ -16,10 +12,14 @@ mod runtime;
 mod search;
 mod update;
 mod util;
+mod weather;
 
-use crate::runtime::RuntimeEnv;
+use crate::cli::CliCommand;
+use crate::runtime::Config;
+use crate::runtime::Env;
 
-use ino_shell::{Shell, cmd};
+use ino_shell::Shell;
+use ino_shell::cmd;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
@@ -59,14 +59,30 @@ fn main() -> rootcause::Result<()> {
 
     // Capture environment-derived configuration once, after bpaf has handled
     // early exits such as --help and --version.
-    let process = RuntimeEnv::capture()?;
-    let env =
-        app::RuntimeConfig::from_env(process, args.elevation_strategy)?;
+    let env = Env::capture()?;
+    let config = Config::from_env(env, args.elevation_strategy)?;
 
     // Validate the Nix environment before dispatching the command.
     nix_variant()?;
 
-    app::run(args.command, &env)
+    run(args.command, &config)
+}
+
+fn run(command: CliCommand, config: &Config) -> rootcause::Result<()> {
+    match command {
+        CliCommand::Rebuild(command) => {
+            nixos::run_rebuild(*command, config)
+        }
+        CliCommand::Repl(request) => {
+            nixos::run_repl(request, &config.env, &config.flake)
+        }
+        CliCommand::Info(request) => nixos::run_info(&request),
+        CliCommand::Rollback(request) => {
+            nixos::run_rollback(request, config)
+        }
+        CliCommand::Search(request) => search::run(&request),
+        CliCommand::Clean(request) => clean::run(&request, config),
+    }
 }
 
 fn nix_variant() -> rootcause::Result<NixVariant> {

@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 use which::which_in;
 
 use crate::nix_options::NixBuildOptions;
-use crate::runtime::RuntimeEnv;
+use crate::runtime::Env;
 
 struct CaptureWriter<W> {
     stream: W,
@@ -180,14 +180,16 @@ impl Elevation {
     /// quoting.
     pub fn new(
         strategy: Option<ElevationStrategy>,
-        env: &RuntimeEnv,
+        env: &Env,
     ) -> Result<Self> {
         let strategy = Self::chosen(strategy, env);
 
         Ok(Self {
             strategy,
             opts: env.shell_words("NH_SUDOOPTS", "NIX_SUDOOPTS")?,
-            askpass: env.non_empty_var("NH_SUDO_ASKPASS").map(str::to_owned),
+            askpass: env
+                .non_empty_var("NH_SUDO_ASKPASS")
+                .map(str::to_owned),
             preserve_env: env
                 .var("NH_PRESERVE_ENV")
                 .is_none_or(|value| value != "0"),
@@ -199,14 +201,15 @@ impl Elevation {
     /// `NH_ELEVATION_PROGRAM` variable, then to auto-detection.
     fn chosen(
         strategy: Option<ElevationStrategy>,
-        env: &RuntimeEnv,
+        env: &Env,
     ) -> ElevationStrategy {
         if let Some(strategy) = strategy {
             return strategy;
         }
 
-        env.non_empty_var("NH_ELEVATION_PROGRAM")
-            .map_or(ElevationStrategy::Auto, |old_value| {
+        env.non_empty_var("NH_ELEVATION_PROGRAM").map_or(
+            ElevationStrategy::Auto,
+            |old_value| {
                 // TODO: Remove this fallback in a future version
                 warn!(
                     "NH_ELEVATION_PROGRAM is deprecated, use \
@@ -215,7 +218,8 @@ impl Elevation {
                      Accepted values: none, passwordless, program:<path>"
                 );
                 ElevationStrategy::from(old_value)
-            })
+            },
+        )
     }
 
     /// Whether elevation is disabled via `--elevation-strategy=none`.
@@ -243,7 +247,7 @@ impl Elevation {
     ///
     /// Returns an error if the strategy is `None` or no elevation program is
     /// installed.
-    pub fn program(&self, env: &RuntimeEnv) -> Result<PathBuf> {
+    pub fn program(&self, env: &Env) -> Result<PathBuf> {
         if let Some(path) = self.program.get() {
             return Ok(path.clone());
         }
@@ -266,21 +270,22 @@ impl Elevation {
     ///   `--elevation-strategy=none`
     /// - Other variants: no suitable elevation programs are available on the
     ///   system
-    fn resolve(&self, env: &RuntimeEnv) -> Result<PathBuf> {
+    fn resolve(&self, env: &Env) -> Result<PathBuf> {
         match &self.strategy {
             ElevationStrategy::Auto | ElevationStrategy::Passwordless => {
                 Self::choice(env)
             }
-            ElevationStrategy::Program(program) => {
-                Self::find(program, env).or_else(|_| {
-                    warn!(
-                        ?program,
-                        "Preferred elevation program not found, falling back \
+            ElevationStrategy::Program(program) => Self::find(
+                program, env,
+            )
+            .or_else(|_| {
+                warn!(
+                    ?program,
+                    "Preferred elevation program not found, falling back \
                          to auto-detection"
-                    );
-                    Self::choice(env)
-                })
-            }
+                );
+                Self::choice(env)
+            }),
             ElevationStrategy::None => {
                 bail!("Elevation disabled via --elevation-strategy=none")
             }
@@ -311,7 +316,7 @@ impl Elevation {
     /// # Errors
     ///
     /// Returns an error if no elevation program can be found.
-    fn choice(env: &RuntimeEnv) -> Result<PathBuf> {
+    fn choice(env: &Env) -> Result<PathBuf> {
         const STRATEGIES: [&str; 4] = ["doas", "sudo", "run0", "pkexec"];
 
         for strategy in STRATEGIES {
@@ -329,7 +334,7 @@ impl Elevation {
 
     fn find(
         program: impl AsRef<OsStr>,
-        env: &RuntimeEnv,
+        env: &Env,
     ) -> which::Result<PathBuf> {
         let path = env.var_os("PATH").unwrap_or_default();
         which_in(program, Some(path), env.current_dir())
@@ -352,14 +357,14 @@ pub struct Command<'env> {
     show_output: bool,
     preserved_env: BTreeSet<String>,
     env_overrides: BTreeMap<String, String>,
-    runtime_env: &'env RuntimeEnv,
+    env: &'env Env,
     elevation: &'env Elevation,
 }
 
 impl<'env> Command<'env> {
     pub fn new(
         command: impl AsRef<OsStr>,
-        runtime_env: &'env RuntimeEnv,
+        env: &'env Env,
         elevation: &'env Elevation,
     ) -> Self {
         Self {
@@ -371,7 +376,7 @@ impl<'env> Command<'env> {
             show_output: false,
             preserved_env: BTreeSet::new(),
             env_overrides: BTreeMap::new(),
-            runtime_env,
+            env,
             elevation,
         }
     }
@@ -456,23 +461,23 @@ impl<'env> Command<'env> {
             Vec::with_capacity(self.preserved_env.len() + 10);
 
         if elevated {
-            if let Some(user) = self.runtime_env.var("USER") {
+            if let Some(user) = self.env.var("USER") {
                 vars.push(("USER", user));
             }
             if self.elevation.preserve_env {
-                for (key, value) in self.runtime_env.nix_child_env() {
+                for (key, value) in self.env.nix_child_env() {
                     vars.push((key, value));
                 }
             }
         } else {
-            for (key, value) in self.runtime_env.child_env() {
+            for (key, value) in self.env.child_env() {
                 vars.push((key, value));
             }
         }
 
         if !elevated || self.elevation.preserve_env {
             for key in &self.preserved_env {
-                if let Some(value) = self.runtime_env.var(key) {
+                if let Some(value) = self.env.var(key) {
                     vars.push((key, value));
                 }
             }
@@ -496,7 +501,7 @@ impl<'env> Command<'env> {
     fn elevation_parts(&self) -> Result<ElevationParts<'_>> {
         let program = self
             .elevation
-            .program(self.runtime_env)
+            .program(self.env)
             .context("Failed to resolve elevation program")?;
         let program_name = program
             .file_name()
@@ -555,20 +560,19 @@ impl<'env> Command<'env> {
     /// Returns an error if the elevation program cannot be resolved.
     pub fn self_elevate_cmd(
         elevation: &'env Elevation,
-        runtime_env: &'env RuntimeEnv,
+        env: &'env Env,
     ) -> Result<std::process::Command> {
-        let builder =
-            Self::new(runtime_env.executable(), runtime_env, elevation)
-                .elevate(true)
-                // `clean all` is the only self-elevating path and NH_ASK is its only
-                // environment-backed option not already represented in argv.
-                .preserve_envs(["NH_ASK"]);
+        let builder = Self::new(env.executable(), env, elevation)
+            .elevate(true)
+            // `clean all` is the only self-elevating path and NH_ASK is its only
+            // environment-backed option not already represented in argv.
+            .preserve_envs(["NH_ASK"]);
         let parts = builder.elevation_parts()?;
         let mut command = std::process::Command::new(parts.program);
         command
             .args(parts.args)
-            .arg(runtime_env.executable())
-            .args(runtime_env.arguments());
+            .arg(env.executable())
+            .args(env.arguments());
         if let Some(askpass) = parts.askpass {
             command.env("SUDO_ASKPASS", askpass);
         }
@@ -793,7 +797,7 @@ mod tests {
 
     #[test]
     fn child_environment_is_selected_from_the_startup_snapshot() {
-        let runtime = RuntimeEnv::from_pairs([
+        let env = Env::from_pairs([
             ("USER", "teapot"),
             ("HOME", "/home/teapot"),
             ("PATH", "/run/current-system/sw/bin"),
@@ -801,26 +805,26 @@ mod tests {
             ("NH_FLAKE", "/configuration"),
         ]);
         let elevation =
-            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
-        let command = Command::new("true", &runtime, &elevation);
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let command = Command::new("true", &env, &elevation);
 
-        let env = environment(&command, false);
-        assert_eq!(env.get("USER").map(String::as_str), Some("teapot"));
+        let vars = environment(&command, false);
+        assert_eq!(vars.get("USER").map(String::as_str), Some("teapot"));
         assert_eq!(
-            env.get("HOME").map(String::as_str),
+            vars.get("HOME").map(String::as_str),
             Some("/home/teapot")
         );
         assert_eq!(
-            env.get("PATH").map(String::as_str),
+            vars.get("PATH").map(String::as_str),
             Some("/run/current-system/sw/bin")
         );
-        assert!(env.contains_key("NIX_CONFIG"));
-        assert!(!env.contains_key("NH_FLAKE"));
+        assert!(vars.contains_key("NIX_CONFIG"));
+        assert!(!vars.contains_key("NH_FLAKE"));
     }
 
     #[test]
     fn elevated_environment_honors_preservation_policy() {
-        let runtime = RuntimeEnv::from_pairs([
+        let env = Env::from_pairs([
             ("USER", "teapot"),
             ("HOME", "/home/teapot"),
             ("PATH", "/bin"),
@@ -828,41 +832,41 @@ mod tests {
             ("NH_PRESERVE_ENV", "0"),
         ]);
         let elevation =
-            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
-        let command = Command::new("true", &runtime, &elevation)
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let command = Command::new("true", &env, &elevation)
             .preserve_envs(["NIXOS_NO_CHECK"])
             .set_env("NIXOS_INSTALL_BOOTLOADER", "1");
 
-        let env = environment(&command, true);
-        assert_eq!(env.get("USER").map(String::as_str), Some("teapot"));
-        assert!(!env.contains_key("HOME"));
-        assert!(!env.contains_key("PATH"));
-        assert!(!env.contains_key("NIXOS_NO_CHECK"));
+        let vars = environment(&command, true);
+        assert_eq!(vars.get("USER").map(String::as_str), Some("teapot"));
+        assert!(!vars.contains_key("HOME"));
+        assert!(!vars.contains_key("PATH"));
+        assert!(!vars.contains_key("NIXOS_NO_CHECK"));
         assert_eq!(
-            env.get("NIXOS_INSTALL_BOOTLOADER").map(String::as_str),
+            vars.get("NIXOS_INSTALL_BOOTLOADER").map(String::as_str),
             Some("1")
         );
     }
 
     #[test]
     fn explicit_environment_override_wins_over_captured_value() {
-        let runtime = RuntimeEnv::from_pairs([("NIXOS_NO_CHECK", "0")]);
+        let env = Env::from_pairs([("NIXOS_NO_CHECK", "0")]);
         let elevation =
-            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
-        let command = Command::new("true", &runtime, &elevation)
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let command = Command::new("true", &env, &elevation)
             .preserve_envs(["NIXOS_NO_CHECK"])
             .set_env("NIXOS_NO_CHECK", "1");
 
-        let env = environment(&command, true);
+        let vars = environment(&command, true);
         assert_eq!(
-            env.get("NIXOS_NO_CHECK").map(String::as_str),
+            vars.get("NIXOS_NO_CHECK").map(String::as_str),
             Some("1")
         );
     }
 
     #[test]
     fn elevation_configuration_uses_preferred_shell_words() {
-        let runtime = RuntimeEnv::from_pairs([
+        let env = Env::from_pairs([
             ("NH_SUDOOPTS", "--preserve-env='NIX_CONFIG NIX_PATH'"),
             ("NIX_SUDOOPTS", "--legacy"),
             ("NH_SUDO_ASKPASS", "/bin/askpass"),
@@ -870,7 +874,7 @@ mod tests {
         ]);
 
         let elevation =
-            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
         assert_eq!(
             elevation.sudo_opts(),
             ["--preserve-env=NIX_CONFIG NIX_PATH"]
@@ -881,19 +885,18 @@ mod tests {
 
     #[test]
     fn disabled_elevation_fails_to_resolve() {
-        let runtime = RuntimeEnv::from_pairs([("PATH", "/nonexistent")]);
+        let env = Env::from_pairs([("PATH", "/nonexistent")]);
         let elevation =
-            Elevation::new(Some(ElevationStrategy::None), &runtime).unwrap();
+            Elevation::new(Some(ElevationStrategy::None), &env).unwrap();
 
-        let error = elevation.program(&runtime).unwrap_err();
+        let error = elevation.program(&env).unwrap_err();
         assert!(error.to_string().contains("Elevation disabled"));
     }
 
     #[test]
     fn deprecated_env_var_fallback_selects_strategy() {
-        let runtime =
-            RuntimeEnv::from_pairs([("NH_ELEVATION_PROGRAM", "none")]);
-        let elevation = Elevation::new(None, &runtime).unwrap();
+        let env = Env::from_pairs([("NH_ELEVATION_PROGRAM", "none")]);
+        let elevation = Elevation::new(None, &env).unwrap();
 
         assert!(elevation.is_disabled());
     }
@@ -919,10 +922,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn command_failure_includes_captured_stderr() {
-        let runtime = RuntimeEnv::from_pairs([("IGNORED", "")]);
+        let env = Env::from_pairs([("IGNORED", "")]);
         let elevation =
-            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
-        let error = Command::new("/bin/sh", &runtime, &elevation)
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let error = Command::new("/bin/sh", &env, &elevation)
             .args(["-c", "printf failure >&2; exit 7"])
             .run()
             .unwrap_err();
@@ -934,9 +937,8 @@ mod tests {
 
     #[test]
     fn elevation_program_prefix_is_parsed() {
-        let parsed = "program:/path/to/bin"
-            .parse::<ElevationStrategy>()
-            .unwrap();
+        let parsed =
+            "program:/path/to/bin".parse::<ElevationStrategy>().unwrap();
         assert_eq!(
             parsed,
             ElevationStrategy::Program(PathBuf::from("/path/to/bin"))
