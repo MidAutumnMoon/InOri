@@ -5,8 +5,12 @@ mod template;
 use crate::blueprint::Blueprint;
 use crate::step::StepQueue;
 
-use anyhow::Context as _;
-use anyhow::Result as AnyResult;
+use bpaf::OptionParser;
+use bpaf::Parser as _;
+use bpaf::construct;
+use bpaf::long;
+use rootcause::Result;
+use rootcause::prelude::ResultExt as _;
 use tap::Tap as _;
 use tracing::debug;
 use tracing::info;
@@ -18,18 +22,40 @@ use std::path::PathBuf;
 // TODO: use thiserror to replace ad-hoc string errors
 
 /// Maintaining symlinks.
-#[derive(clap::Parser, Debug)]
+#[derive(Debug)]
 struct CliOpts {
     /// Blueprint for symlinks to be created.
-    #[arg(long, short, value_name = "PATH")]
     new_blueprint: Option<PathBuf>,
     /// Previous generation of blueprint, symlinks in it
     /// will be removed.
-    #[arg(long, short, value_name = "PATH")]
     old_blueprint: Option<PathBuf>,
 }
 
-fn run(cliopts: CliOpts) -> AnyResult<()> {
+#[must_use]
+fn cli() -> OptionParser<CliOpts> {
+    let new_blueprint = long("new-blueprint")
+        .short('n')
+        .argument::<PathBuf>("PATH")
+        .help("Blueprint for symlinks to be created")
+        .optional();
+    let old_blueprint = long("old-blueprint")
+        .short('o')
+        .argument::<PathBuf>("PATH")
+        .help(
+            "Previous generation of blueprint, symlinks in it \
+             will be removed",
+        )
+        .optional();
+    construct!(CliOpts {
+        new_blueprint,
+        old_blueprint
+    })
+    .to_options()
+    .descr("Maintaining symlinks")
+    .version(env!("CARGO_PKG_VERSION"))
+}
+
+fn run(cliopts: CliOpts) -> Result<()> {
     info!("Preparing blueprints");
 
     let new_blueprint = cliopts
@@ -73,15 +99,15 @@ fn run(cliopts: CliOpts) -> AnyResult<()> {
     Ok(())
 }
 
-fn main() -> AnyResult<()> {
+fn main() -> Result<()> {
     let _log_guard = ino_tracing::init_tracing_subscriber();
 
     info!("Stretch hands");
 
     let cliopt = {
         debug!("Parse cliopts");
-        <CliOpts as clap::Parser>::parse().tap(|cliopts| trace!(?cliopts))
+        cli().run().tap(|cliopts| trace!(?cliopts))
     };
 
-    run(cliopt).context("Error occurred when running app")
+    run(cliopt)
 }

@@ -1,11 +1,10 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use anyhow::Context as _;
-use anyhow::Result as AnyResult;
-use anyhow::bail;
-use anyhow::ensure;
 use itertools::Itertools as _;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
 use serdev::Deserialize;
 use tap::Tap as _;
 use tracing::debug;
@@ -25,15 +24,15 @@ pub struct Blueprint {
 
 impl Blueprint {
     #[tracing::instrument]
-    pub fn from_file(path: &Path) -> AnyResult<Self> {
+    pub fn from_file(path: &Path) -> Result<Self> {
         debug!("read the blueprint file");
-        ensure! { path.is_file(),
-            r#"The given path "{}" is not file"#, path.display()
-        };
+        if !path.is_file() {
+            bail!(r#"The given path "{}" is not file"#, path.display());
+        }
         let raw = std::fs::read_to_string(path)
             .context("Failed to read blueprint file")?;
-        Self::from_str(&raw)
-            .context("Failed to parse the blueprint's content")
+        Ok(Self::from_str(&raw)
+            .context("Failed to parse the blueprint's content")?)
     }
 
     /// Consume the blueprint, yielding its symlink declarations.
@@ -42,14 +41,15 @@ impl Blueprint {
     }
 
     #[tracing::instrument(skip_all)]
-    fn validate(&self) -> AnyResult<()> {
+    fn validate(&self) -> Result<()> {
         debug!("validate the blueprint");
-        ensure! {
-            self.version == CURRENT_BLUEPRINT_VERSION,
-            r#"Blueprint version mismatch, expect "{}", got "{}""#,
-            CURRENT_BLUEPRINT_VERSION,
-            self.version
-        };
+        if self.version != CURRENT_BLUEPRINT_VERSION {
+            bail!(
+                r#"Blueprint version mismatch, expect "{}", got "{}""#,
+                CURRENT_BLUEPRINT_VERSION,
+                self.version
+            );
+        }
         if let Some([left, right]) = self
             .symlinks
             .iter()
@@ -62,22 +62,21 @@ impl Blueprint {
                 right.dst.display()
             );
         }
-        ensure! {
-            self.symlinks
-                .iter()
-                .all(|it| it.src != it.dst),
-            "Some symlinks have identical src and dst, \
+        if !self.symlinks.iter().all(|it| it.src != it.dst) {
+            bail!(
+                "Some symlinks have identical src and dst, \
                 which would produce a self-referential symlink"
-        };
+            );
+        }
         Ok(())
     }
 }
 
 impl FromStr for Blueprint {
-    type Err = anyhow::Error;
+    type Err = rootcause::Report;
 
     #[tracing::instrument(skip_all)]
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+    fn from_str(raw: &str) -> std::result::Result<Self, Self::Err> {
         debug!("try parse the input as json");
         Ok(serde_json::from_str::<Self>(raw)
             .context("Blueprint contains invalid JSON")?

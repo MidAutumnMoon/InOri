@@ -4,11 +4,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use anyhow::Context as _;
-use anyhow::Result as AnyResult;
-use anyhow::ensure;
 use ino_path::PathExt as _;
 use minijinja::Environment;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
 use tap::Tap as _;
 
@@ -44,12 +45,12 @@ pub struct Engine {
 
 impl Engine {
     #[tracing::instrument(skip_all)]
-    pub fn render(&self, tmpl: &str) -> AnyResult<String> {
+    pub fn render(&self, tmpl: &str) -> Result<String> {
         debug!(?tmpl, "Render template");
         Ok(self
             .environ
             .render_str(tmpl, &self.context)
-            .with_context(|| {
+            .context_with(|| {
                 format!(r#"Failed to render template "{tmpl}""#)
             })?
             .tap(|rendered| trace!(?rendered)))
@@ -73,7 +74,7 @@ impl ContextOfTemplate {
     // that case. On Linux `etcetera` provides sensible defaults for
     // most dirs, so failures here are rare in practice.
     #[tracing::instrument(name = "template_context_new")]
-    pub fn new() -> AnyResult<Self> {
+    pub fn new() -> Result<Self> {
         use etcetera::BaseStrategy as _;
         use etcetera::choose_base_strategy;
 
@@ -115,7 +116,7 @@ pub struct RenderedPath {
 impl RenderedPath {
     #[tracing::instrument(skip_all)]
     #[cfg(test)]
-    pub fn from_unrendered(input: &str) -> AnyResult<Self> {
+    pub fn from_unrendered(input: &str) -> Result<Self> {
         use serde::de::IntoDeserializer as _;
         use serde::de::value::Error as DeError;
         use serde::de::value::StrDeserializer;
@@ -139,7 +140,9 @@ impl AsRef<Path> for RenderedPath {
 
 impl<'de> Deserialize<'de> for RenderedPath {
     #[tracing::instrument(skip_all)]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -148,24 +151,26 @@ impl<'de> Deserialize<'de> for RenderedPath {
         debug!("Deserialize into RenderedPath");
 
         #[inline]
-        fn ren(tmpl: &str) -> AnyResult<PathBuf> {
+        fn ren(tmpl: &str) -> Result<PathBuf> {
             let path = PathBuf::from(ENGINE.render(tmpl)?);
-            ensure!(
-                path.is_absolute(),
-                r#"Path must be absolute. Raw: "{}" Rendered: "{}""#,
-                tmpl,
-                path.display(),
-            );
-            ensure!(
-                !path.components().any(|component| matches!(
-                    component,
-                    Component::ParentDir
-                )),
-                r#"Path must not contain ".." components. \
-                    Raw: "{}" Rendered: "{}""#,
-                tmpl,
-                path.display(),
-            );
+            if !path.is_absolute() {
+                bail!(
+                    r#"Path must be absolute. Raw: "{}" Rendered: "{}""#,
+                    tmpl,
+                    path.display(),
+                );
+            }
+            if path
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+            {
+                bail!(
+                    r#"Path must not contain ".." components. \
+                        Raw: "{}" Rendered: "{}""#,
+                    tmpl,
+                    path.display(),
+                );
+            }
             Ok(path)
         }
         let raw = String::deserialize(deserializer)?;

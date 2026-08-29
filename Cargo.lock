@@ -1384,15 +1384,15 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "lny"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "assert_fs",
- "clap",
+ "bpaf",
  "etcetera",
  "ino_path",
  "ino_tracing",
  "itertools",
  "minijinja",
  "rand 0.10.2",
+ "rootcause",
  "serde",
  "serde_json",
  "serdev",

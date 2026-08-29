@@ -7,13 +7,14 @@ use std::path::PathBuf;
 
 use crate::blueprint::Symlink;
 
-use anyhow::Context as _;
-use anyhow::Result as AnyResult;
-use anyhow::bail;
-use anyhow::ensure;
 use ino_path::PathExt as _;
 use itertools::Itertools as _;
 use rand::RngExt as _;
+use rootcause::Report;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
 use tap::Tap as _;
 use tracing::debug;
 use tracing::info;
@@ -29,7 +30,7 @@ impl StepQueue {
     pub fn new(
         new_generation: Vec<Symlink>,
         old_generation: Vec<Symlink>,
-    ) -> AnyResult<Self> {
+    ) -> Result<Self> {
         info!("Actualize blueprint");
         debug!("actualize blueprint into steps");
         trace!(
@@ -188,19 +189,19 @@ impl StepQueue {
             planned_steps.push(Some(step));
         }
 
-        ensure!(
-            new_blueprint_symlinks
-                .iter()
-                .chain(old_blueprint_symlinks.iter())
-                .all(Option::is_none),
-            "[BUG] symlinks are not completely drained"
-        );
+        if !new_blueprint_symlinks
+            .iter()
+            .chain(old_blueprint_symlinks.iter())
+            .all(Option::is_none)
+        {
+            bail!("[BUG] symlinks are not completely drained");
+        }
 
         let steps = planned_steps.into_iter().flatten().collect();
         Ok(Self { steps })
     }
 
-    pub fn check_feasibility(&self) -> AnyResult<()> {
+    pub fn check_feasibility(&self) -> Result<()> {
         for step in &self.steps {
             step.check_feasibility()?;
         }
@@ -250,17 +251,17 @@ impl Step {
     /// for the rationale. ENOSPC, permission errors, and similar surface
     /// only at [`Self::execute`] time.
     #[inline]
-    pub fn check_feasibility(&self) -> AnyResult<()> {
+    pub fn check_feasibility(&self) -> Result<()> {
         self.real_execute(true)
     }
 
     #[inline]
-    pub fn execute(self) -> AnyResult<()> {
+    pub fn execute(self) -> Result<()> {
         self.real_execute(false)
     }
 
     #[tracing::instrument(name = "step_execute", skip(self))]
-    fn real_execute(&self, dry: bool) -> AnyResult<()> {
+    fn real_execute(&self, dry: bool) -> Result<()> {
         trace!(?self);
         match self {
             Self::Ensure { symlink } => {
@@ -287,7 +288,7 @@ impl Step {
 
     #[tracing::instrument]
     #[inline]
-    fn create_symlink(new_symlink: &Symlink, dry: bool) -> AnyResult<()> {
+    fn create_symlink(new_symlink: &Symlink, dry: bool) -> Result<()> {
         let Symlink { src, dst } = new_symlink;
         let dst_fact = DstFact::check(src, dst)?;
 
@@ -327,7 +328,7 @@ impl Step {
         }
 
         debug!("ready to create the real symlink");
-        symlink(src, dst).with_context(|| {
+        symlink(src, dst).context_with(|| {
             format!(r#"Failed to create symlink "{}""#, dst.display())
         })?;
 
@@ -340,7 +341,7 @@ impl Step {
         new_symlink: &Symlink,
         old_symlink: &Symlink,
         dry: bool,
-    ) -> AnyResult<()> {
+    ) -> Result<()> {
         let Symlink {
             src: new_src,
             dst: new_dst,
@@ -350,7 +351,9 @@ impl Step {
             dst: old_dst,
         } = old_symlink;
 
-        ensure!(new_dst == old_dst, "[BUG] new_dst not equals to old_dst");
+        if new_dst != old_dst {
+            bail!("[BUG] new_dst not equals to old_dst");
+        }
 
         let dst = new_dst;
         let dst_fact = DstFact::check(old_src, dst)?;
@@ -401,32 +404,34 @@ impl Step {
             trace!(?tmp_dst);
             tmp_dst
         };
-        symlink(new_src, &tmp_dst).with_context(|| {
+        symlink(new_src, &tmp_dst).context_with(|| {
             format!(
                 r#"Failed to link to the temporary target "{}", \
                     the existing symlink is intact"#,
                 tmp_dst.display(),
             )
         })?;
-        let rename_ret = rename(&tmp_dst, dst).with_context(|| {
+        let rename_ret = rename(&tmp_dst, dst).context_with(|| {
             format!(r#"Failed to replace symlink "{}""#, dst.display())
         });
         if let Err(rename_err) = rename_ret {
             debug!("error when renaming symlink, remove tmp file");
             if let Err(cleanup_err) = remove_file(&tmp_dst) {
-                return Err(cleanup_err).context(format!(
-                    r#"Failed to remove intermediate symlink \
-                        "{}", filesystem might be cooked. \
-                        Original rename error: {rename_err}"#,
-                    tmp_dst.display(),
-                ));
+                return Err(report!(cleanup_err)
+                    .context(format!(
+                        r#"Failed to remove intermediate symlink \
+                            "{}", filesystem might be cooked. \
+                            Original rename error: {rename_err}"#,
+                        tmp_dst.display(),
+                    ))
+                    .into());
             }
-            return Err(rename_err);
+            return Err(Report::from(rename_err));
         }
         Ok(())
     }
 
-    fn remove_symlink(old_symlink: &Symlink, dry: bool) -> AnyResult<()> {
+    fn remove_symlink(old_symlink: &Symlink, dry: bool) -> Result<()> {
         let Symlink { src, dst } = old_symlink;
         let dst_fact = DstFact::check(src, dst)?;
 
@@ -451,7 +456,7 @@ impl Step {
         }
 
         debug!("ready to remove the old symlink");
-        remove_file(dst).with_context(|| {
+        remove_file(dst).context_with(|| {
             format!(r#"Failed to remove symlink "{}""#, dst.display())
         })?;
 
@@ -467,14 +472,14 @@ impl Step {
         new_symlink: &Symlink,
         old_symlinks: &[Symlink],
         dry: bool,
-    ) -> AnyResult<()> {
-        ensure!(
-            !old_symlinks.is_empty()
-                && old_symlinks.iter().all(|old_symlink| {
-                    new_symlink.dst_is_ancestor_of(old_symlink)
-                }),
-            "[BUG] invalid collapse topology"
-        );
+    ) -> Result<()> {
+        if old_symlinks.is_empty()
+            || !old_symlinks.iter().all(|old_symlink| {
+                new_symlink.dst_is_ancestor_of(old_symlink)
+            })
+        {
+            bail!("[BUG] invalid collapse topology");
+        }
 
         match DstFact::check(&new_symlink.src, &new_symlink.dst)? {
             DstFact::SymlinkToSrc => {
@@ -497,18 +502,21 @@ impl Step {
                 );
             }
             DstFact::Exist => {
-                let metadata =
-                    new_symlink.dst.symlink_metadata().with_context(|| {
+                let metadata = new_symlink
+                    .dst
+                    .symlink_metadata()
+                    .context_with(|| {
                         format!(
                             r#"Failed to inspect collapse destination "{}""#,
                             new_symlink.dst.display()
                         )
                     })?;
-                ensure!(
-                    metadata.is_dir(),
-                    r#"Symlink target "{}" is occupied by another file"#,
-                    new_symlink.dst.display()
-                );
+                if !metadata.is_dir() {
+                    bail!(
+                        r#"Symlink target "{}" is occupied by another file"#,
+                        new_symlink.dst.display()
+                    );
+                }
             }
         }
 
@@ -517,15 +525,14 @@ impl Step {
         for old_symlink in old_symlinks {
             Self::remove_symlink(old_symlink, true)?;
         }
-        ensure!(
-            Self::directory_will_be_pruned(
-                &new_symlink.dst,
-                old_symlinks
-            )?,
-            r#"Directory "{}" contains paths not controlled by lny, \
-                refuse to replace it with a symlink"#,
-            new_symlink.dst.display()
-        );
+        if !Self::directory_will_be_pruned(&new_symlink.dst, old_symlinks)?
+        {
+            bail!(
+                r#"Directory "{}" contains paths not controlled by lny, \
+                    refuse to replace it with a symlink"#,
+                new_symlink.dst.display()
+            );
+        }
         Self::ensure_creatable_topology(&new_symlink.dst)?;
 
         if dry {
@@ -552,14 +559,14 @@ impl Step {
         new_symlinks: &[Symlink],
         old_symlink: &Symlink,
         dry: bool,
-    ) -> AnyResult<()> {
-        ensure!(
-            !new_symlinks.is_empty()
-                && new_symlinks.iter().all(|new_symlink| {
-                    old_symlink.dst_is_ancestor_of(new_symlink)
-                }),
-            "[BUG] invalid expansion topology"
-        );
+    ) -> Result<()> {
+        if new_symlinks.is_empty()
+            || !new_symlinks.iter().all(|new_symlink| {
+                old_symlink.dst_is_ancestor_of(new_symlink)
+            })
+        {
+            bail!("[BUG] invalid expansion topology");
+        }
 
         let dst_fact = DstFact::check(&old_symlink.src, &old_symlink.dst)?;
         match dst_fact {
@@ -575,19 +582,22 @@ impl Step {
             }
             DstFact::NotExist => {}
             DstFact::Exist => {
-                let metadata =
-                    old_symlink.dst.symlink_metadata().with_context(|| {
+                let metadata = old_symlink
+                    .dst
+                    .symlink_metadata()
+                    .context_with(|| {
                         format!(
                             r#"Failed to inspect expansion destination "{}""#,
                             old_symlink.dst.display()
                         )
                     })?;
-                ensure!(
-                    metadata.is_dir(),
-                    r#"Symlink target "{}" is not controlled by us, \
-                        refuse to expand"#,
-                    old_symlink.dst.display()
-                );
+                if !metadata.is_dir() {
+                    bail!(
+                        r#"Symlink target "{}" is not controlled by us, \
+                            refuse to expand"#,
+                        old_symlink.dst.display()
+                    );
+                }
             }
             DstFact::SymlinkNotSrc => {
                 bail!(
@@ -607,7 +617,7 @@ impl Step {
     fn directory_will_be_pruned(
         path: &Path,
         old_symlinks: &[Symlink],
-    ) -> AnyResult<bool> {
+    ) -> Result<bool> {
         let has_managed_descendant = old_symlinks
             .iter()
             .any(|old_symlink| old_symlink.dst.starts_with(path));
@@ -615,11 +625,11 @@ impl Step {
             return Ok(false);
         }
 
-        let entries = path.read_dir().with_context(|| {
+        let entries = path.read_dir().context_with(|| {
             format!(r#"Failed to inspect directory "{}""#, path.display())
         })?;
         for entry in entries {
-            let entry = entry.with_context(|| {
+            let entry = entry.context_with(|| {
                 format!(
                     r#"Failed to inspect an entry in directory "{}""#,
                     path.display()
@@ -632,7 +642,7 @@ impl Step {
                 continue;
             }
 
-            let file_type = entry.file_type().with_context(|| {
+            let file_type = entry.file_type().context_with(|| {
                 format!(r#"Failed to inspect "{}""#, entry_path.display())
             })?;
             if file_type.is_dir()
@@ -650,9 +660,9 @@ impl Step {
 
     #[inline]
     #[tracing::instrument]
-    fn create_parent_dirs(path: &Path) -> AnyResult<()> {
+    fn create_parent_dirs(path: &Path) -> Result<()> {
         debug!("attempt to create parent dirs");
-        std::fs::create_dir_all(path).with_context(|| {
+        std::fs::create_dir_all(path).context_with(|| {
             format!(
                 r#"Failed to create parent directories of "{}""#,
                 path.display()
@@ -671,7 +681,7 @@ impl Step {
     /// path produce clear OS-level messages; topology errors do not.
     #[inline]
     #[tracing::instrument]
-    fn ensure_creatable_topology(dst: &Path) -> AnyResult<()> {
+    fn ensure_creatable_topology(dst: &Path) -> Result<()> {
         debug!("check topology of dst");
         let Some(parent) = dst.parent() else {
             bail!(r#"dst "{}" has no parent"#, dst.display());
@@ -689,12 +699,12 @@ impl Step {
                     // Do nothing, skip
                 }
                 Err(err) => {
-                    return Err(err).with_context(|| {
-                        format!(
+                    return Err(report!(err)
+                        .context(format!(
                             r#"Failed to stat ancestor "{}""#,
                             ancestor.display()
-                        )
-                    });
+                        ))
+                        .into());
                 }
             }
         }
@@ -709,7 +719,7 @@ impl Step {
     /// belong to lny.
     #[inline]
     #[tracing::instrument]
-    fn remove_empty_parent_dirs(path: &Path) -> AnyResult<()> {
+    fn remove_empty_parent_dirs(path: &Path) -> Result<()> {
         debug!("attempt to remove empty parent dirs");
         trace!(?path);
         for ancestor in path.ancestors() {
@@ -720,18 +730,18 @@ impl Step {
                     continue;
                 }
                 Err(err) => {
-                    return Err(err).with_context(|| {
-                        format!(
+                    return Err(report!(err)
+                        .context(format!(
                             r#"Failed to read ancestor metadata for "{}""#,
                             ancestor.display()
-                        )
-                    });
+                        ))
+                        .into());
                 }
             };
             let is_empty_dir = metadata.is_dir()
                 && ancestor
                     .read_dir()
-                    .with_context(|| {
+                    .context_with(|| {
                         format!(
                             r#"Failed to read ancestor directory "{}""#,
                             ancestor.display()
@@ -745,7 +755,7 @@ impl Step {
             }
 
             debug!("ancestor dir is empty, remove it");
-            std::fs::remove_dir(ancestor).with_context(|| {
+            std::fs::remove_dir(ancestor).context_with(|| {
                 format!(
                     r#"Failed to remove empty ancestor directory "{}""#,
                     ancestor.display()
@@ -773,7 +783,7 @@ pub enum DstFact {
 impl DstFact {
     #[inline]
     #[tracing::instrument(name = "dst_fact_check")]
-    pub fn check(src: &Path, dst: &Path) -> AnyResult<Self> {
+    pub fn check(src: &Path, dst: &Path) -> Result<Self> {
         debug!("check potential collision");
         // N.B. Don't use [`Path::exists`] because it follows symlink
         if dst.try_exists_no_traverse()? {
