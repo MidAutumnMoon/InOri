@@ -2,9 +2,9 @@ use std::any::Any;
 use std::io::{self, Write as _};
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::thread;
 
-use crate::args::DiffType;
 use crate::external_report;
 use crate::progress;
 use crate::remote::Host;
@@ -18,6 +18,42 @@ use tracing::debug;
 use tracing::info;
 use tracing::warn;
 use yansi::Paint;
+#[derive(Clone, Default, Debug)]
+pub enum Mode {
+    /// Display a package diff when the current and deployed configurations are
+    /// comparable.
+    #[default]
+    Auto,
+    /// Always display a package diff.
+    Always,
+    /// Never display a package diff.
+    Never,
+}
+
+impl FromStr for Mode {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "always" => Ok(Self::Always),
+            "never" => Ok(Self::Never),
+            other => Err(format!(
+                "expected one of `auto`, `always`, `never`, got `{other}`"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Never => "never",
+        })
+    }
+}
 
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
 
@@ -94,7 +130,7 @@ fn query_local_dix_diff(
 /// Returns an error if local or remote store snapshot queries fail, or if the
 /// diff report cannot be written.
 pub fn handle_nixos(
-    diff: &DiffType,
+    diff: &Mode,
     target_host: Option<&Host>,
     target_profile: &Path,
     actual_store_path: Option<&Path>,
@@ -104,11 +140,11 @@ pub fn handle_nixos(
     let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
 
     match diff {
-        DiffType::Never => {
+        Mode::Never => {
             debug!("Not running dix as the --diff flag is set to never.");
             return Ok(());
         }
-        DiffType::Auto
+        Mode::Auto
             if target_host.is_none() && !current_profile.exists() =>
         {
             warn!(
@@ -117,7 +153,7 @@ pub fn handle_nixos(
             );
             return Ok(());
         }
-        DiffType::Auto
+        Mode::Auto
             if target_host.is_none() && !target_profile.exists() =>
         {
             warn!(
@@ -126,14 +162,14 @@ pub fn handle_nixos(
             );
             return Ok(());
         }
-        DiffType::Auto => {
+        Mode::Auto => {
             debug!(
                 "Comparing current profile {} with target profile: {}",
                 current_profile.display(),
                 target_profile.display()
             );
         }
-        DiffType::Always => {}
+        Mode::Always => {}
     }
 
     print_nixos_generation_diff(

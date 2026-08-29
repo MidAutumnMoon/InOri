@@ -16,7 +16,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which_in;
 
-use crate::args::NixBuildPassthrough;
+use crate::nix_options::NixBuildOptions;
 use crate::runtime::RuntimeEnv;
 
 /// Privilege-elevation configuration captured from environment variables.
@@ -658,8 +658,9 @@ impl Build {
     }
 
     #[must_use]
-    pub fn passthrough(self, passthrough: &NixBuildPassthrough) -> Self {
-        self.extra_args(passthrough.generate_passthrough_args())
+    pub fn nix_options(mut self, options: &NixBuildOptions) -> Self {
+        options.append_args(&mut self.extra_args);
+        self
     }
 
     /// Run the build command.

@@ -1,4 +1,6 @@
-pub mod args;
+mod cli;
+mod plan;
+pub(crate) use cli::clean_cli;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -8,36 +10,45 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::SystemTime;
 
-use inquire::Confirm;
-use nix::errno::Errno;
-use nix::fcntl;
-use nix::fcntl::AtFlags;
-use nix::sys::stat;
-use nix::unistd::AccessFlags;
-use nix::unistd::Uid;
-use nix::unistd::User;
-use nix::unistd::faccessat;
 use regex::Regex;
 use rootcause::Result;
-use rootcause::bail;
 use rootcause::option_ext::OptionExt as _;
 use rootcause::prelude::ResultExt as _;
-use rootcause::report;
-use tracing::Level;
 use tracing::debug;
 use tracing::info;
 use tracing::instrument;
-use tracing::span;
 use tracing::warn;
-use walkdir::WalkDir;
-use yansi::Color;
-use yansi::Paint;
 
-use crate::command::Command;
 use crate::command::ElevationStrategy;
 use crate::command::SudoConfig;
 use crate::runtime::RuntimeEnv;
-use crate::util::self_elevate;
+#[derive(Debug, Clone)]
+pub struct Request {
+    pub scope: Scope,
+    pub options: Options,
+}
+
+#[derive(Debug, Clone)]
+pub enum Scope {
+    All,
+    User,
+    Profile(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+pub struct Options {
+    pub keep: u32,
+    pub keep_since: humantime::Duration,
+    pub dry: bool,
+    pub ask: bool,
+    pub no_gc: bool,
+    pub no_gcroots: bool,
+    pub no_direnv: bool,
+    pub optimise: bool,
+    pub max: Option<String>,
+    pub keep_one: bool,
+    pub cross_filesystems: bool,
+}
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -109,456 +120,18 @@ where
     })
 }
 
-impl args::CleanMode {
-    /// Run the clean operation for the selected mode.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any IO, Nix, or environment operation fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the current user's UID cannot be resolved to a user. For
-    /// example, if  `User::from_uid(uid)` returns `None`.
-    pub fn run(
-        &self,
-        elevate: ElevationStrategy,
-        runtime_env: &RuntimeEnv,
-        sudo_config: &SudoConfig,
-    ) -> Result<()> {
-        let mut profiles = Vec::new();
-        let mut gcroots_tagged = Vec::new();
-        let now = SystemTime::now();
-        let mut is_profile_clean = false;
-
-        // What profiles to clean depending on the call mode
-        let uid = Uid::effective();
-        let args = match self {
-            Self::Profile(args) => {
-                profiles.push(args.profile.clone());
-                is_profile_clean = true;
-                &args.common
-            }
-            Self::All(args) => {
-                if !uid.is_root() {
-                    self_elevate(elevate, runtime_env, sudo_config);
-                }
-
-                let paths_to_check = [
-                    PathBuf::from("/nix/var/nix/profiles"),
-                    PathBuf::from("/nix/var/nix/profiles/per-user"),
-                ];
-
-                profiles.extend(
-                    filter_existing_dirs(paths_to_check).flat_map(
-                        |path| {
-                            if path.ends_with("per-user") {
-                                path.read_dir()
-                                    .map(|read_dir| {
-                                        read_dir
-                                            .filter_map(
-                                                std::result::Result::ok,
-                                            )
-                                            .map(|entry| entry.path())
-                                            .filter(|entry_path| {
-                                                entry_path.is_dir()
-                                            })
-                                            .flat_map(profiles_in_dir)
-                                            .collect::<Vec<_>>()
-                                    })
-                                    .unwrap_or_default()
-                            } else {
-                                profiles_in_dir(path)
-                            }
-                        },
-                    ),
-                );
-
-                // Regular Linux users start at uid 1000
-                let uid_min = 1000;
-                let uid_max = uid_min + 100;
-                debug!(
-                    "Scanning XDG profiles for users 0, {uid_min}-{uid_max}"
-                );
-
-                // Check root user (uid 0)
-                if let Some(user) = User::from_uid(Uid::from_raw(0))? {
-                    debug!(?user, "Adding XDG profiles for root user");
-                    let user_profiles_path =
-                        user.dir.join(".local/state/nix/profiles");
-                    if user_profiles_path.is_dir() {
-                        profiles
-                            .extend(profiles_in_dir(user_profiles_path));
-                    }
-                }
-
-                // Check regular users in the expected range
-                for candidate_uid in uid_min..uid_max {
-                    if let Some(user) =
-                        User::from_uid(Uid::from_raw(candidate_uid))?
-                    {
-                        debug!(?user, "Adding XDG profiles for user");
-                        let user_profiles_path =
-                            user.dir.join(".local/state/nix/profiles");
-                        if user_profiles_path.is_dir() {
-                            profiles.extend(profiles_in_dir(
-                                user_profiles_path,
-                            ));
-                        }
-                    }
-                }
-                args
-            }
-            Self::User(args) => {
-                if uid.is_root() {
-                    bail!("nh clean user: don't run me as root!");
-                }
-                let user = User::from_uid(uid)?.ok_or_else(|| {
-                    report!("User not found for uid {}", uid)
-                })?;
-                let home_dir = user.dir;
-
-                let paths_to_check = [
-                    home_dir.join(".local/state/nix/profiles"),
-                    PathBuf::from("/nix/var/nix/profiles/per-user")
-                        .join(&user.name),
-                ];
-
-                profiles.extend(
-                    filter_existing_dirs(paths_to_check)
-                        .flat_map(profiles_in_dir),
-                );
-
-                if profiles.is_empty() {
-                    warn!(
-                        "No active profile directories found for the current user. \
-             Nothing to clean."
-                    );
-                }
-
-                args
-            }
-        };
-
-        // Use mutation to raise errors as they come
-        let mut profiles_tagged = ProfilesTagged::new();
-        for path in profiles {
-            profiles_tagged.insert(
-                path.clone(),
-                cleanable_generations(&path, args.keep, args.keep_since)?,
-            );
-        }
-
-        // Query gcroots
-        let regexes: &[&Regex] = if args.no_direnv {
-            &[]
-        } else {
-            &[&*DIRENV_REGEX]
-        };
-        let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
-
-        if !is_profile_clean && !args.no_gcroots {
-            let dirfd = fcntl::open(
-                ".",
-                fcntl::OFlag::O_DIRECTORY,
-                stat::Mode::empty(),
-            )?;
-
-            for entry in WalkDir::new("/nix/var/nix/gcroots")
-                .follow_links(false)
-                .same_file_system(!args.cross_filesystems)
-                .into_iter()
-                .filter_map(|entry| {
-                    entry
-                        .map_err(|err| {
-                            warn!(?err, "gcroot walk error");
-                        })
-                        .ok()
-                })
-                .filter(|entry| entry.path().is_symlink())
-            {
-                let src = entry.path().to_path_buf();
-                let dst = src
-                    .read_link()
-                    .context("Reading symlink destination")?;
-                let span = span!(Level::TRACE, "gcroot detection", ?dst);
-                let _entered = span.enter();
-                debug!(?src);
-
-                if !dst.is_symlink() && !dst.exists() {
-                    debug!(
-                        ?src,
-                        "gcroot is orphaned (dst missing), tagging for removal"
-                    );
-                    orphan_gcroots.push(src);
-                    continue;
-                }
-
-                match faccessat(
-                    &dirfd,
-                    &dst,
-                    AccessFlags::F_OK | AccessFlags::W_OK,
-                    AtFlags::AT_SYMLINK_NOFOLLOW,
-                ) {
-                    Ok(()) => {
-                        if dst.metadata().is_err() {
-                            // A live root's target is never aged out. It's only removed once
-                            // it is provably dead (which is how Nix's own indirect-gcroot
-                            // semantics work.) This check must run for every gcroot, not just
-                            // ones matching the age-based cleanup filter below.
-                            debug!(
-                                ?dst,
-                                "gcroot target already GC'd, tagging for removal"
-                            );
-                            gcroots_tagged.push(GcRootTagged {
-                                src,
-                                dst,
-                                tbr: true,
-                            });
-                            continue;
-                        }
-
-                        if !gcroot_matches_filter(&src, &dst, regexes) {
-                            debug!(
-                                "dst doesn't match any gcroot filter, skipping"
-                            );
-                            continue;
-                        }
-
-                        if args.keep_one
-                            && DIRENV_REGEX
-                                .is_match(&dst.to_string_lossy())
-                        {
-                            gcroots_tagged.push(GcRootTagged {
-                                src,
-                                dst,
-                                tbr: false,
-                            });
-                        } else {
-                            let dur = now.duration_since(
-                                dst.symlink_metadata()
-                                    .context("Reading gcroot metadata")?
-                                    .modified()?,
-                            );
-                            debug!(?dur);
-                            match dur {
-                                Err(err) => {
-                                    warn!(
-                                        ?err,
-                                        ?now,
-                                        "Failed to compare time!"
-                                    );
-                                }
-                                Ok(val)
-                                    if val <= std::time::Duration::from(
-                                        args.keep_since,
-                                    ) =>
-                                {
-                                    gcroots_tagged.push(GcRootTagged {
-                                        src,
-                                        dst,
-                                        tbr: false,
-                                    });
-                                }
-                                Ok(_) => {
-                                    gcroots_tagged.push(GcRootTagged {
-                                        src,
-                                        dst,
-                                        tbr: true,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    Err(Errno::ENOENT) => {
-                        debug!(
-                            ?src,
-                            "gcroot is orphaned (dst missing), tagging for removal"
-                        );
-                        orphan_gcroots.push(src);
-                    }
-                    Err(
-                        errno @ (Errno::EACCES
-                        | Errno::EROFS
-                        | Errno::EPERM),
-                    ) => {
-                        debug!(
-                            ?errno,
-                            ?dst,
-                            "gcroot target not writable, skipping"
-                        );
-                    }
-                    Err(errno) => {
-                        bail!(
-              report!("Checking access for gcroot {:?}, unknown error", dst)
-                .context(errno)
-            )
-                    }
-                }
-            }
-        }
-
-        // Present the user the information about the paths to clean
-        println!();
-        println!("{}", Paint::new("Welcome to nh clean").bold());
-        println!(
-            "Keeping {} generation(s)",
-            Paint::new(args.keep).fg(Color::Green)
-        );
-        println!(
-            "Keeping paths newer than {}",
-            Paint::new(args.keep_since).fg(Color::Green)
-        );
-        if args.keep_one {
-            println!("Keeping all active direnv gcroots");
-        }
-        if args.no_direnv {
-            println!("Skipping all direnv gcroots");
-        }
-        println!();
-        println!("legend:");
-        println!(
-            "{}: path regular expression to be matched",
-            Paint::new("RE").fg(Color::Magenta)
-        );
-        println!("{}: path to be kept", Paint::new("OK").fg(Color::Green));
-        println!(
-            "{}: path to be removed",
-            Paint::new("DEL").fg(Color::Red)
-        );
-        println!();
-        if !orphan_gcroots.is_empty() {
-            println!(
-                "{}",
-                Paint::new("orphaned gcroots").fg(Color::Blue).bold()
-            );
-            for path in &orphan_gcroots {
-                println!(
-                    "- {} {}",
-                    Paint::new("DEL").fg(Color::Red),
-                    path.to_string_lossy()
-                );
-            }
-            println!();
-        }
-        if !gcroots_tagged.is_empty() {
-            println!("{}", Paint::new("gcroots").fg(Color::Blue).bold());
-            for re in regexes {
-                println!(
-                    "- {}  {}",
-                    Paint::new("RE").fg(Color::Magenta),
-                    re.as_str()
-                );
-            }
-            println!(
-                "- {}  /nix/store direct children",
-                Paint::new("RE").fg(Color::Magenta)
-            );
-            for gcroot in &gcroots_tagged {
-                if gcroot.tbr {
-                    println!(
-                        "- {} {}",
-                        Paint::new("DEL").fg(Color::Red),
-                        gcroot.dst.to_string_lossy()
-                    );
-                } else {
-                    println!(
-                        "- {} {}",
-                        Paint::new("OK ").fg(Color::Green),
-                        gcroot.dst.to_string_lossy()
-                    );
-                }
-            }
-            println!();
-        }
-
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "Don't care about the ordering"
-        )]
-        for (profile, generations_tagged) in &profiles_tagged {
-            println!(
-                "{}",
-                Paint::new(profile.to_string_lossy())
-                    .fg(Color::Blue)
-                    .bold()
-            );
-            for (generation, tbr) in generations_tagged.iter().rev() {
-                if *tbr {
-                    println!(
-                        "- {} {}",
-                        Paint::new("DEL").fg(Color::Red),
-                        generation.path.to_string_lossy()
-                    );
-                } else {
-                    println!(
-                        "- {} {}",
-                        Paint::new("OK ").fg(Color::Green),
-                        generation.path.to_string_lossy()
-                    );
-                }
-            }
-            println!();
-        }
-
-        // Clean the paths
-        if args.ask
-            && !Confirm::new("Confirm the cleanup plan?")
-                .with_default(false)
-                .prompt()?
-        {
-            bail!("User rejected the cleanup plan");
-        }
-
-        if !args.dry {
-            for gcroot in &gcroots_tagged {
-                if gcroot.tbr {
-                    remove_path_nofail(gcroot_path_to_remove(gcroot));
-                }
-            }
-
-            for path in &orphan_gcroots {
-                remove_path_nofail(path);
-            }
-
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Don't care about the ordering"
-            )]
-            for generations_tagged in profiles_tagged.values() {
-                for (generation, tbr) in generations_tagged.iter().rev() {
-                    if *tbr {
-                        remove_path_nofail(&generation.path);
-                    }
-                }
-            }
-        }
-
-        if !args.no_gc {
-            let mut gc_args = vec!["store", "gc"];
-            if let Some(max) = &args.max {
-                gc_args.push("--max");
-                gc_args.push(max.as_str());
-            }
-            Command::new("nix", runtime_env, sudo_config)
-                .args(gc_args)
-                .dry(args.dry)
-                .message("Performing garbage collection on the nix store")
-                .show_output(true)
-                .run()?;
-        }
-
-        if args.optimise {
-            Command::new("nix-store", runtime_env, sudo_config)
-                .arg("--optimise")
-                .dry(args.dry)
-                .message("Optimising the nix store")
-                .show_output(true)
-                .run()?;
-        }
-
-        Ok(())
-    }
+/// Run a clean request.
+///
+/// # Errors
+///
+/// Returns an error if any IO, Nix, or environment operation fails.
+pub fn run(
+    request: &Request,
+    elevate: ElevationStrategy,
+    runtime_env: &RuntimeEnv,
+    sudo_config: &SudoConfig,
+) -> Result<()> {
+    plan::run(request, elevate, runtime_env, sudo_config)
 }
 
 #[instrument(ret, level = "debug")]

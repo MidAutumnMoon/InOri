@@ -4,11 +4,12 @@
     reason = "App only, not published"
 )]
 
-pub mod args;
+mod app;
 pub mod clean;
+mod cli;
 pub mod command;
 pub mod diff;
-mod interface;
+mod nix_options;
 pub mod nixos;
 pub mod progress;
 pub mod remote;
@@ -19,13 +20,9 @@ pub mod util;
 
 use crate::command::ElevationStrategy;
 use crate::command::ElevationStrategyArg;
-use crate::command::SudoConfig;
-use crate::remote::SshConfig;
 use crate::runtime::RuntimeEnv;
 
 use ino_shell::{Shell, cmd};
-use nh_installable::FlakeConfig;
-use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
@@ -48,39 +45,6 @@ where
     .into()
 }
 
-/// All runtime configuration captured from the environment at startup.
-///
-/// Assembled once in `main()`, passed by reference to subcommands.
-/// Each subsystem receives only the slice it needs.
-struct RuntimeConfig {
-    process: RuntimeEnv,
-    sudo: SudoConfig,
-    flake: FlakeConfig,
-    ssh: SshConfig,
-}
-
-impl RuntimeConfig {
-    fn from_env(process: RuntimeEnv) -> Result<Self> {
-        let sudo = SudoConfig::from_env(&process)?;
-        let flake = FlakeConfig {
-            os_flake: process
-                .non_empty_var("NH_OS_FLAKE")
-                .map(str::to_owned),
-            flake: process.non_empty_var("NH_FLAKE").map(str::to_owned),
-            file: process.non_empty_var("NH_FILE").map(str::to_owned),
-            attrp: process.var("NH_ATTRP").unwrap_or_default().to_owned(),
-        };
-        let ssh = SshConfig::from_env(&process)?;
-
-        Ok(Self {
-            process,
-            sudo,
-            flake,
-            ssh,
-        })
-    }
-}
-
 /// Variant of the system Nix. Determinate Nix is not supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NixVariant {
@@ -99,12 +63,12 @@ fn main() -> rootcause::Result<()> {
         );
     }));
 
-    let mut args = interface::cli().run();
+    let mut args = cli::cli().run();
 
     // Capture environment-derived configuration once, after bpaf has handled
     // early exits such as --help and --version.
     let process = RuntimeEnv::capture()?;
-    let env = RuntimeConfig::from_env(process)?;
+    let env = app::RuntimeConfig::from_env(process)?;
 
     // Validate the Nix environment before dispatching the command.
     nix_variant()?;
@@ -141,7 +105,7 @@ fn main() -> rootcause::Result<()> {
         },
     );
 
-    args.command.run(&env, elevation)
+    app::run(args.command, &env, elevation)
 }
 
 fn nix_variant() -> rootcause::Result<NixVariant> {

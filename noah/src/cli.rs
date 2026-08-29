@@ -1,29 +1,94 @@
+use std::ffi::OsStr;
+
+use bpaf::Parser;
 use bpaf::construct;
 use bpaf::long;
-use bpaf::Parser;
+use bpaf::parsers::ParseFlag;
 
-use crate::Result;
-use crate::RuntimeConfig;
-use crate::clean::args::CleanProxy;
-use crate::clean::args::clean_cli;
-use crate::command::ElevationStrategy;
+use crate::clean::Request as CleanRequest;
+use crate::clean::clean_cli;
 use crate::command::ElevationStrategyArg;
-use crate::nixos::args::Generations;
-use crate::nixos::args::Rebuild;
-use crate::nixos::args::RebuildActivate;
-use crate::nixos::args::generations_cli;
-use crate::nixos::args::rebuild_activate_cli;
-use crate::nixos::args::rebuild_cli;
-use crate::nixos::args::repl_cli;
-use crate::nixos::args::rollback_cli;
-use crate::nixos::args::Rollback;
-use crate::nixos::args::Repl;
-use crate::search::args::Search;
-use crate::search::args::search_cli;
+use crate::nixos::{
+    GenerationsRequest, RebuildCommand, ReplRequest, RollbackRequest,
+    boot_cli, build_cli, generations_cli, repl_cli, rollback_cli,
+    switch_cli, test_cli,
+};
+use crate::search::Request as SearchRequest;
+use crate::search::search_cli;
+/// clap's boolish value table: `y`, `yes`, `t`, `true`, `on`, `1`
+/// (case-insensitive) are true, their counterparts are false, anything else
+/// fails.
+pub fn parse_boolish(value: &str) -> Option<bool> {
+    match value.to_lowercase().as_str() {
+        "y" | "yes" | "t" | "true" | "on" | "1" => Some(true),
+        "n" | "no" | "f" | "false" | "off" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// Environment fallback that mirrors clap's boolish value parsing.
+///
+/// Deliberately not bpaf's `switch().env(...)`: that treats any variable value
+/// as present, so `NH_ASK=false` would mean "ask".
+#[must_use]
+pub fn env_boolish(name: &'static str) -> impl Parser<bool> {
+    bpaf::pure(()).parse(move |()| -> std::result::Result<bool, String> {
+        std::env::var_os(name).map_or(Ok(false), |value| {
+            let value = value.to_string_lossy();
+            parse_boolish(&value).map_or_else(
+                || {
+                    Err(format!(
+                        "{name} is set to `{value}`, which is not a \
+                         boolean-like value"
+                    ))
+                },
+                Ok,
+            )
+        })
+    })
+}
+
+/// Environment fallback accepting only literal `true` and `false`, matching
+/// clap's default bool value parser.
+#[must_use]
+pub fn env_bool_strict(name: &'static str) -> impl Parser<bool> {
+    bpaf::pure(()).parse(move |()| -> std::result::Result<bool, String> {
+        match std::env::var_os(name) {
+            None => Ok(false),
+            Some(value) if value.as_os_str() == OsStr::new("true") => {
+                Ok(true)
+            }
+            Some(value) if value.as_os_str() == OsStr::new("false") => {
+                Ok(false)
+            }
+            Some(value) => Err(format!(
+                "{name} is set to `{}`, which is not `true` or `false`",
+                value.to_string_lossy()
+            )),
+        }
+    })
+}
+
+struct CliAndEnvBool {
+    cli: bool,
+    from_env: bool,
+}
+
+/// Combine a CLI switch with a boolean environment fallback; the CLI switch
+/// wins.
+#[must_use]
+pub fn switch_or_env(
+    flag: ParseFlag<bool>,
+    from_env: impl Parser<bool>,
+) -> impl Parser<bool> {
+    let cli = flag;
+    construct!(CliAndEnvBool { cli, from_env })
+        .map(|parsed| parsed.cli || parsed.from_env)
+}
 
 /// Yet another nix helper.
 #[derive(Debug)]
-pub struct Main {
+pub struct Cli {
     /// Choose the privilege elevation strategy.
     ///
     /// Can be a path to an elevation program (e.g., /usr/bin/sudo),
@@ -33,29 +98,23 @@ pub struct Main {
     /// elevation programs in order: doas, sudo, run0, pkexec).
     pub elevation_strategy: Option<ElevationStrategyArg>,
 
-    pub command: NHCommand,
+    pub command: CliCommand,
 }
 
 #[derive(Debug)]
-pub enum NHCommand {
-    /// Build and activate the new configuration, and make it the boot default.
-    Switch(RebuildActivate),
-    /// Build the new configuration and make it the boot default.
-    Boot(RebuildActivate),
-    /// Build and activate the new configuration.
-    Test(RebuildActivate),
-    /// Build the new configuration.
-    Build(Rebuild),
+pub enum CliCommand {
+    /// Build or activate a NixOS configuration.
+    Rebuild(Box<RebuildCommand>),
     /// Load system in a repl.
-    Repl(Repl),
+    Repl(ReplRequest),
     /// List available generations from profile path.
-    Info(Generations),
+    Info(GenerationsRequest),
     /// Rollback to a previous generation.
-    Rollback(Rollback),
+    Rollback(RollbackRequest),
     /// Searches packages or NixOS options via search.nixos.org.
-    Search(Search),
+    Search(SearchRequest),
     /// Enhanced nix cleanup.
-    Clean(CleanProxy),
+    Clean(CleanRequest),
 }
 
 /// CLI parser for the global `--elevation-strategy` flag.
@@ -83,62 +142,62 @@ fn elevation_cli() -> impl Parser<Option<ElevationStrategyArg>> {
 
 /// Assemble the full `nh` command line parser.
 #[must_use]
-pub fn cli() -> bpaf::OptionParser<Main> {
-    let switch = rebuild_activate_cli()
+pub fn cli() -> bpaf::OptionParser<Cli> {
+    let switch = switch_cli()
         .to_options()
         .descr(
             "Build and activate the new configuration, and make it the boot \
              default.",
         )
         .command("switch")
-        .map(NHCommand::Switch);
-    let boot = rebuild_activate_cli()
+        .map(|command| CliCommand::Rebuild(Box::new(command)));
+    let boot = boot_cli()
         .to_options()
         .descr("Build the new configuration and make it the boot default.")
         .command("boot")
-        .map(NHCommand::Boot);
-    let test = rebuild_activate_cli()
+        .map(|command| CliCommand::Rebuild(Box::new(command)));
+    let test = test_cli()
         .to_options()
         .descr("Build and activate the new configuration.")
         .command("test")
-        .map(NHCommand::Test);
-    let build = rebuild_cli()
+        .map(|command| CliCommand::Rebuild(Box::new(command)));
+    let build = build_cli()
         .to_options()
         .descr("Build the new configuration.")
         .command("build")
-        .map(NHCommand::Build);
+        .map(|command| CliCommand::Rebuild(Box::new(command)));
     let repl = repl_cli()
         .to_options()
         .descr("Load system in a repl.")
         .command("repl")
-        .map(NHCommand::Repl);
+        .map(CliCommand::Repl);
     let info = generations_cli()
         .to_options()
         .descr("List available generations from profile path.")
         .command("info")
-        .map(NHCommand::Info);
+        .map(CliCommand::Info);
     let rollback = rollback_cli()
         .to_options()
         .descr("Rollback to a previous generation.")
         .command("rollback")
-        .map(NHCommand::Rollback);
+        .map(CliCommand::Rollback);
     let search = search_cli()
         .to_options()
         .descr("Searches packages or NixOS options via search.nixos.org.")
         .command("search")
-        .map(NHCommand::Search);
+        .map(CliCommand::Search);
     let clean = clean_cli()
         .to_options()
         .descr("Enhanced nix cleanup.")
         .command("clean")
-        .map(NHCommand::Clean);
+        .map(CliCommand::Clean);
 
     let command = construct!([
         switch, boot, test, build, repl, info, rollback, search, clean
     ]);
 
     let elevation_strategy = elevation_cli();
-    construct!(Main {
+    construct!(Cli {
         elevation_strategy,
         command,
     })
@@ -147,73 +206,16 @@ pub fn cli() -> bpaf::OptionParser<Main> {
     .version(env!("CARGO_PKG_VERSION"))
 }
 
-impl NHCommand {
-    /// Run the selected subcommand.
-    pub fn run(
-        self,
-        env: &RuntimeConfig,
-        elevation: ElevationStrategy,
-    ) -> Result<()> {
-        use crate::nixos::ActivationAction::Boot;
-        use crate::nixos::ActivationAction::Switch;
-        use crate::nixos::ActivationAction::Test;
-
-        match self {
-            Self::Switch(args) => args.build_and_activate(
-                Switch,
-                elevation,
-                &env.process,
-                &env.sudo,
-                &env.flake,
-                &env.ssh,
-            ),
-            Self::Boot(args) => args.build_and_activate(
-                Boot,
-                elevation,
-                &env.process,
-                &env.sudo,
-                &env.flake,
-                &env.ssh,
-            ),
-            Self::Test(args) => args.build_and_activate(
-                Test,
-                elevation,
-                &env.process,
-                &env.sudo,
-                &env.flake,
-                &env.ssh,
-            ),
-            Self::Build(args) => {
-                if args.common.ask || args.common.dry {
-                    tracing::warn!(
-                        "`--ask` and `--dry` have no effect for `nh build`"
-                    );
-                }
-                args.build_only(&elevation, &env.flake, &env.ssh)
-            }
-            Self::Repl(args) => args.run(&env.process, &env.flake),
-            Self::Info(args) => args.info(),
-            Self::Rollback(args) => {
-                args.rollback(elevation, &env.process, &env.sudo)
-            }
-            Self::Search(args) => args.run(),
-            Self::Clean(proxy) => {
-                proxy.command.run(elevation, &env.process, &env.sudo)
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Test assertions")]
 mod tests {
     use bpaf::{Args, ParseFailure};
 
+    use super::CliCommand;
     use super::cli;
-    use super::NHCommand;
     use crate::command::ElevationStrategyArg;
 
-    fn parse(args: &[&str]) -> std::result::Result<super::Main, String> {
+    fn parse(args: &[&str]) -> std::result::Result<super::Cli, String> {
         let options = cli();
         options.check_invariants(false);
         options
@@ -223,13 +225,14 @@ mod tests {
 
     #[test]
     fn elevation_strategy_accepted_before_subcommand() {
-        let args = parse(&["--elevation-strategy", "none", "info"]).unwrap();
+        let args =
+            parse(&["--elevation-strategy", "none", "info"]).unwrap();
 
         assert!(matches!(
             args.elevation_strategy,
             Some(ElevationStrategyArg::None)
         ));
-        assert!(matches!(args.command, NHCommand::Info(_)));
+        assert!(matches!(args.command, CliCommand::Info(_)));
     }
 
     #[test]
@@ -246,7 +249,7 @@ mod tests {
             args.elevation_strategy,
             Some(ElevationStrategyArg::Passwordless)
         ));
-        assert!(matches!(args.command, NHCommand::Search(_)));
+        assert!(matches!(args.command, CliCommand::Search(_)));
     }
 
     #[test]
@@ -263,12 +266,13 @@ mod tests {
             args.elevation_strategy,
             Some(ElevationStrategyArg::Program(_))
         ));
-        assert!(matches!(args.command, NHCommand::Clean(_)));
+        assert!(matches!(args.command, CliCommand::Clean(_)));
     }
 
     #[test]
     fn elevation_strategy_deprecated_alias_works() {
-        let args = parse(&["--elevation-program", "auto", "info"]).unwrap();
+        let args =
+            parse(&["--elevation-program", "auto", "info"]).unwrap();
 
         assert!(matches!(
             args.elevation_strategy,

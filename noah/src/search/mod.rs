@@ -1,68 +1,59 @@
-pub mod args;
 mod backend;
+mod cli;
 mod query;
 mod render;
 mod types;
+pub(crate) use cli::search_cli;
 
 use std::time::Duration;
 
 use crate::search::{
-    args::{Search, SearchKind, SearchMode},
     backend::BackendConfig,
     types::{OptionSearchResult, PackageSearchResult},
 };
-use rootcause::{Result, bail};
+use rootcause::Result;
 use serde::Serialize;
 use tracing::{debug, trace};
 
 const CHANNEL: &str = "nixos-unstable";
 
-impl Search {
-    /// Execute the search subcommand.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no query is provided, if package-only flags are
-    /// passed to option search, or if the search request fails.
-    pub fn run(&self) -> Result<()> {
-        trace!("args: {self:?}");
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub target: Target,
+    pub query: Vec<String>,
+    pub limit: u64,
+    pub backend: BackendConfig,
+    pub json: bool,
+}
 
-        let (kind, query) = match &self.mode {
-            Some(SearchMode::Packages(args)) => {
-                (SearchKind::Packages, args.query.as_slice())
-            }
-            Some(SearchMode::Options(args)) => {
-                (SearchKind::Options, args.query.as_slice())
-            }
-            None => (self.default_search, self.query.as_slice()),
-        };
+#[derive(Clone, Debug)]
+pub enum Target {
+    Packages { platforms: bool },
+    Options,
+}
 
-        if query.is_empty() {
-            bail!(
-                "no query provided; try `nh search packages <query>`, `nh search \
-                 options <query>`, or `nh search --help`"
-            );
-        }
-        if matches!(kind, SearchKind::Options) && self.platforms {
-            bail!("--platforms only applies to package search");
-        }
-        let backend = BackendConfig {
-            version: self.backend_version,
-            fallbacks: self.backend_fallbacks,
-        };
+/// Execute a canonical search request.
+///
+/// # Errors
+///
+/// Returns an error if the search request fails.
+pub fn run(request: &Request) -> Result<()> {
+    trace!(?request);
 
-        match kind {
-            SearchKind::Packages => run_packages(
-                self.limit,
-                self.platforms,
-                self.json,
-                backend,
-                query,
-            ),
-            SearchKind::Options => {
-                run_options(self.limit, self.json, backend, query)
-            }
-        }
+    match request.target {
+        Target::Packages { platforms } => run_packages(
+            request.limit,
+            platforms,
+            request.json,
+            request.backend,
+            &request.query,
+        ),
+        Target::Options => run_options(
+            request.limit,
+            request.json,
+            request.backend,
+            &request.query,
+        ),
     }
 }
 

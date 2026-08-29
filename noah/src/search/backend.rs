@@ -16,7 +16,7 @@ const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const BUNDLED_BACKEND_VERSION: &str = include_str!("BACKEND_VERSION");
 
 /// Backend index version selection for a search request.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct BackendConfig {
     /// Index version to try first. `None` uses [`BUNDLED_BACKEND_VERSION`].
     pub version: Option<u32>,
