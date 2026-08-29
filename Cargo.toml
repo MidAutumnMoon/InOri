@@ -32,7 +32,6 @@ ino_path = { path = "./crates/ino_path" }
 ino_shell = { path = "./crates/ino_shell" }
 
 # Shared dependencies (InOri + Noah)
-anyhow = "1"
 assert_fs = "1"
 bpaf = { version = "0.9", features = [ "dull-color", "autocomplete" ] }
 clap = { version = "4", features = [ "cargo", "color", "derive", "env", "unstable-styles" ] }

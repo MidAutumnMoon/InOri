@@ -16,7 +16,7 @@ workspace = true
 ino_shell-macros = { path = "./ino_shell-macros" }
 
 [dev-dependencies]
-anyhow.workspace = true
+rootcause.workspace = true
 
 [[bin]]
 name = "xecho"

@@ -40,7 +40,7 @@
 //! ```no_run
 //! use ino_shell::{cmd, Shell};
 //!
-//! fn main() -> anyhow::Result<()> {
+//! fn main() -> rootcause::Result<()> {
 //!     let sh = Shell::new()?;
 //!
 //!     Ok(())
@@ -49,8 +49,8 @@
 //!
 //! Only two imports are needed -- the [`Shell`] struct the and [`cmd!`] macro. By convention, an
 //! instance of a [`Shell`] is stored in a variable named `sh`. All the API is available as methods,
-//! so a short name helps here. For "scripts", the [`anyhow`](https://docs.rs/anyhow) crate is a
-//! great choice for an error-handling library.
+//! so a short name helps here. For "scripts", the [`rootcause`](https://docs.rs/rootcause) crate
+//! is a great choice for an error-handling library.
 //!
 //! Next, clone the repository:
 //!
@@ -161,10 +161,10 @@
 //!     .split_once("version = \"")
 //!     .and_then(|it| it.1.split_once('\"'))
 //!     .map(|it| it.0)
-//!     .ok_or_else(|| anyhow::format_err!("can't find version field in the manifest"))?;
+//!     .ok_or_else(|| rootcause::report!("can't find version field in the manifest"))?;
 //!
 //! cmd!(sh, "git tag {version}").run_echo()?;
-//! # Ok::<(), anyhow::Error>(())
+//! # Ok::<(), rootcause::Report>(())
 //! ```
 //!
 //! The splat (`...`) syntax works with any iterable, and in Rust options are iterable. This means
@@ -183,7 +183,7 @@
 //! ```no_run
 //! use ino_shell::{cmd, Shell};
 //!
-//! fn main() -> anyhow::Result<()> {
+//! fn main() -> rootcause::Result<()> {
 //!     let mut sh = Shell::new()?;
 //!
 //!     let user = "matklad";
@@ -199,7 +199,7 @@
 //!         .split_once("version = \"")
 //!         .and_then(|it| it.1.split_once('\"'))
 //!         .map(|it| it.0)
-//!         .ok_or_else(|| anyhow::format_err!("can't find version field in the manifest"))?;
+//!         .ok_or_else(|| rootcause::report!("can't find version field in the manifest"))?;
 //!
 //!     cmd!(sh, "git tag {version}").run_echo()?;
 //!

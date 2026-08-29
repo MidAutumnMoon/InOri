@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use rootcause::Result;
 use ino_shell::{Shell, cmd};
 
 fn main() -> Result<()> {
