@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     ffi::{OsStr, OsString},
@@ -18,49 +19,6 @@ use which::which_in;
 
 use crate::nix_options::NixBuildOptions;
 use crate::runtime::RuntimeEnv;
-
-/// Privilege-elevation configuration captured from environment variables.
-///
-/// Parsed once in `main()` from [`RuntimeEnv`] and passed by reference.
-#[derive(Debug, Clone)]
-pub struct SudoConfig {
-    /// `NH_SUDOOPTS` (preferred) or `NIX_SUDOOPTS` (legacy), shell-split.
-    pub opts: Vec<String>,
-    /// `NH_SUDO_ASKPASS` — path to askpass helper.
-    pub askpass: Option<String>,
-    /// `NH_PRESERVE_ENV` — defaults to `true` when unset; `false` when "0".
-    pub preserve_env: bool,
-}
-
-impl Default for SudoConfig {
-    fn default() -> Self {
-        Self {
-            opts: Vec::new(),
-            askpass: None,
-            preserve_env: true,
-        }
-    }
-}
-
-impl SudoConfig {
-    /// Parse privilege-elevation settings from a startup environment snapshot.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the selected sudo options contain unmatched shell
-    /// quoting.
-    pub fn from_env(env: &RuntimeEnv) -> Result<Self> {
-        Ok(Self {
-            opts: env.shell_words("NH_SUDOOPTS", "NIX_SUDOOPTS")?,
-            askpass: env
-                .non_empty_var("NH_SUDO_ASKPASS")
-                .map(str::to_owned),
-            preserve_env: env
-                .var("NH_PRESERVE_ENV")
-                .is_none_or(|value| value != "0"),
-        })
-    }
-}
 
 struct CaptureWriter<W> {
     stream: W,
@@ -141,13 +99,16 @@ pub fn exec_with_streaming(
     Ok((status, stdout.into_string(), stderr.into_string()))
 }
 
-/// Strategy argument for handling privilege elevation when running commands.
+/// Strategy for handling privilege elevation when running commands.
 ///
 /// Defines how `nh` should handle privilege elevation for commands
 /// that require root access (e.g., `switch-to-configuration`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ElevationStrategyArg {
-    /// No elevation - commands run without privilege escalation.
+pub enum ElevationStrategy {
+    /// Do not use any elevation program. Commands run without privilege
+    /// escalation. This will fail for commands requiring root unless the user
+    /// is already root or the system has other privilege mechanisms
+    /// configured.
     None,
 
     /// Automatically detect and use the first available elevation program
@@ -155,15 +116,18 @@ pub enum ElevationStrategyArg {
     /// available.
     Auto,
 
-    /// Use elevation program but skip password prompting for remote hosts with
-    /// NOPASSWD configured.
+    /// Use elevation program but skip password prompting. For remote hosts
+    /// with passwordless sudo (NOPASSWD in sudoers) or similar
+    /// configurations. The elevation command runs without `--stdin` or
+    /// password input.
     Passwordless,
 
-    /// Use the specified elevation program.
+    /// Use the specified elevation program, falling back to `Auto` detection
+    /// when it is not found.
     Program(PathBuf),
 }
 
-impl From<&str> for ElevationStrategyArg {
+impl From<&str> for ElevationStrategy {
     fn from(value: &str) -> Self {
         match value {
             "none" => Self::None,
@@ -176,7 +140,7 @@ impl From<&str> for ElevationStrategyArg {
     }
 }
 
-impl FromStr for ElevationStrategyArg {
+impl FromStr for ElevationStrategy {
     type Err = Infallible;
 
     fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
@@ -184,76 +148,152 @@ impl FromStr for ElevationStrategyArg {
     }
 }
 
-/// Strategy for handling privilege elevation at runtime.
+/// Privilege-elevation policy for a run, captured once at startup.
 ///
-/// This enum defines how `nh` should handle privilege elevation for commands
-/// that require root access (e.g., `switch-to-configuration`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ElevationStrategy {
-    /// Automatically detect and use the first available elevation program
-    /// (tries doas -> sudo -> run0 -> pkexec in order). Uses askpass helper if
-    /// available.
-    Auto,
-
-    /// Try the specified elevation program first, fall back to `Auto` if not
-    /// found. Corresponds to CLI argument that is a path.
-    Prefer(PathBuf),
-
-    /// Do not use any elevation program. Commands run without privilege
-    /// escalation. This will fail for commands requiring root unless the user is
-    /// already root or the system has other privilege mechanisms configured.
-    None,
-
-    /// Use elevation program but skip password prompting. For remote hosts with
-    /// passwordless sudo (NOPASSWD in sudoers) or similar configurations. The
-    /// elevation command runs without `--stdin` or password input.
-    Passwordless,
+/// Combines the chosen [`ElevationStrategy`] with the sudo-related
+/// environment (`NH_SUDOOPTS`, `NH_SUDO_ASKPASS`, `NH_PRESERVE_ENV`). The
+/// elevation program is resolved against `PATH` on first use and cached, so
+/// a single run consistently uses one program.
+#[derive(Debug)]
+pub struct Elevation {
+    strategy: ElevationStrategy,
+    /// `NH_SUDOOPTS` (preferred) or `NIX_SUDOOPTS` (legacy), shell-split.
+    opts: Vec<String>,
+    /// `NH_SUDO_ASKPASS` — path to askpass helper.
+    askpass: Option<String>,
+    /// `NH_PRESERVE_ENV` — defaults to `true` when unset; `false` when "0".
+    preserve_env: bool,
+    /// Resolved elevation program, filled on first use.
+    program: OnceCell<PathBuf>,
 }
 
-impl ElevationStrategy {
-    /// Resolves the elevation strategy to an actual program path.
+impl Elevation {
+    /// Build the elevation policy from the CLI strategy and a startup
+    /// environment snapshot.
     ///
-    /// Attempts to find an appropriate privilege elevation program based on the
-    /// strategy variant and system availability.
+    /// Falls back to the deprecated `NH_ELEVATION_PROGRAM` variable when no
+    /// strategy was given.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// Returns `Ok(PathBuf)` containing the path to the elevation program binary.
+    /// Returns an error if the selected sudo options contain unmatched shell
+    /// quoting.
+    pub fn new(
+        strategy: Option<ElevationStrategy>,
+        env: &RuntimeEnv,
+    ) -> Result<Self> {
+        let strategy = Self::chosen(strategy, env);
+
+        Ok(Self {
+            strategy,
+            opts: env.shell_words("NH_SUDOOPTS", "NIX_SUDOOPTS")?,
+            askpass: env.non_empty_var("NH_SUDO_ASKPASS").map(str::to_owned),
+            preserve_env: env
+                .var("NH_PRESERVE_ENV")
+                .is_none_or(|value| value != "0"),
+            program: OnceCell::new(),
+        })
+    }
+
+    /// Resolve the CLI strategy to a policy, falling back to the deprecated
+    /// `NH_ELEVATION_PROGRAM` variable, then to auto-detection.
+    fn chosen(
+        strategy: Option<ElevationStrategy>,
+        env: &RuntimeEnv,
+    ) -> ElevationStrategy {
+        if let Some(strategy) = strategy {
+            return strategy;
+        }
+
+        env.non_empty_var("NH_ELEVATION_PROGRAM")
+            .map_or(ElevationStrategy::Auto, |old_value| {
+                // TODO: Remove this fallback in a future version
+                warn!(
+                    "NH_ELEVATION_PROGRAM is deprecated, use \
+                     NH_ELEVATION_STRATEGY instead. Falling back to \
+                     NH_ELEVATION_PROGRAM for backward compatibility. \
+                     Accepted values: none, passwordless, program:<path>"
+                );
+                ElevationStrategy::from(old_value)
+            })
+    }
+
+    /// Whether elevation is disabled via `--elevation-strategy=none`.
+    #[must_use]
+    pub const fn is_disabled(&self) -> bool {
+        matches!(self.strategy, ElevationStrategy::None)
+    }
+
+    /// Whether the elevation program should run without password prompting.
+    #[must_use]
+    pub const fn is_passwordless(&self) -> bool {
+        matches!(self.strategy, ElevationStrategy::Passwordless)
+    }
+
+    /// Extra options to pass to `sudo`.
+    #[must_use]
+    pub fn sudo_opts(&self) -> &[String] {
+        &self.opts
+    }
+
+    /// Path to the elevation program, resolved on first use and cached for
+    /// the rest of the process.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the strategy is `None` or no elevation program is
+    /// installed.
+    pub fn program(&self, env: &RuntimeEnv) -> Result<PathBuf> {
+        if let Some(path) = self.program.get() {
+            return Ok(path.clone());
+        }
+
+        let path = self.resolve(env)?;
+        if let Err(first) = self.program.set(path.clone()) {
+            // Another resolution already stored a program; keep the first one.
+            return Ok(first);
+        }
+        Ok(path)
+    }
+
+    /// Resolve the strategy to an actual elevation program path.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// - `None` variant: Always fails (elevation is disabled via
-    ///   `--elevation-strategy=none`)
-    /// - Other variants: No suitable elevation programs are available on the
+    /// - [`ElevationStrategy::None`]: elevation is disabled via
+    ///   `--elevation-strategy=none`
+    /// - Other variants: no suitable elevation programs are available on the
     ///   system
-    pub fn resolve(&self, runtime_env: &RuntimeEnv) -> Result<PathBuf> {
-        match self {
-            Self::Auto | Self::Passwordless => Self::choice(runtime_env),
-            Self::Prefer(program) => {
-                Self::find(program, runtime_env).or_else(|_| {
+    fn resolve(&self, env: &RuntimeEnv) -> Result<PathBuf> {
+        match &self.strategy {
+            ElevationStrategy::Auto | ElevationStrategy::Passwordless => {
+                Self::choice(env)
+            }
+            ElevationStrategy::Program(program) => {
+                Self::find(program, env).or_else(|_| {
                     warn!(
                         ?program,
-                        "Preferred elevation program not found, falling back to \
-                         auto-detection"
+                        "Preferred elevation program not found, falling back \
+                         to auto-detection"
                     );
-                    Self::choice(runtime_env)
+                    Self::choice(env)
                 })
             }
-            Self::None => {
+            ElevationStrategy::None => {
                 bail!("Elevation disabled via --elevation-strategy=none")
             }
         }
     }
 
-    /// Gets a path to a privilege elevation program based on what is available in
-    /// the system.
+    /// Gets a path to a privilege elevation program based on what is available
+    /// in the system.
     ///
-    /// This funtion checks for the existence of common privilege elevation
+    /// This function checks for the existence of common privilege elevation
     /// program names in the `PATH` using the `which` crate and returns a Ok
-    /// result with the `OsString` of the path to the binary. In the case none
-    /// of the checked programs are found a Err result is returned.
+    /// result with the path to the binary. In the case none of the checked
+    /// programs are found a Err result is returned.
     ///
     /// The search is done in this order:
     ///
@@ -268,15 +308,14 @@ impl ElevationStrategy {
     /// support installed, so they have been placed lower as it's easier to
     /// deactivate sudo than it is to remove `run0`/`pkexec`.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// * `Result<PathBuf>` - The absolute path to the privilege elevation program
-    ///   binary or an error if a program can't be found.
-    fn choice(runtime_env: &RuntimeEnv) -> Result<PathBuf> {
+    /// Returns an error if no elevation program can be found.
+    fn choice(env: &RuntimeEnv) -> Result<PathBuf> {
         const STRATEGIES: [&str; 4] = ["doas", "sudo", "run0", "pkexec"];
 
         for strategy in STRATEGIES {
-            if let Ok(path) = Self::find(strategy, runtime_env) {
+            if let Ok(path) = Self::find(strategy, env) {
                 debug!(?path, "{strategy} path found");
                 return Ok(path);
             }
@@ -290,10 +329,10 @@ impl ElevationStrategy {
 
     fn find(
         program: impl AsRef<OsStr>,
-        runtime_env: &RuntimeEnv,
+        env: &RuntimeEnv,
     ) -> which::Result<PathBuf> {
-        let path = runtime_env.var_os("PATH").unwrap_or_default();
-        which_in(program, Some(path), runtime_env.current_dir())
+        let path = env.var_os("PATH").unwrap_or_default();
+        which_in(program, Some(path), env.current_dir())
     }
 }
 
@@ -309,37 +348,37 @@ pub struct Command<'env> {
     message: Option<String>,
     program: OsString,
     args: Vec<OsString>,
-    elevate: Option<ElevationStrategy>,
+    elevate: bool,
     show_output: bool,
     preserved_env: BTreeSet<String>,
     env_overrides: BTreeMap<String, String>,
     runtime_env: &'env RuntimeEnv,
-    sudo_config: &'env SudoConfig,
+    elevation: &'env Elevation,
 }
 
 impl<'env> Command<'env> {
     pub fn new(
         command: impl AsRef<OsStr>,
         runtime_env: &'env RuntimeEnv,
-        sudo_config: &'env SudoConfig,
+        elevation: &'env Elevation,
     ) -> Self {
         Self {
             dry: false,
             message: None,
             program: command.as_ref().to_os_string(),
             args: vec![],
-            elevate: None,
+            elevate: false,
             show_output: false,
             preserved_env: BTreeSet::new(),
             env_overrides: BTreeMap::new(),
             runtime_env,
-            sudo_config,
+            elevation,
         }
     }
 
     /// Set whether to run the command with elevated privileges.
     #[must_use]
-    pub fn elevate(mut self, elevate: Option<ElevationStrategy>) -> Self {
+    pub const fn elevate(mut self, elevate: bool) -> Self {
         self.elevate = elevate;
         self
     }
@@ -420,7 +459,7 @@ impl<'env> Command<'env> {
             if let Some(user) = self.runtime_env.var("USER") {
                 vars.push(("USER", user));
             }
-            if self.sudo_config.preserve_env {
+            if self.elevation.preserve_env {
                 for (key, value) in self.runtime_env.nix_child_env() {
                     vars.push((key, value));
                 }
@@ -431,7 +470,7 @@ impl<'env> Command<'env> {
             }
         }
 
-        if !elevated || self.sudo_config.preserve_env {
+        if !elevated || self.elevation.preserve_env {
             for key in &self.preserved_env {
                 if let Some(value) = self.runtime_env.var(key) {
                     vars.push((key, value));
@@ -455,11 +494,9 @@ impl<'env> Command<'env> {
     }
 
     fn elevation_parts(&self) -> Result<ElevationParts<'_>> {
-        let strategy = self.elevate.as_ref().ok_or_else(|| {
-            report!("Command is not configured for elevation")
-        })?;
-        let program = strategy
-            .resolve(self.runtime_env)
+        let program = self
+            .elevation
+            .program(self.runtime_env)
             .context("Failed to resolve elevation program")?;
         let program_name = program
             .file_name()
@@ -467,20 +504,19 @@ impl<'env> Command<'env> {
             .ok_or_else(|| {
                 report!("Failed to determine elevation program name")
             })?;
-        let passwordless =
-            matches!(strategy, ElevationStrategy::Passwordless);
+        let passwordless = self.elevation.is_passwordless();
         let mut args = Vec::new();
         let mut askpass = None;
 
         if program_name == "sudo" {
             if !passwordless
                 && let Some(configured_askpass) =
-                    self.sudo_config.askpass.as_deref()
+                    self.elevation.askpass.as_deref()
             {
                 args.push(OsString::from("-A"));
                 askpass = Some(configured_askpass);
             }
-            args.extend(self.sudo_config.opts.iter().map(OsString::from));
+            args.extend(self.elevation.opts.iter().map(OsString::from));
         } else if program_name == "run0" {
             // Without a private PTY, run0 can transfer ownership of the
             // caller's terminal to root.
@@ -518,13 +554,12 @@ impl<'env> Command<'env> {
     ///
     /// Returns an error if the elevation program cannot be resolved.
     pub fn self_elevate_cmd(
-        strategy: ElevationStrategy,
+        elevation: &'env Elevation,
         runtime_env: &'env RuntimeEnv,
-        sudo_config: &'env SudoConfig,
     ) -> Result<std::process::Command> {
         let builder =
-            Self::new(runtime_env.executable(), runtime_env, sudo_config)
-                .elevate(Some(strategy))
+            Self::new(runtime_env.executable(), runtime_env, elevation)
+                .elevate(true)
                 // `clean all` is the only self-elevating path and NH_ASK is its only
                 // environment-backed option not already represented in argv.
                 .preserve_envs(["NH_ASK"]);
@@ -547,7 +582,7 @@ impl<'env> Command<'env> {
     /// Returns an error if the command fails to execute or returns a non-zero
     /// exit status.
     pub fn run(&self) -> Result<()> {
-        let cmd = if self.elevate.is_some() {
+        let cmd = if self.elevate {
             self.build_sudo_cmd()?.arg(&self.program).args(&self.args)
         } else {
             self.apply_env_to_exec(
@@ -765,8 +800,9 @@ mod tests {
             ("NIX_CONFIG", "experimental-features = nix-command flakes"),
             ("NH_FLAKE", "/configuration"),
         ]);
-        let sudo = SudoConfig::default();
-        let command = Command::new("true", &runtime, &sudo);
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+        let command = Command::new("true", &runtime, &elevation);
 
         let env = environment(&command, false);
         assert_eq!(env.get("USER").map(String::as_str), Some("teapot"));
@@ -789,12 +825,11 @@ mod tests {
             ("HOME", "/home/teapot"),
             ("PATH", "/bin"),
             ("NIXOS_NO_CHECK", "1"),
+            ("NH_PRESERVE_ENV", "0"),
         ]);
-        let sudo = SudoConfig {
-            preserve_env: false,
-            ..SudoConfig::default()
-        };
-        let command = Command::new("true", &runtime, &sudo)
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+        let command = Command::new("true", &runtime, &elevation)
             .preserve_envs(["NIXOS_NO_CHECK"])
             .set_env("NIXOS_INSTALL_BOOTLOADER", "1");
 
@@ -812,8 +847,9 @@ mod tests {
     #[test]
     fn explicit_environment_override_wins_over_captured_value() {
         let runtime = RuntimeEnv::from_pairs([("NIXOS_NO_CHECK", "0")]);
-        let sudo = SudoConfig::default();
-        let command = Command::new("true", &runtime, &sudo)
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+        let command = Command::new("true", &runtime, &elevation)
             .preserve_envs(["NIXOS_NO_CHECK"])
             .set_env("NIXOS_NO_CHECK", "1");
 
@@ -825,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn sudo_configuration_uses_preferred_shell_words() {
+    fn elevation_configuration_uses_preferred_shell_words() {
         let runtime = RuntimeEnv::from_pairs([
             ("NH_SUDOOPTS", "--preserve-env='NIX_CONFIG NIX_PATH'"),
             ("NIX_SUDOOPTS", "--legacy"),
@@ -833,10 +869,33 @@ mod tests {
             ("NH_PRESERVE_ENV", "0"),
         ]);
 
-        let config = SudoConfig::from_env(&runtime).unwrap();
-        assert_eq!(config.opts, ["--preserve-env=NIX_CONFIG NIX_PATH"]);
-        assert_eq!(config.askpass.as_deref(), Some("/bin/askpass"));
-        assert!(!config.preserve_env);
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+        assert_eq!(
+            elevation.sudo_opts(),
+            ["--preserve-env=NIX_CONFIG NIX_PATH"]
+        );
+        assert_eq!(elevation.askpass.as_deref(), Some("/bin/askpass"));
+        assert!(!elevation.preserve_env);
+    }
+
+    #[test]
+    fn disabled_elevation_fails_to_resolve() {
+        let runtime = RuntimeEnv::from_pairs([("PATH", "/nonexistent")]);
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::None), &runtime).unwrap();
+
+        let error = elevation.program(&runtime).unwrap_err();
+        assert!(error.to_string().contains("Elevation disabled"));
+    }
+
+    #[test]
+    fn deprecated_env_var_fallback_selects_strategy() {
+        let runtime =
+            RuntimeEnv::from_pairs([("NH_ELEVATION_PROGRAM", "none")]);
+        let elevation = Elevation::new(None, &runtime).unwrap();
+
+        assert!(elevation.is_disabled());
     }
 
     #[cfg(unix)]
@@ -861,8 +920,9 @@ mod tests {
     #[test]
     fn command_failure_includes_captured_stderr() {
         let runtime = RuntimeEnv::from_pairs([("IGNORED", "")]);
-        let sudo = SudoConfig::default();
-        let error = Command::new("/bin/sh", &runtime, &sudo)
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &runtime).unwrap();
+        let error = Command::new("/bin/sh", &runtime, &elevation)
             .args(["-c", "printf failure >&2; exit 7"])
             .run()
             .unwrap_err();
@@ -875,11 +935,11 @@ mod tests {
     #[test]
     fn elevation_program_prefix_is_parsed() {
         let parsed = "program:/path/to/bin"
-            .parse::<ElevationStrategyArg>()
+            .parse::<ElevationStrategy>()
             .unwrap();
         assert_eq!(
             parsed,
-            ElevationStrategyArg::Program(PathBuf::from("/path/to/bin"))
+            ElevationStrategy::Program(PathBuf::from("/path/to/bin"))
         );
     }
 }

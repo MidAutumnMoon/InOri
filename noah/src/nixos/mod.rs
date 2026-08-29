@@ -21,10 +21,8 @@ use std::fs;
 use tracing::warn;
 
 use self::request::SpecialisationSelection;
-use crate::command;
-use crate::command::ElevationStrategy;
-use crate::command::SudoConfig;
-use crate::remote::SshConfig;
+use crate::app::RuntimeConfig;
+use crate::command::Elevation;
 use crate::runtime::RuntimeEnv;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -61,8 +59,8 @@ fn missing_switch_to_configuration_error() -> rootcause::Report {
 /// Checks if the current user is root and returns whether elevation is needed.
 ///
 /// Returns `true` if elevation is required (not root and `bypass_root_check` is
-/// false). Returns `false` if elevation is not required (root or
-/// `bypass_root_check` is true).
+/// false). Returns `false` if elevation is not required (root,
+/// `bypass_root_check` is true, or elevation is disabled).
 ///
 /// # Arguments
 ///
@@ -75,12 +73,14 @@ fn missing_switch_to_configuration_error() -> rootcause::Report {
 /// as `nh os` subcommands should not be run directly as root.
 fn has_elevation_status(
     bypass_root_check: bool,
-    elevation: &command::ElevationStrategy,
+    elevation: &Elevation,
 ) -> Result<bool> {
     use nix::unistd::Uid;
 
-    // If elevation strategy is None, never elevate
-    if matches!(elevation, command::ElevationStrategy::None) {
+    // If elevation is disabled, never elevate. This also skips the root
+    // guard: with elevation disabled there is nothing to escalate, so
+    // running as root is legitimate.
+    if elevation.is_disabled() {
         return Ok(false);
     }
 
@@ -103,31 +103,12 @@ fn has_elevation_status(
     Ok(!is_root)
 }
 
-pub fn run_rebuild(
-    command: RebuildCommand,
-    elevation: ElevationStrategy,
-    runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
-    flake_config: &FlakeConfig,
-    ssh_config: &SshConfig,
-) -> Result<()> {
-    rebuild::run(
-        command,
-        elevation,
-        runtime_env,
-        sudo_config,
-        flake_config,
-        ssh_config,
-    )
+pub fn run_rebuild(command: RebuildCommand, env: &RuntimeConfig) -> Result<()> {
+    rebuild::run(command, env)
 }
 
-pub fn run_rollback(
-    request: RollbackRequest,
-    elevation: ElevationStrategy,
-    runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
-) -> Result<()> {
-    rollback::run(request, elevation, runtime_env, sudo_config)
+pub fn run_rollback(request: RollbackRequest, env: &RuntimeConfig) -> Result<()> {
+    rollback::run(request, env)
 }
 
 pub fn run_repl(

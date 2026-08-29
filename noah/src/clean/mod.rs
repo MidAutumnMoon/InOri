@@ -19,9 +19,7 @@ use tracing::info;
 use tracing::instrument;
 use tracing::warn;
 
-use crate::command::ElevationStrategy;
-use crate::command::SudoConfig;
-use crate::runtime::RuntimeEnv;
+use crate::app::RuntimeConfig;
 #[derive(Debug, Clone)]
 pub struct Request {
     pub scope: Scope,
@@ -125,13 +123,8 @@ where
 /// # Errors
 ///
 /// Returns an error if any IO, Nix, or environment operation fails.
-pub fn run(
-    request: &Request,
-    elevate: ElevationStrategy,
-    runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
-) -> Result<()> {
-    plan::run(request, elevate, runtime_env, sudo_config)
+pub fn run(request: &Request, env: &RuntimeConfig) -> Result<()> {
+    plan::run(request, env)
 }
 
 #[instrument(ret, level = "debug")]

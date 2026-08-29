@@ -17,8 +17,6 @@ mod search;
 mod update;
 mod util;
 
-use crate::command::ElevationStrategy;
-use crate::command::ElevationStrategyArg;
 use crate::runtime::RuntimeEnv;
 
 use ino_shell::{Shell, cmd};
@@ -54,49 +52,21 @@ pub enum NixVariant {
 fn main() -> rootcause::Result<()> {
     let _log_guard = ino_tracing::init_tracing_subscriber();
 
-    let mut args = cli::cli().run();
-
-    // Capture environment-derived configuration once, after bpaf has handled
-    // early exits such as --help and --version.
-    let process = RuntimeEnv::capture()?;
-    let env = app::RuntimeConfig::from_env(process)?;
-
-    // Validate the Nix environment before dispatching the command.
-    nix_variant()?;
-
-    // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
-    // NH_ELEVATION_STRATEGY is not set.
-    // TODO: Remove this fallback in a future version
-    if args.elevation_strategy.is_none()
-        && let Some(old_value) =
-            env.process.non_empty_var("NH_ELEVATION_PROGRAM")
-    {
-        tracing::warn!(
-            "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
-            Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
-            Accepted values: none, passwordless, program:<path>"
-        );
-        args.elevation_strategy = Some(old_value.into());
-    }
+    let args = cli::cli().run();
 
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
 
-    let elevation = args.elevation_strategy.as_ref().map_or(
-        ElevationStrategy::Auto,
-        |arg| match arg {
-            ElevationStrategyArg::Auto => ElevationStrategy::Auto,
-            ElevationStrategyArg::None => ElevationStrategy::None,
-            ElevationStrategyArg::Passwordless => {
-                ElevationStrategy::Passwordless
-            }
-            ElevationStrategyArg::Program(path) => {
-                ElevationStrategy::Prefer(path.clone())
-            }
-        },
-    );
+    // Capture environment-derived configuration once, after bpaf has handled
+    // early exits such as --help and --version.
+    let process = RuntimeEnv::capture()?;
+    let env =
+        app::RuntimeConfig::from_env(process, args.elevation_strategy)?;
 
-    app::run(args.command, &env, elevation)
+    // Validate the Nix environment before dispatching the command.
+    nix_variant()?;
+
+    app::run(args.command, &env)
 }
 
 fn nix_variant() -> rootcause::Result<NixVariant> {

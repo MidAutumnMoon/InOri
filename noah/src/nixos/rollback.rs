@@ -10,9 +10,9 @@ use super::{
     CURRENT_PROFILE, SYSTEM_PROFILE, generations, has_elevation_status,
     missing_switch_to_configuration_error, resolve_specialisation,
 };
-use crate::command::{Command, ElevationStrategy, SudoConfig};
+use crate::app::RuntimeConfig;
+use crate::command::Command;
 use crate::diff::{Mode as DiffMode, print_dix_report};
-use crate::runtime::RuntimeEnv;
 struct Rollback(ParsedRollbackRequest);
 
 impl Deref for Rollback {
@@ -23,13 +23,8 @@ impl Deref for Rollback {
     }
 }
 
-pub(super) fn run(
-    request: ParsedRollbackRequest,
-    elevation: ElevationStrategy,
-    runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
-) -> Result<()> {
-    Rollback(request).rollback(elevation, runtime_env, sudo_config)
+pub(super) fn run(request: ParsedRollbackRequest, env: &RuntimeConfig) -> Result<()> {
+    Rollback(request).rollback(env)
 }
 
 impl Rollback {
@@ -37,14 +32,9 @@ impl Rollback {
         clippy::too_many_lines,
         reason = "linear rollback flow whose errors carry their own context"
     )]
-    fn rollback(
-        &self,
-        elevation: ElevationStrategy,
-        runtime_env: &RuntimeEnv,
-        sudo_config: &SudoConfig,
-    ) -> Result<()> {
+    fn rollback(&self, env: &RuntimeConfig) -> Result<()> {
         let elevate =
-            has_elevation_status(self.bypass_root_check, &elevation)?;
+            has_elevation_status(self.bypass_root_check, &env.elevation)?;
 
         let generations = list_generations()?;
 
@@ -126,11 +116,11 @@ impl Rollback {
         info!("Setting system profile...");
 
         // Instead of direct symlink operations, use a command with proper elevation
-        Command::new("ln", runtime_env, sudo_config)
+        Command::new("ln", &env.process, &env.elevation)
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
             .arg(SYSTEM_PROFILE)
-            .elevate(elevate.then_some(elevation.clone()))
+            .elevate(elevate)
             .message("Setting system profile")
             .run()
             .context("Failed to set system profile during rollback")?;
@@ -168,11 +158,11 @@ impl Rollback {
 
         match Command::new(
             &switch_to_configuration,
-            runtime_env,
-            sudo_config,
+            &env.process,
+            &env.elevation,
         )
         .arg("switch")
-        .elevate(elevate.then_some(elevation.clone()))
+        .elevate(elevate)
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
         .run()
         {
@@ -190,11 +180,11 @@ impl Rollback {
                         current_generation.number
                     ));
 
-                    Command::new("ln", runtime_env, sudo_config)
+                    Command::new("ln", &env.process, &env.elevation)
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
                         .arg(SYSTEM_PROFILE)
-                        .elevate(elevate.then_some(elevation))
+                        .elevate(elevate)
                         .message("Rolling back system profile")
                         .run()
                         .context("NixOS: Failed to restore previous system profile after failed activation")?;

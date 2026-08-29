@@ -3,8 +3,8 @@ use rootcause::Result;
 
 use crate::clean;
 use crate::cli::CliCommand;
+use crate::command::Elevation;
 use crate::command::ElevationStrategy;
-use crate::command::SudoConfig;
 use crate::nixos;
 use crate::remote::SshConfig;
 use crate::runtime::RuntimeEnv;
@@ -13,14 +13,17 @@ use crate::search;
 /// Runtime configuration captured once after CLI parsing.
 pub struct RuntimeConfig {
     pub process: RuntimeEnv,
-    pub sudo: SudoConfig,
+    pub elevation: Elevation,
     pub flake: FlakeConfig,
     pub ssh: SshConfig,
 }
 
 impl RuntimeConfig {
-    pub fn from_env(process: RuntimeEnv) -> Result<Self> {
-        let sudo = SudoConfig::from_env(&process)?;
+    pub fn from_env(
+        process: RuntimeEnv,
+        elevation_strategy: Option<ElevationStrategy>,
+    ) -> Result<Self> {
+        let elevation = Elevation::new(elevation_strategy, &process)?;
         let flake = FlakeConfig {
             os_flake: process
                 .non_empty_var("NH_OS_FLAKE")
@@ -33,7 +36,7 @@ impl RuntimeConfig {
 
         Ok(Self {
             process,
-            sudo,
+            elevation,
             flake,
             ssh,
         })
@@ -41,33 +44,15 @@ impl RuntimeConfig {
 }
 
 /// Execute a parsed CLI command with explicit runtime dependencies.
-pub fn run(
-    command: CliCommand,
-    env: &RuntimeConfig,
-    elevation: ElevationStrategy,
-) -> Result<()> {
+pub fn run(command: CliCommand, env: &RuntimeConfig) -> Result<()> {
     match command {
-        CliCommand::Rebuild(command) => nixos::run_rebuild(
-            *command,
-            elevation,
-            &env.process,
-            &env.sudo,
-            &env.flake,
-            &env.ssh,
-        ),
+        CliCommand::Rebuild(command) => nixos::run_rebuild(*command, env),
         CliCommand::Repl(request) => {
             nixos::run_repl(request, &env.process, &env.flake)
         }
         CliCommand::Info(request) => nixos::run_info(&request),
-        CliCommand::Rollback(request) => nixos::run_rollback(
-            request,
-            elevation,
-            &env.process,
-            &env.sudo,
-        ),
+        CliCommand::Rollback(request) => nixos::run_rollback(request, env),
         CliCommand::Search(request) => search::run(&request),
-        CliCommand::Clean(request) => {
-            clean::run(&request, elevation, &env.process, &env.sudo)
-        }
+        CliCommand::Clean(request) => clean::run(&request, env),
     }
 }

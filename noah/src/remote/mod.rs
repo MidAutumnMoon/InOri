@@ -10,8 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, atomic::Ordering};
 use std::time::Duration;
 
-use crate::command::ElevationStrategy;
-use crate::command::SudoConfig;
+use crate::command::Elevation;
 use crate::runtime::RuntimeEnv;
 use nh_installable::Installable;
 use nix_command::CommandKind;
@@ -126,10 +125,10 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// Builds a remote command string with proper elevation handling.
 ///
 /// Constructs the command to execute on the remote host, wrapping it with
-/// the appropriate elevation program (sudo/doas/etc) based on the strategy.
+/// the appropriate elevation program (sudo/doas/etc) based on the policy.
 ///
 /// # Arguments
-/// * `strategy` - Optional elevation strategy to use
+/// * `elevation` - Elevation policy, or `None` to run as the remote user
 /// * `base_cmd` - The base command to execute
 ///
 /// # Returns
@@ -140,102 +139,89 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// - Elevation program cannot be resolved
 /// - Elevation program name cannot be determined
 fn build_remote_command(
-    strategy: Option<&ElevationStrategy>,
+    elevation: Option<&Elevation>,
     base_cmd: &str,
     runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
 ) -> Result<String> {
-    if let Some(strategy) = strategy {
-        if matches!(strategy, ElevationStrategy::None) {
-            return Ok(base_cmd.to_owned());
-        }
+    let Some(elevation) = elevation else {
+        return Ok(base_cmd.to_owned());
+    };
 
-        let program = strategy.resolve(runtime_env)?;
-        let program_name = program
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| {
-                report!("Failed to determine elevation program name")
-            })?;
+    // Resolve the program locally but use just its name on the remote host
+    // so that the remote system resolves it via its own PATH.
+    let program = elevation.program(runtime_env)?;
+    let program_name = program
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            report!("Failed to determine elevation program name")
+        })?;
+    let passwordless = elevation.is_passwordless();
 
-        // Use just the program name on the remote host
-        // so that the remote system resolves it via its own PATH
-        match (program_name, strategy) {
-            // sudo passwordless: use --non-interactive to fail if password required
-            ("sudo", ElevationStrategy::Passwordless) => {
-                Ok(remote_sudo_command(
-                    "--non-interactive",
-                    base_cmd,
-                    sudo_config,
-                ))
-            }
-            ("sudo", _) => Ok(remote_sudo_command(
-                "--prompt= --stdin",
-                base_cmd,
-                sudo_config,
-            )),
-            // doas passwordless: use -n flag (non-interactive)
-            ("doas", ElevationStrategy::Passwordless) => {
-                Ok(format!("doas -n {base_cmd}"))
-            }
-            ("doas", _) => {
-                bail!(
-                    "doas does not support stdin password input for remote deployment. \
+    match (program_name, passwordless) {
+        // sudo passwordless: use --non-interactive to fail if password required
+        ("sudo", true) => Ok(remote_sudo_command(
+            "--non-interactive",
+            base_cmd,
+            elevation.sudo_opts(),
+        )),
+        ("sudo", false) => Ok(remote_sudo_command(
+            "--prompt= --stdin",
+            base_cmd,
+            elevation.sudo_opts(),
+        )),
+        // doas passwordless: use -n flag (non-interactive)
+        ("doas", true) => Ok(format!("doas -n {base_cmd}")),
+        ("doas", false) => {
+            bail!(
+                "doas does not support stdin password input for remote deployment. \
            Use --elevation-strategy=passwordless if remote has NOPASSWD \
            configured."
-                )
-            }
-            // run0 passwordless: use --no-ask-password flag
-            ("run0", ElevationStrategy::Passwordless) => {
-                Ok(format!("run0 --no-ask-password {base_cmd}"))
-            }
-            ("run0", _) => {
-                bail!(
-                    "run0 does not support stdin password input for remote deployment. \
+            )
+        }
+        // run0 passwordless: use --no-ask-password flag
+        ("run0", true) => Ok(format!("run0 --no-ask-password {base_cmd}")),
+        ("run0", false) => {
+            bail!(
+                "run0 does not support stdin password input for remote deployment. \
            Use --elevation-strategy=passwordless if authentication is not \
            required."
-                )
-            }
-            // pkexec: no passwordless support
-            ("pkexec", _) => {
-                bail!(
-                    "pkexec does not support non-interactive password input for remote \
+            )
+        }
+        // pkexec: no passwordless support
+        ("pkexec", _) => {
+            bail!(
+                "pkexec does not support non-interactive password input for remote \
            deployment. pkexec requires a polkit agent which is not available \
            over SSH."
-                )
-            }
-            // Unknown program: bail instead of guessing
-            (_, ElevationStrategy::Passwordless) => {
-                bail!(
-                    "Unknown elevation program '{}' does not have known passwordless \
+            )
+        }
+        // Unknown program: bail instead of guessing
+        (_, true) => {
+            bail!(
+                "Unknown elevation program '{program_name}' does not have known passwordless \
            support. Only sudo, doas, and run0 are supported with \
            --elevation-strategy=passwordless",
-                    program_name
-                )
-            }
-            (..) => {
-                bail!(
-                    "Unknown elevation program '{}' does not support stdin password \
+            )
+        }
+        (_, false) => {
+            bail!(
+                "Unknown elevation program '{program_name}' does not support stdin password \
            input for remote deployment. Only sudo supports password input \
            over SSH. Use --elevation-strategy=passwordless if remote has \
            passwordless elevation configured, or use a known elevation \
            program (sudo/doas/run0).",
-                    program_name
-                )
-            }
+            )
         }
-    } else {
-        Ok(base_cmd.to_owned())
     }
 }
 
 fn remote_sudo_command(
     prefix: &str,
     base_cmd: &str,
-    sudo_config: &SudoConfig,
+    sudo_opts: &[String],
 ) -> String {
-    let sudo_opts = sudo_config
-        .opts
+    let sudo_opts = sudo_opts
         .iter()
         .map(|opt| shell_quote(opt))
         .collect::<Vec<_>>()
@@ -1115,7 +1101,7 @@ pub enum Platform {
 
 /// Configuration for remote activation operations.
 #[derive(Debug)]
-pub struct ActivateRemoteConfig {
+pub struct ActivateRemoteConfig<'env> {
     /// The target platform for activation.
     pub platform: Platform,
 
@@ -1128,12 +1114,11 @@ pub struct ActivateRemoteConfig {
     /// Whether to show output logs during activation.
     pub show_logs: bool,
 
-    /// Elevation strategy for remote activation commands.
+    /// Elevation policy for the remote activation commands.
     ///
-    /// - `None`: No elevation, run commands as the remote user
-    /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
-    ///   etc.)
-    pub elevation: Option<ElevationStrategy>,
+    /// `None` runs the commands as the remote user; `Some` runs them through
+    /// the elevation program.
+    pub elevation: Option<&'env Elevation>,
 }
 
 /// Activate a system configuration on a remote host.
@@ -1152,10 +1137,9 @@ pub struct ActivateRemoteConfig {
 pub fn activate_remote(
     host: &Host,
     system_profile: &Path,
-    config: &ActivateRemoteConfig,
+    config: &ActivateRemoteConfig<'_>,
     runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
-    sudo_config: &SudoConfig,
 ) -> Result<()> {
     match config.platform {
         Platform::NixOS => activate_nixos_remote(
@@ -1164,7 +1148,6 @@ pub fn activate_remote(
             config,
             runtime_env,
             ssh_config,
-            sudo_config,
         ),
     }
 }
@@ -1185,23 +1168,16 @@ pub fn activate_remote(
 fn activate_nixos_remote(
     host: &Host,
     system_profile: &Path,
-    config: &ActivateRemoteConfig,
+    config: &ActivateRemoteConfig<'_>,
     runtime_env: &RuntimeEnv,
     ssh_config: &SshConfig,
-    sudo_config: &SudoConfig,
 ) -> Result<()> {
     let ssh_opts = get_ssh_opts(ssh_config);
 
-    // Prompt for password if elevation is needed
-    // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
-    // configured)
-    let sudo_password = if let Some(strategy) = &config.elevation {
-        if matches!(
-            strategy,
-            ElevationStrategy::None | ElevationStrategy::Passwordless
-        ) {
-            // None: no elevation program used
-            // Passwordless: elevation program used but no password needed
+    // Prompt for a password unless no elevation is requested or the remote
+    // has passwordless elevation configured.
+    let sudo_password = if let Some(elevation) = config.elevation {
+        if elevation.is_passwordless() {
             None
         } else {
             let host_str = host.ssh_host();
@@ -1254,10 +1230,9 @@ fn activate_nixos_remote(
                 ssh_config,
             );
             let remote_cmd = build_remote_command(
-                config.elevation.as_ref(),
+                config.elevation,
                 &base_cmd,
                 runtime_env,
-                sudo_config,
             )?;
 
             ssh_cmd = ssh_cmd.arg(remote_cmd);
@@ -1305,10 +1280,9 @@ fn activate_nixos_remote(
                 shell_quote(&system_profile.to_string_lossy())
             );
             let profile_remote_cmd = build_remote_command(
-                config.elevation.as_ref(),
+                config.elevation,
                 &base_cmd,
                 runtime_env,
-                sudo_config,
             )?;
 
             profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
@@ -1350,10 +1324,9 @@ fn activate_nixos_remote(
                 ssh_config,
             );
             let boot_remote_cmd = build_remote_command(
-                config.elevation.as_ref(),
+                config.elevation,
                 &boot_activation_cmd,
                 runtime_env,
-                sudo_config,
             )?;
 
             boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);

@@ -7,7 +7,7 @@ use bpaf::parsers::ParseFlag;
 
 use crate::clean::Request as CleanRequest;
 use crate::clean::clean_cli;
-use crate::command::ElevationStrategyArg;
+use crate::command::ElevationStrategy;
 use crate::nixos::{
     GenerationsRequest, RebuildCommand, ReplRequest, RollbackRequest,
     boot_cli, build_cli, generations_cli, repl_cli, rollback_cli,
@@ -96,7 +96,7 @@ pub struct Cli {
     /// 'passwordless' (use elevation without password prompt for remote hosts
     /// with NOPASSWD configured), or 'auto' (automatically detect available
     /// elevation programs in order: doas, sudo, run0, pkexec).
-    pub elevation_strategy: Option<ElevationStrategyArg>,
+    pub elevation_strategy: Option<ElevationStrategy>,
 
     pub command: CliCommand,
 }
@@ -123,12 +123,12 @@ pub enum CliCommand {
 /// before a command narrows the argument scope, so the flag is accepted
 /// before and after the subcommand word, like clap's `global = true`.
 #[must_use]
-fn elevation_cli() -> impl Parser<Option<ElevationStrategyArg>> {
+fn elevation_cli() -> impl Parser<Option<ElevationStrategy>> {
     long("elevation-strategy")
         .short('e')
         .long("elevation-program")
         .env("NH_ELEVATION_STRATEGY")
-        .argument::<ElevationStrategyArg>("STRATEGY")
+        .argument::<ElevationStrategy>("STRATEGY")
         .help(
             "Choose the privilege elevation strategy.\n\nCan be a path to an \
              elevation program (e.g., /usr/bin/sudo), or one of: 'none' (no \
@@ -214,7 +214,7 @@ mod tests {
 
     use super::CliCommand;
     use super::cli;
-    use crate::command::ElevationStrategyArg;
+    use crate::command::ElevationStrategy;
 
     fn parse(args: &[&str]) -> std::result::Result<super::Cli, String> {
         let options = cli();
@@ -231,7 +231,7 @@ mod tests {
 
         assert!(matches!(
             args.elevation_strategy,
-            Some(ElevationStrategyArg::None)
+            Some(ElevationStrategy::None)
         ));
         assert!(matches!(args.command, CliCommand::Info(_)));
     }
@@ -248,7 +248,7 @@ mod tests {
 
         assert!(matches!(
             args.elevation_strategy,
-            Some(ElevationStrategyArg::Passwordless)
+            Some(ElevationStrategy::Passwordless)
         ));
         assert!(matches!(args.command, CliCommand::Search(_)));
     }
@@ -265,7 +265,7 @@ mod tests {
 
         assert!(matches!(
             args.elevation_strategy,
-            Some(ElevationStrategyArg::Program(_))
+            Some(ElevationStrategy::Program(_))
         ));
         assert!(matches!(args.command, CliCommand::Clean(_)));
     }
@@ -277,7 +277,7 @@ mod tests {
 
         assert!(matches!(
             args.elevation_strategy,
-            Some(ElevationStrategyArg::Auto)
+            Some(ElevationStrategy::Auto)
         ));
     }
 
@@ -296,7 +296,7 @@ mod tests {
 
         assert!(matches!(
             args.elevation_strategy,
-            Some(ElevationStrategyArg::None)
+            Some(ElevationStrategy::None)
         ));
     }
 

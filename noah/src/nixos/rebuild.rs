@@ -14,7 +14,8 @@ use super::request::{
 use super::{
     SYSTEM_PROFILE, has_elevation_status, resolve_specialisation,
 };
-use crate::command::{self, Command, ElevationStrategy, SudoConfig};
+use crate::app::RuntimeConfig;
+use crate::command::{self, Command, Elevation};
 use crate::diff::handle_nixos;
 use crate::remote::copy::copy_to_remote;
 use crate::remote::{
@@ -22,7 +23,6 @@ use crate::remote::{
     SshConfig, activate_remote, build_remote, init_ssh_control,
     open_ssh_control_master, probe_remote_uid, validate_remote_closure,
 };
-use crate::runtime::RuntimeEnv;
 use crate::update::update;
 use crate::util::{ensure_ssh_key_login, get_hostname};
 struct Rebuild(RebuildRequest);
@@ -48,36 +48,15 @@ impl From<ParsedActivationRequest> for ActivationRequest {
         }
     }
 }
-struct RebuildContext<'env> {
-    elevation: ElevationStrategy,
-    runtime_env: &'env RuntimeEnv,
-    sudo_config: &'env SudoConfig,
-    flake_config: &'env FlakeConfig,
-    ssh_config: &'env SshConfig,
-}
 
 pub(super) fn run(
     command: RebuildCommand,
-    elevation: ElevationStrategy,
-    runtime_env: &RuntimeEnv,
-    sudo_config: &SudoConfig,
-    flake_config: &FlakeConfig,
-    ssh_config: &SshConfig,
+    env: &RuntimeConfig,
 ) -> Result<()> {
-    let context = RebuildContext {
-        elevation,
-        runtime_env,
-        sudo_config,
-        flake_config,
-        ssh_config,
-    };
-
     match command {
-        RebuildCommand::Build(request) => {
-            Rebuild(request).build_only(&context)
-        }
+        RebuildCommand::Build(request) => Rebuild(request).build_only(env),
         RebuildCommand::Activate(request) => {
-            ActivationRequest::from(request).build_and_activate(&context)
+            ActivationRequest::from(request).build_and_activate(env)
         }
     }
 }
@@ -96,42 +75,37 @@ struct BuiltConfiguration {
     actual_store_path: Option<PathBuf>,
 }
 impl ActivationRequest {
-    fn build_and_activate(
-        &self,
-        context: &RebuildContext<'_>,
-    ) -> Result<()> {
-        let elevation = context.elevation.clone();
-        let flake_config = context.flake_config;
-        let ssh_config = context.ssh_config;
+    fn build_and_activate(&self, env: &RuntimeConfig) -> Result<()> {
         let (local_elevate, target_hostname) =
-            self.rebuild.setup_build_context(&elevation, ssh_config)?;
+            self.rebuild
+                .setup_build_context(&env.elevation, &env.ssh)?;
 
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
 
-        let toplevel = self
-            .rebuild
-            .prepare_toplevel(&target_hostname, flake_config)?;
+        let toplevel =
+            self.rebuild
+                .prepare_toplevel(&target_hostname, &env.flake)?;
 
         // Initialize SSH control early if we have remote hosts - guard will keep
         // connections alive for both build and activation
         let _ssh_guard = if self.rebuild.build_host.is_some()
             || self.rebuild.target_host.is_some()
         {
-            let guard = init_ssh_control(ssh_config)?;
+            let guard = init_ssh_control(&env.ssh)?;
 
             // Pre-establish ControlMaster connections so that delegated SSH
             // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
             // authenticated socket rather than opening a fresh connection where
             // SSH option ordering may differ.
             if let Some(build_host) = &self.rebuild.build_host {
-                open_ssh_control_master(build_host, ssh_config).context(
+                open_ssh_control_master(build_host, &env.ssh).context(
                     "Failed to establish SSH connection to build host",
                 )?;
             }
 
             if let Some(target_host) = &self.rebuild.target_host {
-                open_ssh_control_master(target_host, ssh_config).context(
+                open_ssh_control_master(target_host, &env.ssh).context(
                     "Failed to establish SSH connection to target host",
                 )?;
             }
@@ -144,14 +118,14 @@ impl ActivationRequest {
         // Now that the ControlMaster is up, probe the remote uid for elevation.
         let elevate = if self.rebuild.target_host.is_some() {
             self.rebuild
-                .determine_remote_elevation(&elevation, ssh_config)?
+                .determine_remote_elevation(&env.elevation, &env.ssh)?
         } else {
             local_elevate
         };
 
-        let built = self
-            .rebuild
-            .build_and_diff(toplevel, &out_path, ssh_config)?;
+        let built =
+            self.rebuild
+                .build_and_diff(toplevel, &out_path, &env.ssh)?;
 
         if self.activation.dry {
             if self.activation.ask {
@@ -166,7 +140,7 @@ impl ActivationRequest {
             &built.target_profile,
             built.actual_store_path.as_deref(),
             elevate,
-            context,
+            env,
         )?;
 
         Ok(())
@@ -178,10 +152,10 @@ impl ActivationRequest {
         target_profile: &Path,
         actual_store_path: Option<&Path>,
         elevate: bool,
-        context: &RebuildContext<'_>,
+        env: &RuntimeConfig,
     ) -> Result<()> {
         let action = self.activation.action;
-        let ssh_config = context.ssh_config;
+        let ssh_config = &env.ssh;
         if self.activation.ask {
             let confirmation = inquire::Confirm::new("Apply the config?")
                 .with_default(false)
@@ -220,7 +194,7 @@ impl ActivationRequest {
                     &resolved_profile,
                     &switch_to_configuration,
                     elevate,
-                    context,
+                    env,
                 )?;
             }
             ActivationAction::Boot { .. } => {
@@ -229,7 +203,7 @@ impl ActivationRequest {
                     &resolved_profile,
                     &switch_to_configuration,
                     elevate,
-                    context,
+                    env,
                 )?;
             }
             ActivationAction::Switch { .. } => {
@@ -237,14 +211,14 @@ impl ActivationRequest {
                     &resolved_profile,
                     &switch_to_configuration,
                     elevate,
-                    context,
+                    env,
                 )?;
                 self.activate_boot_phase(
                     out_path,
                     &resolved_profile,
                     &switch_to_configuration,
                     elevate,
-                    context,
+                    env,
                 )?;
             }
         }
@@ -337,13 +311,9 @@ impl ActivationRequest {
         resolved_profile: &Path,
         switch_to_configuration: &Path,
         elevate: bool,
-        context: &RebuildContext<'_>,
+        env: &RuntimeConfig,
     ) -> Result<()> {
         let action = self.activation.action;
-        let elevation = &context.elevation;
-        let runtime_env = context.runtime_env;
-        let sudo_config = context.sudo_config;
-        let ssh_config = context.ssh_config;
         if let Some(target_host) = &self.rebuild.target_host {
             let activation_type = match action {
                 ActivationAction::Test { .. } => ActivationType::Test,
@@ -365,11 +335,10 @@ impl ActivationRequest {
                     activation_type,
                     install_bootloader: false,
                     show_logs: self.activation.action.show_logs(),
-                    elevation: elevate.then_some(elevation.clone()),
+                    elevation: elevate.then_some(&env.elevation),
                 },
-                runtime_env,
-                ssh_config,
-                sudo_config,
+                &env.process,
+                &env.ssh,
             )
             .context(format!(
                 "Activation ({}) failed",
@@ -378,12 +347,12 @@ impl ActivationRequest {
         } else {
             Command::new(
                 switch_to_configuration,
-                runtime_env,
-                sudo_config,
+                &env.process,
+                &env.elevation,
             )
             .arg("test")
             .message("Activating configuration")
-            .elevate(elevate.then_some(elevation.clone()))
+            .elevate(elevate)
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
             .show_output(self.activation.action.show_logs())
             .run()
@@ -400,12 +369,8 @@ impl ActivationRequest {
         resolved_profile: &Path,
         switch_to_configuration: &Path,
         elevate: bool,
-        context: &RebuildContext<'_>,
+        env: &RuntimeConfig,
     ) -> Result<()> {
-        let elevation = context.elevation.clone();
-        let runtime_env = context.runtime_env;
-        let sudo_config = context.sudo_config;
-        let ssh_config = context.ssh_config;
         if let Some(target_host) = &self.rebuild.target_host {
             activate_remote(
                 target_host,
@@ -418,11 +383,10 @@ impl ActivationRequest {
                         .action
                         .install_bootloader(),
                     show_logs: false,
-                    elevation: elevate.then_some(elevation),
+                    elevation: elevate.then_some(&env.elevation),
                 },
-                runtime_env,
-                ssh_config,
-                sudo_config,
+                &env.process,
+                &env.ssh,
             )
             .context("Bootloader activation failed")?;
         } else {
@@ -433,20 +397,20 @@ impl ActivationRequest {
                 "Failed to resolve base output path to store path",
             )?;
 
-            Command::new("nix", runtime_env, sudo_config)
+            Command::new("nix", &env.process, &env.elevation)
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(&base_store_path)
-                .elevate(elevate.then_some(elevation.clone()))
+                .elevate(elevate)
                 .run()
                 .context("Failed to set system profile")?;
 
             let mut cmd = Command::new(
                 switch_to_configuration,
-                runtime_env,
-                sudo_config,
+                &env.process,
+                &env.elevation,
             )
             .arg("boot")
-            .elevate(elevate.then_some(elevation))
+            .elevate(elevate)
             .message("Adding configuration to bootloader")
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
@@ -482,7 +446,7 @@ impl Rebuild {
     /// - `String`: The resolved target hostname.
     fn setup_build_context(
         &self,
-        elevation: &ElevationStrategy,
+        elevation: &Elevation,
         ssh_config: &SshConfig,
     ) -> Result<(bool, String)> {
         // Only check SSH key login if remote hosts are involved
@@ -515,16 +479,17 @@ impl Rebuild {
     ///
     /// `false` when `target_host` is unset (caller should use
     /// [`Self::setup_build_context`] or [`has_elevation_status`] for the
-    /// local case) or when the elevation strategy is [`None`].
+    /// local case) or when elevation is disabled via
+    /// `--elevation-strategy=none`.
     fn determine_remote_elevation(
         &self,
-        elevation: &ElevationStrategy,
+        elevation: &Elevation,
         ssh_config: &SshConfig,
     ) -> Result<bool> {
         let Some(target_host) = self.target_host.as_ref() else {
             return Ok(false);
         };
-        if matches!(elevation, ElevationStrategy::None) {
+        if elevation.is_disabled() {
             return Ok(false);
         }
         let uid = probe_remote_uid(target_host, ssh_config)?;
@@ -732,19 +697,16 @@ impl Rebuild {
     }
 
     /// Builds the toplevel configuration without activating (`nh build`).
-    fn build_only(&self, context: &RebuildContext<'_>) -> Result<()> {
-        let elevation = &context.elevation;
-        let flake_config = context.flake_config;
-        let ssh_config = context.ssh_config;
+    fn build_only(&self, env: &RuntimeConfig) -> Result<()> {
         let (_, target_hostname) =
-            self.setup_build_context(elevation, ssh_config)?;
+            self.setup_build_context(&env.elevation, &env.ssh)?;
 
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
 
         let toplevel =
-            self.prepare_toplevel(&target_hostname, flake_config)?;
-        self.build_and_diff(toplevel, &out_path, ssh_config)?;
+            self.prepare_toplevel(&target_hostname, &env.flake)?;
+        self.build_and_diff(toplevel, &out_path, &env.ssh)?;
 
         Ok(())
     }
