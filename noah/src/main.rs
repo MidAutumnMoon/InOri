@@ -81,6 +81,7 @@ fn run(command: CliCommand, config: &Config) -> rootcause::Result<()> {
             nixos::run_rollback(request, config)
         }
         CliCommand::Search(request) => search::run(&request),
+        CliCommand::Weather(request) => weather::run(&request, config),
         CliCommand::Clean(request) => clean::run(&request, config),
     }
 }

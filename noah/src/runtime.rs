@@ -10,6 +10,7 @@ use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
+use rustix::system::uname;
 
 use crate::command::Elevation;
 use crate::command::ElevationStrategy;
@@ -36,6 +37,7 @@ pub struct Env {
     executable: PathBuf,
     arguments: Vec<OsString>,
     current_dir: PathBuf,
+    current_machine_hostname: String,
 }
 
 impl Env {
@@ -45,7 +47,7 @@ impl Env {
     ///
     /// Returns an error if the current executable or working directory cannot
     /// be determined.
-    pub fn capture() -> Result<Self> {
+    pub fn capture() -> rootcause::Result<Self> {
         Ok(Self {
             vars: env::vars_os().collect(),
             executable: env::current_exe()
@@ -53,7 +55,12 @@ impl Env {
             arguments: env::args_os().skip(1).collect(),
             current_dir: env::current_dir()
                 .context("Failed to determine the current directory")?,
+            current_machine_hostname: Self::hostname()?,
         })
+    }
+
+    pub fn hostname() -> rootcause::Result<String> {
+        Ok(uname().nodename().to_str()?.to_owned())
     }
 
     /// Return a captured environment value as UTF-8.
@@ -154,6 +161,7 @@ impl Env {
             executable: PathBuf::from("/proc/self/exe"),
             arguments: Vec::new(),
             current_dir: PathBuf::from("/"),
+            current_machine_hostname: String::from("test-host"),
         }
     }
 }
@@ -170,6 +178,7 @@ impl fmt::Debug for Env {
 }
 
 /// Configuration for a single run, assembled once after CLI parsing.
+#[derive(Debug)]
 pub struct Config {
     pub env: Env,
     pub elevation: Elevation,

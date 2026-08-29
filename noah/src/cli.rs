@@ -15,6 +15,8 @@ use crate::nixos::{
 };
 use crate::search::Request as SearchRequest;
 use crate::search::search_cli;
+use crate::weather::WeatherRequest;
+use crate::weather::weather_cli;
 /// clap's boolish value table: `y`, `yes`, `t`, `true`, `on`, `1`
 /// (case-insensitive) are true, their counterparts are false, anything else
 /// fails.
@@ -113,6 +115,8 @@ pub enum CliCommand {
     Rollback(RollbackRequest),
     /// Searches packages or NixOS options via search.nixos.org.
     Search(SearchRequest),
+    /// Report which parts of a closure the substituters can supply.
+    Weather(WeatherRequest),
     /// Enhanced nix cleanup.
     Clean(CleanRequest),
 }
@@ -191,9 +195,18 @@ pub fn cli() -> bpaf::OptionParser<Cli> {
         .descr("Enhanced nix cleanup.")
         .command("clean")
         .map(CliCommand::Clean);
+    let weather = weather_cli()
+        .to_options()
+        .descr(
+            "Report which parts of a closure the configured substituters \
+             can supply.",
+        )
+        .command("weather")
+        .map(CliCommand::Weather);
 
     let command = construct!([
-        switch, boot, test, build, repl, info, rollback, search, clean
+        switch, boot, test, build, repl, info, rollback, search, clean,
+        weather
     ]);
 
     let elevation_strategy = elevation_cli();

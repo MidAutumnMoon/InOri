@@ -39,6 +39,8 @@ tracing.workspace             = true
 walkdir = "2.5.0"
 which = "8.0.0"
 yansi = "1.0.1"
+rustix.workspace = true
+tap.workspace = true
 
 [dev-dependencies]
 proptest = "1.9.0"
