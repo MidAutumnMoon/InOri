@@ -10,8 +10,6 @@ edition.workspace      = true
 rust-version.workspace = true
 default-run            = "nh"
 
-[lib]
-
 [dependencies]
 bpaf.workspace                = true
 dix = "2.1.0"

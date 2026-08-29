@@ -1,20 +1,52 @@
-#![expect(clippy::exhaustive_enums, reason = "App only, not published")]
+#![expect(
+    clippy::exhaustive_structs,
+    clippy::exhaustive_enums,
+    reason = "App only, not published"
+)]
+
+pub mod args;
+pub mod clean;
+pub mod command;
+pub mod diff;
+mod interface;
+pub mod nixos;
+pub mod progress;
+pub mod remote;
+pub mod runtime;
+pub mod search;
+pub mod update;
+pub mod util;
+
+use crate::command::ElevationStrategy;
+use crate::command::ElevationStrategyArg;
+use crate::command::SudoConfig;
+use crate::remote::SshConfig;
+use crate::runtime::RuntimeEnv;
 
 use ino_shell::{Shell, cmd};
-use nh::{
-    command::{ElevationStrategy, ElevationStrategyArg, SudoConfig},
-    remote::SshConfig,
-    runtime::RuntimeEnv,
-};
 use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-mod interface;
-
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
+
+/// Converts an error produced by an external crate into a
+/// [`rootcause::Report`].
+///
+/// Dependencies that don't speak rootcause (e.g. `dix`) report their failures
+/// through the boxed-error representation; this is the seam where such
+/// errors enter rootcause.
+pub(crate) fn external_report<E>(err: E) -> rootcause::Report
+where
+    Box<dyn std::error::Error + Send + Sync>: From<E>,
+{
+    rootcause::report!(Box::<dyn std::error::Error + Send + Sync>::from(
+        err
+    ))
+    .into()
+}
 
 /// All runtime configuration captured from the environment at startup.
 ///
@@ -69,7 +101,7 @@ fn main() -> rootcause::Result<()> {
 
     let mut args = interface::cli().run();
 
-    // Capture environment-derived configuration once, after clap has handled
+    // Capture environment-derived configuration once, after bpaf has handled
     // early exits such as --help and --version.
     let process = RuntimeEnv::capture()?;
     let env = RuntimeConfig::from_env(process)?;

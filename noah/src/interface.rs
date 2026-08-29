@@ -1,25 +1,25 @@
 use bpaf::construct;
 use bpaf::long;
 use bpaf::Parser;
-use nh::clean::args::CleanProxy;
-use nh::clean::args::clean_cli;
-use nh::command::ElevationStrategy;
-use nh::command::ElevationStrategyArg;
-use nh::nixos::args::Generations;
-use nh::nixos::args::Rebuild;
-use nh::nixos::args::RebuildActivate;
-use nh::nixos::args::generations_cli;
-use nh::nixos::args::rebuild_activate_cli;
-use nh::nixos::args::rebuild_cli;
-use nh::nixos::args::repl_cli;
-use nh::nixos::args::rollback_cli;
-use nh::nixos::args::Rollback;
-use nh::nixos::args::Repl;
-use nh::search::args::Search;
-use nh::search::args::search_cli;
 
 use crate::Result;
 use crate::RuntimeConfig;
+use crate::clean::args::CleanProxy;
+use crate::clean::args::clean_cli;
+use crate::command::ElevationStrategy;
+use crate::command::ElevationStrategyArg;
+use crate::nixos::args::Generations;
+use crate::nixos::args::Rebuild;
+use crate::nixos::args::RebuildActivate;
+use crate::nixos::args::generations_cli;
+use crate::nixos::args::rebuild_activate_cli;
+use crate::nixos::args::rebuild_cli;
+use crate::nixos::args::repl_cli;
+use crate::nixos::args::rollback_cli;
+use crate::nixos::args::Rollback;
+use crate::nixos::args::Repl;
+use crate::search::args::Search;
+use crate::search::args::search_cli;
 
 /// Yet another nix helper.
 #[derive(Debug)]
@@ -154,9 +154,9 @@ impl NHCommand {
         env: &RuntimeConfig,
         elevation: ElevationStrategy,
     ) -> Result<()> {
-        use nh::nixos::ActivationAction::Boot;
-        use nh::nixos::ActivationAction::Switch;
-        use nh::nixos::ActivationAction::Test;
+        use crate::nixos::ActivationAction::Boot;
+        use crate::nixos::ActivationAction::Switch;
+        use crate::nixos::ActivationAction::Test;
 
         match self {
             Self::Switch(args) => args.build_and_activate(
@@ -211,7 +211,7 @@ mod tests {
 
     use super::cli;
     use super::NHCommand;
-    use nh::command::ElevationStrategyArg;
+    use crate::command::ElevationStrategyArg;
 
     fn parse(args: &[&str]) -> std::result::Result<super::Main, String> {
         let options = cli();
