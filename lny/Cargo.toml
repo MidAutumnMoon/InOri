@@ -17,7 +17,6 @@ rand = "0.10.0"
 rootcause.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serdev = "0.3.0"
 tap.workspace = true
 tracing.workspace = true
 

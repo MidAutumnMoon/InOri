@@ -2,10 +2,11 @@ use std::path::Path;
 use std::str::FromStr;
 
 use itertools::Itertools as _;
+use rootcause::Report;
 use rootcause::Result;
 use rootcause::bail;
 use rootcause::prelude::ResultExt as _;
-use serdev::Deserialize;
+use serde::Deserialize;
 use tap::Tap as _;
 use tracing::debug;
 use tracing::trace;
@@ -15,9 +16,12 @@ use crate::template::RenderedPath;
 const CURRENT_BLUEPRINT_VERSION: usize = 1;
 
 #[derive(Deserialize, Debug)]
+#[serde(try_from = "UnvalidatedBlueprint")]
+pub struct Blueprint(UnvalidatedBlueprint);
+
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-#[serde(validate = "Self::validate")]
-pub struct Blueprint {
+struct UnvalidatedBlueprint {
     version: usize,
     symlinks: Vec<Symlink>,
 }
@@ -37,20 +41,24 @@ impl Blueprint {
 
     /// Consume the blueprint, yielding its symlink declarations.
     pub fn into_symlinks(self) -> Vec<Symlink> {
-        self.symlinks
+        self.0.symlinks
     }
+}
+
+impl TryFrom<UnvalidatedBlueprint> for Blueprint {
+    type Error = Report;
 
     #[tracing::instrument(skip_all)]
-    fn validate(&self) -> Result<()> {
+    fn try_from(raw: UnvalidatedBlueprint) -> Result<Self> {
         debug!("validate the blueprint");
-        if self.version != CURRENT_BLUEPRINT_VERSION {
+        if raw.version != CURRENT_BLUEPRINT_VERSION {
             bail!(
                 r#"Blueprint version mismatch, expect "{}", got "{}""#,
                 CURRENT_BLUEPRINT_VERSION,
-                self.version
+                raw.version
             );
         }
-        if let Some([left, right]) = self
+        if let Some([left, right]) = raw
             .symlinks
             .iter()
             .array_combinations::<2>()
@@ -62,13 +70,13 @@ impl Blueprint {
                 right.dst.display()
             );
         }
-        if !self.symlinks.iter().all(|it| it.src != it.dst) {
+        if !raw.symlinks.iter().all(|it| it.src != it.dst) {
             bail!(
                 "Some symlinks have identical src and dst, \
                 which would produce a self-referential symlink"
             );
         }
-        Ok(())
+        Ok(Self(raw))
     }
 }
 
@@ -135,6 +143,18 @@ mod test {
 
         assert!(message.contains("Conflicting"));
         assert!(message.contains("/tar"));
+    }
+
+    #[test]
+    fn reject_unsupported_version() {
+        let json = serde_json::json! { {
+            "version": CURRENT_BLUEPRINT_VERSION + 1,
+            "symlinks": [],
+        } };
+        let error = Blueprint::deserialize(json.into_deserializer())
+            .expect_err("unsupported versions should be rejected");
+
+        assert!(error.to_string().contains("version mismatch"));
     }
 
     #[test]
