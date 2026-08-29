@@ -3,8 +3,8 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
+use std::str::FromStr;
 
-use clap::ValueEnum;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use rootcause::Result;
@@ -42,7 +42,7 @@ pub struct GenerationInfo {
     pub closure_size: String,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Field {
     /// Generation Id.
     Id,
@@ -57,7 +57,6 @@ pub enum Field {
     Kernel,
 
     /// Configuration Revision.
-    #[clap(name = "confRev")]
     Confrev,
 
     /// Specialisations.
@@ -65,6 +64,26 @@ pub enum Field {
 
     /// Closure Size.
     Size,
+}
+
+impl FromStr for Field {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "id" => Ok(Self::Id),
+            "date" => Ok(Self::Date),
+            "nver" => Ok(Self::Nver),
+            "kernel" => Ok(Self::Kernel),
+            "confRev" => Ok(Self::Confrev),
+            "spec" => Ok(Self::Spec),
+            "size" => Ok(Self::Size),
+            other => Err(format!(
+                "expected one of `id`, `date`, `nver`, `kernel`, `confRev`, \
+                 `spec`, `size`, got `{other}`"
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

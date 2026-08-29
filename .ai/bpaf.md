@@ -4,76 +4,74 @@ Gotchas and non-obvious behaviors from using [bpaf](https://crates.io/crates/bpa
 
 ## Shell completion
 
-### No public generation API — it's dynamic only
+- No public generation API. The hidden `--bpaf-complete-style-bash|zsh|fish|elvish` flag emits the script; the installed script calls back via `--bpaf-complete-rev=<n>` to produce candidates. Different flags, so scripts never regenerate themselves — regenerate only on bpaf major bumps.
+- To wrap behind a subcommand (`derputils completion bash`), re-exec `current_exe()` with the flag and print the captured stdout (maintainer's recommendation, discussion #263). The flag is handled inside the parser before `run()`/tracing init, so the child writes only the script — `Command::output()` is safe.
+- Multicall dispatchers need no extra wiring: each applet calls `cli().run_inner(Args::from(args).set_name(NAME))`; `set_name` also sets the program name in the generated script.
 
-There's no `generate(shell)` like `clap_complete::aot::generate`. The generation functions are private; the only way to get a completion script is to run your own binary with a hidden flag:
+## `construct!`
 
-```
-your_program --bpaf-complete-style-bash   # or zsh, fish, elvish
-```
-
-The script is a thin stub that calls back into the binary at completion time to produce candidates. Content is stable across option changes, so you only regenerate on bpaf major-version bumps.
-
-To wrap this behind a subcommand (e.g. `derputils completion bash`), re-exec `current_exe()` with `--bpaf-complete-style-<shell>` and print the captured stdout. This is the maintainer's recommended approach (discussion #263).
-
-### Two hidden flags, no recursion
-
-- `--bpaf-complete-style-<shell>` emits the completion script (one-time install).
-- `--bpaf-complete-rev=<n>` is what the installed script calls at completion time to produce candidates.
-
-Different flags, so generated scripts never regenerate themselves. An applet can generate its own completion without infinite recursion.
-
-### The child process is clean
-
-`--bpaf-complete-style-*` is handled inside the parser and returns the script before the applet's `run()` or tracing init runs. When you re-exec to capture the script, the child writes only the script to stdout and nothing to stderr. `Command::output()` is safe.
-
-### Multicall dispatchers need no extra wiring
-
-Each applet calls `cli().run_inner(Args::from(args).set_name(NAME))`. `set_name(NAME)` makes the style flags fire and sets the program name in the generated script. The dispatcher routes args to the applet, which handles completion on its own.
-
-## `construct!` gotchas
-
-For "exactly one of these flags" (e.g. `--clipboard` xor `--stdin`), use the array form `construct!([a, b, c])`. bpaf rejects both or neither on its own. The struct form `construct!(Struct { a, b })` requires field names to match the struct; see `qr.rs` / `completion.rs`.
-
-- The struct/variant form takes variable shorthand only: `construct!(T { field })`, not `field: expr` (macro error: "no rules expected `:`"). Bind to a same-named local first.
-- Array-form alternatives must all be `Parser<T>` for one `T`; map command outputs into the dispatch enum or build the variant directly (`construct!(CliOpts::Avif { transcoder, shared })`).
+- "Exactly one of" → array form `construct!([a, b, c])`; bpaf rejects both or neither. Struct/variant form takes variable shorthand only: `construct!(T { field })`, not `field: expr` (macro error: "no rules expected `:`"). See `qr.rs` / `completion.rs`.
+- Array alternatives must all be `Parser<T>` for one `T`; map command outputs into the dispatch enum or build the variant directly (`construct!(CliOpts::Avif { transcoder, shared })`).
+- Each branch runs on a cloned state (full backtracking). The more-consuming / left-most success wins; ties go to the first alternative. Because a failed alternative falls through to the next, a required argument inside a subcommand alternative can end up matching a later positional alternative — enforce such rules in a `.parse()` *after* the alternatives.
+- Parser output values must be `Debug + Clone + 'static` throughout.
 
 ### `positional` must be last in `construct!`
 
-Compiles and parses fine anyway; panics only when usage is rendered (`--help`) with `bpaf usage BUG: all positional and command items must be placed in the right most position`.
+Order decides who consumes what, not just how usage renders. A positional declared before a `--flag value` parser steals that pair's value. A named item after a positional- or command-bearing field compiles and parses fine but panics when usage is rendered: `bpaf usage BUG: all positional and command items must be placed in the right most position`. Call `.check_invariants(false)` in parser tests to catch it without rendering `--help`.
 
-## `run_inner` vs `run`
+## Global flags (clap's `global = true`)
 
-- `run()` panics or exits directly. Fine for simple single-command CLIs.
-- `run_inner(args) -> Result<T, ParseFailure>` returns the parse result so you can handle errors yourself. The multicall dispatcher pattern needs this — `main` renders `ParseFailure` instead of bpaf exiting.
+A named parser declared **before** a command in `construct!` evaluates first and scans the whole current scope, including past the command word. One declaration therefore accepts the flag before the subcommand, after it, and after nested subcommands — no per-subcommand copies.
+
+- Never declare the same flag name at two levels: the outer parser silently steals the inner flag ("outer flag wins", documented in bpaf's `command.md`).
+- A command word only matches at the head of the remaining items — `app hello packages` does not trigger a `packages` command.
+
+## `env` + `switch` is presence-only
+
+`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. For boolean env fallbacks with real semantics (`NH_ASK=false` must mean false), read the var in a `pure(()).parse(...)` step and merge with the CLI switch (`cli || env`). On `argument`, `.env()` parses via `FromStr` as expected.
+
+## Aliases
+
+No alias API; chaining works: `long("no-gc").long("nogc")` — first name visible, the rest hidden. Same for `.short()`; multiple `.env()` fall back in order. Hidden aliases don't appear in help, completions, or error messages.
+
+## `--` and passthrough
+
+- Everything after `--` becomes strict positional words; flag/argument parsers never match them, so passthrough content can't be consumed as flags.
+- `positional("EXTRA").strict().many()` ≈ clap's `last = true`. A positional that must not steal from the passthrough zone gets `.non_strict()`.
+
+## Multi-value flags (`--flag NAME VALUE`)
+
+`req_flag(())` anchor + `positional` items in a `construct!(a, b, c).adjacent()` group, repeated with `.many()`. An incomplete group fails with "expected `VALUE` ...".
 
 ## Subcommands
 
 - The free `command(name, subparser)` fn is deprecated (0.9.27); use `subparser.command(name)`.
 - The command's help line inherits the inner parser's `.descr()` — set it there once.
 
-## `ParseFailure` variants
+## `run_inner` vs `run`
+
+- `run()` exits directly on help/error. Fine for simple single-command CLIs.
+- `run_inner(args) -> Result<T, ParseFailure>` for tests, multicall dispatch, or custom error handling.
 
 ```rust
 pub enum ParseFailure {
-    Stdout(String),       // --help / --version → print to stdout, exit 0
-    Stderr(String),       // parse error → print to stderr, exit code from exit_code()
-    Completion(String),   // completion script/candidates → print to stdout, exit 0
+    Stdout(Doc, bool),   // --help / --version → stdout, exit 0
+    Stderr(Doc),         // parse error → stderr, exit 1
+    Completion(String),  // completion output → stdout, exit 0
 }
 ```
 
-`failure.print_message(max_width)` prints to the right stream; `failure.exit_code()` gives the exit code. The dispatcher's `main` calls both.
+`failure.print_message(max_width)` prints to the right stream; `failure.exit_code()` gives the exit code.
 
 ## Testing parsers
 
-Use `run_inner` (not `run`, which exits). Match on `ParseFailure::Stderr` for parse errors. If you `.unwrap()` the success path, add `#[allow(clippy::unwrap_used)]` to the test module — the workspace's strict clippy flags it otherwise.
+Use `run_inner` (never `run`, which exits). `options.check_invariants(false)` panics on ordering violations. `ParseFailure::unwrap_stderr()` returns the rendered error text for assertions. Unwraps in tests need `#[allow(clippy::unwrap_used)]` — workspace clippy flags them.
 
 ## Migrating from clap
 
-- No derive. Doc comments become explicit calls: field docs → `.help("...")`; the struct/enum doc → `.descr("...")` on the `to_options()` builder.
-- Short flags are not derived from field names — write `.short('n')` explicitly.
-- `--version` is not automatic — add `.version(env!("CARGO_PKG_VERSION"))` on the `to_options()` builder.
-- Clap's `#[arg(long, short, value_name = "PATH")]` maps to
-  `long("name").short('n').argument::<T>("PATH").help("...").optional()`;
-  attach `.help()` after `.argument()`.
-- `display_fallback` needs `T: Display`; `PathBuf` isn't, so path fallbacks can't show their default.
+- Doc comments become explicit calls: field docs → `.help("...")`; struct/enum doc → `.descr("...")` on `to_options()`. Short flags are written out; `--version` needs `.version(env!("CARGO_PKG_VERSION"))` (top-level only ≈ `propagate_version = false`).
+- `#[arg(long, short, value_name = "PATH")]` → `long("name").short('n').argument::<T>("PATH").help("...").optional()`.
+- `req_flag()` returns a plain `impl Parser<T>` — `.help()` and other `NamedArg` calls must come before it. `.switch()`/`.argument()` keep their own `.help()`.
+- `ValueEnum` → `FromStr` with `type Err = String`, plus `Display` if you use `display_fallback` (which `PathBuf` isn't, so path fallbacks can't show their default).
+- `last = true` → `positional().strict().many()`; `number_of_values = 2` → adjacent groups; `global = true` → single declaration before the command (all above).
+- Parse failures exit 1 (clap used 2).

@@ -13,8 +13,7 @@ default-run            = "nh"
 [lib]
 
 [dependencies]
-anstyle = "1.0.13"
-clap.workspace                = true
+bpaf.workspace                = true
 dix = "2.1.0"
 elasticsearch-dsl = "0.4.24"
 humantime = "2.3.0"

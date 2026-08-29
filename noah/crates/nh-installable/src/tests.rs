@@ -308,24 +308,14 @@ fn resolve_rejects_malformed_nh_attrp() {
 
 #[test]
 fn cli_installable_rejects_empty_flake_reference() {
-    let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
-    let err = InstallableArgs::from_arg_matches(
-        &cmd.try_get_matches_from(["test", ""]).unwrap(),
-    )
-    .unwrap_err()
-    .to_string();
+    let err = parse_installable(&[""]).unwrap_err();
 
     assert!(err.contains("installable argument is empty"));
 }
 
 #[test]
 fn cli_installable_rejects_attribute_without_reference() {
-    let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
-    let err = InstallableArgs::from_arg_matches(
-        &cmd.try_get_matches_from(["test", "#fallback"]).unwrap(),
-    )
-    .unwrap_err()
-    .to_string();
+    let err = parse_installable(&["#fallback"]).unwrap_err();
 
     assert!(err.contains(
         "installable argument missing reference part before `#`"
@@ -334,24 +324,57 @@ fn cli_installable_rejects_attribute_without_reference() {
 
 #[test]
 fn cli_file_rejects_malformed_attribute() {
-    let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
-    let matches = cmd
-        .try_get_matches_from([
-            "test",
-            "--file",
-            "file.nix",
-            r#"foo."bar"#,
-        ])
-        .unwrap();
-    let err = InstallableArgs::from_arg_matches(&matches)
-        .unwrap_err()
-        .to_string();
+    let err =
+        parse_installable(&["--file", "file.nix", r#"foo."bar"#]).unwrap_err();
 
     assert!(
         err.contains(
             "attribute path contains an unclosed quoted attribute"
         )
     );
+}
+
+#[test]
+fn cli_file_and_expr_conflict() {
+    let err = parse_installable(&["--file", "file.nix", "--expr", "{}"])
+        .unwrap_err();
+
+    assert!(err.contains("--expr"));
+}
+
+#[test]
+fn cli_installable_resolves_flake_reference() {
+    let args = parse_installable(&["github:user/repo#host"]).unwrap();
+
+    match args {
+        InstallableArgs::Specified(Installable::Flake {
+            reference,
+            attribute,
+        }) => {
+            assert_eq!(reference, "github:user/repo");
+            assert_eq!(attribute, vec!["host"]);
+        }
+        InstallableArgs::Unspecified
+        | InstallableArgs::Specified(
+            Installable::File { .. }
+            | Installable::Store { .. }
+            | Installable::Expression { .. },
+        ) => {
+            panic!("Expected Flake, got {args:?}")
+        }
+    }
+}
+
+/// Parse the installable CLI surface, returning the rendered error message on
+/// parse failure.
+fn parse_installable(
+    args: &[&str],
+) -> std::result::Result<InstallableArgs, String> {
+    let options = installable_args().to_options();
+    options.check_invariants(false);
+    options
+        .run_inner(bpaf::Args::from(args).set_name("test"))
+        .map_err(bpaf::ParseFailure::unwrap_stderr)
 }
 
 #[test]

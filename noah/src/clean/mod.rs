@@ -350,7 +350,9 @@ impl args::CleanMode {
                                     );
                                 }
                                 Ok(val)
-                                    if val <= args.keep_since.into() =>
+                                    if val <= std::time::Duration::from(
+                                        args.keep_since,
+                                    ) =>
                                 {
                                     gcroots_tagged.push(GcRootTagged {
                                         src,
@@ -673,7 +675,7 @@ fn cleanable_generations(
             Err(err) => {
                 warn!(?err, ?now, ?generation, "Failed to compare time!");
             }
-            Ok(val) if val <= keep_since.into() => {
+            Ok(val) if val <= std::time::Duration::from(keep_since) => {
                 *tbr = false;
             }
             Ok(_) => {}

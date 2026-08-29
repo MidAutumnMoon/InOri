@@ -67,7 +67,7 @@ fn main() -> rootcause::Result<()> {
         );
     }));
 
-    let mut args = <interface::Main as clap::Parser>::parse();
+    let mut args = interface::cli().run();
 
     // Capture environment-derived configuration once, after clap has handled
     // early exits such as --help and --version.

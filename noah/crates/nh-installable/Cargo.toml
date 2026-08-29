@@ -8,10 +8,9 @@ license = "EUPL-1.2"
 rust-version.workspace = true
 
 [dependencies]
-clap.workspace       = true
+bpaf.workspace       = true
 rootcause.workspace = true
 tracing.workspace    = true
-yansi = "1.0.1"
 
 [dev-dependencies]
 tempfile = "3.23.0"

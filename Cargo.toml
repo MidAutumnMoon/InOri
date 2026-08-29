@@ -34,7 +34,6 @@ ino_shell = { path = "./crates/ino_shell" }
 # Shared dependencies (InOri + Noah)
 assert_fs = "1"
 bpaf = { version = "0.9", features = [ "dull-color", "autocomplete" ] }
-clap = { version = "4", features = [ "cargo", "color", "derive", "env", "unstable-styles" ] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 indicatif = "0.18"
 itertools = "0"

@@ -1,22 +1,55 @@
-use clap::Args;
+use bpaf::{construct, long, Parser};
 use nh_installable::Installable;
 use nix_command::{CommandKind, NixCommand};
 use rootcause::{Result, bail};
 use tracing::{info, warn};
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug)]
 pub struct Update {
-    #[arg(short = 'u', long = "update", conflicts_with = "update_input")]
     /// Update all flake inputs.
     pub update_all: bool,
 
-    #[arg(
-        short = 'U',
-        long = "update-input",
-        conflicts_with = "update_all"
-    )]
     /// Update the specified flake input(s).
     pub update_input: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug)]
+enum UpdateChoice {
+    All,
+    Inputs(Vec<String>),
+}
+
+/// CLI parser for [`Update`]: `--update` and `--update-input` are mutually
+/// exclusive, and both are optional.
+#[expect(clippy::module_name_repetitions, reason = "clearer, mirrors clean_cli/search_cli")]
+#[must_use]
+pub fn update_cli() -> impl Parser<Update> {
+    let update_all = long("update")
+        .short('u')
+        .help("Update all flake inputs")
+        .req_flag(UpdateChoice::All);
+    let update_input = long("update-input")
+        .short('U')
+        .help("Update the specified flake input(s)")
+        .argument::<String>("INPUT")
+        .some("expected at least one flake input name")
+        .map(UpdateChoice::Inputs);
+    let update = construct!([update_all, update_input]).optional();
+
+    update.map(|choice| match choice {
+        Some(UpdateChoice::All) => Update {
+            update_all: true,
+            update_input: None,
+        },
+        Some(UpdateChoice::Inputs(inputs)) => Update {
+            update_all: false,
+            update_input: Some(inputs),
+        },
+        None => Update {
+            update_all: false,
+            update_input: None,
+        },
+    })
 }
 
 /// Update flake inputs for an installable.

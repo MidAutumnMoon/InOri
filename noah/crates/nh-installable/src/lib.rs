@@ -9,11 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::{
-    Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind,
-};
+use bpaf::{construct, long, positional, Parser};
 use tracing::debug;
-use yansi::{Color, Paint};
 
 #[cfg(test)]
 mod tests;
@@ -102,112 +99,41 @@ pub enum Installable {
     },
 }
 
-impl FromArgMatches for InstallableArgs {
-    fn from_arg_matches(
-        matches: &clap::ArgMatches,
-    ) -> Result<Self, clap::Error> {
-        let mut matches = matches.clone();
-        Self::from_arg_matches_mut(&mut matches)
-    }
-
-    fn from_arg_matches_mut(
-        matches: &mut clap::ArgMatches,
-    ) -> Result<Self, clap::Error> {
-        let installable = matches.get_one::<String>("installable");
-        let file = matches.get_one::<String>("file");
-        let expr = matches.get_one::<String>("expr");
-
-        if let Some(i) = installable {
-            let canonical = fs::canonicalize(i);
-
-            if let Ok(path) = canonical
-                && path.starts_with("/nix/store")
-            {
-                return Ok(Self::Specified(Installable::Store { path }));
-            }
-        }
-
-        if let Some(file_path) = file {
-            let attribute =
-                parse_attribute(installable.map_or("", String::as_str))
-                    .map_err(|err| {
-                        clap::Error::raw(
-                            ErrorKind::ValueValidation,
-                            format!("attribute path {err}"),
-                        )
-                    })?;
-            return Ok(Self::Specified(Installable::File {
-                path: PathBuf::from(file_path),
-                attribute,
-            }));
-        }
-
-        if let Some(expression) = expr {
-            let attribute =
-                parse_attribute(installable.map_or("", String::as_str))
-                    .map_err(|err| {
-                        clap::Error::raw(
-                            ErrorKind::ValueValidation,
-                            format!("attribute path {err}"),
-                        )
-                    })?;
-            return Ok(Self::Specified(Installable::Expression {
-                expression: expression.clone(),
-                attribute,
-            }));
-        }
-
-        if let Some(i) = installable {
-            let (reference, attribute) = parse_flake_reference(i)
-                .map_err(|err| {
-                    clap::Error::raw(
-                        ErrorKind::ValueValidation,
-                        format!("installable argument {err}"),
-                    )
-                })?;
-            return Ok(Self::Specified(Installable::Flake {
-                reference,
-                attribute,
-            }));
-        }
-
-        Ok(Self::Unspecified)
-    }
-
-    fn update_from_arg_matches(
-        &mut self,
-        matches: &clap::ArgMatches,
-    ) -> Result<(), clap::Error> {
-        *self = Self::from_arg_matches(matches)?;
-        Ok(())
-    }
+/// CLI surface for installable selection before resolution.
+#[derive(Debug, Clone)]
+struct RawInstallable {
+    installable: Option<String>,
+    source: Option<RawSource>,
 }
 
-impl Args for InstallableArgs {
-    fn augment_args(cmd: clap::Command) -> clap::Command {
-        cmd.arg(
-            Arg::new("file")
-                .short('f')
-                .long("file")
-                .action(ArgAction::Set)
-                .hide(true),
-        )
-        .arg(
-            Arg::new("expr")
-                .short('E')
-                .long("expr")
-                .conflicts_with("file")
-                .hide(true)
-                .action(ArgAction::Set),
-        )
-        .arg(
-            Arg::new("installable")
-                .action(ArgAction::Set)
-                .value_hint(ValueHint::AnyPath)
-                .value_name("INSTALLABLE")
-                .help("Which installable to use")
-                .long_help(format!(
-                    "Which installable to use.
+/// Hidden `-f`/`--file` and `-E`/`--expr` arguments, mutually exclusive.
+#[derive(Debug, Clone)]
+enum RawSource {
+    File(String),
+    Expr(String),
+}
+
+/// bpaf parser for installable selection.
+///
+/// Accepts a positional installable plus the hidden `-f/--file` and
+/// `-E/--expr` arguments, and resolves the combination into an
+/// [`InstallableArgs`] at parse time, mirroring the Nix installable grammar.
+#[must_use]
+pub fn installable_args() -> impl Parser<InstallableArgs> {
+    let file = long("file")
+        .short('f')
+        .argument::<String>("FILE")
+        .hide()
+        .map(RawSource::File);
+    let expr = long("expr")
+        .short('E')
+        .argument::<String>("EXPR")
+        .hide()
+        .map(RawSource::Expr);
+    let source = construct!([file, expr]).optional();
+    let installable = positional::<String>("INSTALLABLE")
+        .help(
+            "Which installable to use.
 Nix accepts various kinds of installables:
 
 [FLAKEREF[#ATTRPATH]]
@@ -215,28 +141,72 @@ Nix accepts various kinds of installables:
     [env: NH_FLAKE]
     [env: NH_OS_FLAKE]
 
-{}, {} <FILE> [ATTRPATH]
+-f, --file <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
     [env: NH_FILE]
     [env: NH_ATTRP]
 
-{}, {} <EXPR> [ATTRPATH]
+-e, --expr <EXPR> [ATTRPATH]
     Nix expression with an optional attribute path.
 
 [PATH]
-    Path or symlink to a /nix/store path
-",
-                    Paint::new("-f").fg(Color::Yellow),
-                    Paint::new("--file").fg(Color::Yellow),
-                    Paint::new("-e").fg(Color::Yellow),
-                    Paint::new("--expr").fg(Color::Yellow),
-                )),
+    Path or symlink to a /nix/store path",
         )
+        .non_strict()
+        .optional();
+    construct!(RawInstallable {
+        source,
+        installable
+    })
+    .parse(resolve_raw)
+}
+
+/// Resolve the raw CLI surface into an [`InstallableArgs`], applying the same
+/// precedence as Nix: store path, then `--file`, then `--expr`, then flake
+/// reference.
+fn resolve_raw(raw: RawInstallable) -> Result<InstallableArgs, String> {
+    let RawInstallable {
+        installable,
+        source,
+    } = raw;
+
+    if let Some(i) = &installable
+        && let Ok(path) = fs::canonicalize(i)
+        && path.starts_with("/nix/store")
+    {
+        return Ok(InstallableArgs::Specified(Installable::Store { path }));
     }
 
-    fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
-        Self::augment_args(cmd)
+    if let Some(source) = source {
+        let attribute_src = installable.as_deref().unwrap_or("");
+        let attribute = parse_attribute(attribute_src)
+            .map_err(|err| format!("attribute path {err}"))?;
+        return match source {
+            RawSource::File(path) => Ok(InstallableArgs::Specified(
+                Installable::File {
+                    path: PathBuf::from(path),
+                    attribute,
+                },
+            )),
+            RawSource::Expr(expression) => Ok(InstallableArgs::Specified(
+                Installable::Expression {
+                    expression,
+                    attribute,
+                },
+            )),
+        };
     }
+
+    if let Some(i) = installable {
+        let (reference, attribute) = parse_flake_reference(&i)
+            .map_err(|err| format!("installable argument {err}"))?;
+        return Ok(InstallableArgs::Specified(Installable::Flake {
+            reference,
+            attribute,
+        }));
+    }
+
+    Ok(InstallableArgs::Unspecified)
 }
 
 fn parse_attribute(attribute: &str) -> Result<Vec<String>, &'static str> {
