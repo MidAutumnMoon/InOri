@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bpaf::{construct, long, positional, Parser};
+use bpaf::{Parser, construct, long, positional};
 use tracing::debug;
 
 #[cfg(test)]
@@ -20,8 +20,6 @@ mod tests;
 /// Flake selection settings supplied by the application.
 #[derive(Debug, Clone, Default)]
 pub struct FlakeConfig {
-    /// `NH_OS_FLAKE` — OS-specific flake reference.
-    pub os_flake: Option<String>,
     /// `NH_FLAKE` — generic flake reference.
     pub flake: Option<String>,
     /// `NH_FILE` — path to a Nix file.
@@ -37,32 +35,20 @@ pub enum InstallableArgs {
 }
 
 enum EnvInstallableSource {
-    SpecificFlake {
-        env_var: &'static str,
-        value: String,
-    },
-    File {
-        path: String,
-        attribute: String,
-    },
+    File { path: String, attribute: String },
     GenericFlake(String),
 }
 
 impl EnvInstallableSource {
     const fn uses_flakes(&self) -> bool {
         match self {
-            Self::SpecificFlake { value, .. }
-            | Self::GenericFlake(value) => !value.is_empty(),
+            Self::GenericFlake(value) => !value.is_empty(),
             Self::File { .. } => false,
         }
     }
 
     fn into_installable(self) -> rootcause::Result<Installable> {
         match self {
-            Self::SpecificFlake { env_var, value } => {
-                debug!("Using {env_var}: {value}");
-                flake_from_env_var(env_var, &value)
-            }
             Self::File { path, attribute } => {
                 debug!("Using NH_FILE: {path}");
                 Ok(Installable::File {
@@ -139,7 +125,6 @@ Nix accepts various kinds of installables:
 [FLAKEREF[#ATTRPATH]]
     Flake reference with an optional attribute path.
     [env: NH_FLAKE]
-    [env: NH_OS_FLAKE]
 
 -f, --file <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
@@ -174,7 +159,9 @@ fn resolve_raw(raw: RawInstallable) -> Result<InstallableArgs, String> {
         && let Ok(path) = fs::canonicalize(i)
         && path.starts_with("/nix/store")
     {
-        return Ok(InstallableArgs::Specified(Installable::Store { path }));
+        return Ok(InstallableArgs::Specified(Installable::Store {
+            path,
+        }));
     }
 
     if let Some(source) = source {
@@ -182,18 +169,18 @@ fn resolve_raw(raw: RawInstallable) -> Result<InstallableArgs, String> {
         let attribute = parse_attribute(attribute_src)
             .map_err(|err| format!("attribute path {err}"))?;
         return match source {
-            RawSource::File(path) => Ok(InstallableArgs::Specified(
-                Installable::File {
+            RawSource::File(path) => {
+                Ok(InstallableArgs::Specified(Installable::File {
                     path: PathBuf::from(path),
                     attribute,
-                },
-            )),
-            RawSource::Expr(expression) => Ok(InstallableArgs::Specified(
-                Installable::Expression {
+                }))
+            }
+            RawSource::Expr(expression) => {
+                Ok(InstallableArgs::Specified(Installable::Expression {
                     expression,
                     attribute,
-                },
-            )),
+                }))
+            }
         };
     }
 
@@ -295,7 +282,6 @@ impl InstallableArgs {
     ///
     /// If an installable was supplied on the CLI, returns it as-is. Otherwise,
     /// checks env vars in priority order:
-    /// - `NH_OS_FLAKE`
     /// - `NH_FILE`, with `NH_ATTRP` as the optional attribute path
     /// - `NH_FLAKE`
     ///
@@ -345,13 +331,6 @@ impl InstallableArgs {
 fn env_installable_source(
     config: &FlakeConfig,
 ) -> Option<EnvInstallableSource> {
-    if let Some(value) = &config.os_flake {
-        return Some(EnvInstallableSource::SpecificFlake {
-            env_var: "NH_OS_FLAKE",
-            value: value.clone(),
-        });
-    }
-
     if let Some(path) = &config.file {
         return Some(EnvInstallableSource::File {
             path: path.clone(),
@@ -443,7 +422,7 @@ impl Installable {
             Err(FallbackError::NotFound) => Err(rootcause::report!(
                 "Flake reference `{}` points to local path `{}`, but that path does \
            not exist or does not contain a flake.nix file.\nPass an existing \
-           flake path or update NH_FLAKE/NH_OS_FLAKE if this value came from \
+           flake path or update NH_FLAKEi if this value came from \
            the environment.",
                 reference,
                 path.display()
@@ -708,8 +687,7 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
             Err(rootcause::report!(
                 "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
          as an argument (e.g., 'nh os switch .')\n- Set the NH_FLAKE \
-         environment variable\n- Set the NH_OS_FLAKE environment \
-         variable\n\n{}",
+         environment variable\n{}",
                 path.display(),
                 FALLBACK_HELP_HINT
             ))
@@ -723,8 +701,7 @@ fn try_find_default_for_os() -> rootcause::Result<Installable> {
         Err(FallbackError::NotFound) => Err(rootcause::report!(
             "No installable specified and no flake found at {}/flake.nix.\nPlease \
          either:\n- Pass a flake path as an argument (e.g., 'nh os switch \
-         .')\n- Set the NH_FLAKE environment variable\n- Set the NH_OS_FLAKE \
-         environment variable\n\n{}",
+         .')\n- Set the NH_FLAKE environment variable\n{}",
             default_dir.display(),
             FALLBACK_HELP_HINT
         )),

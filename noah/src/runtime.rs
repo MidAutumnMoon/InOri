@@ -199,7 +199,6 @@ impl Config {
     ) -> Result<Self> {
         let elevation = Elevation::new(elevation_strategy, &env)?;
         let flake = FlakeConfig {
-            os_flake: env.non_empty_var("NH_OS_FLAKE").map(str::to_owned),
             flake: env.non_empty_var("NH_FLAKE").map(str::to_owned),
             file: env.non_empty_var("NH_FILE").map(str::to_owned),
             attrp: env.var("NH_ATTRP").unwrap_or_default().to_owned(),
