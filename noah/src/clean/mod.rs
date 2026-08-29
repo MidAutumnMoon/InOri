@@ -1,6 +1,6 @@
 mod cli;
 mod plan;
-pub(crate) use cli::clean_cli;
+pub use cli::clean_cli;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;

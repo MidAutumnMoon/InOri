@@ -102,7 +102,6 @@ fn build_nix_copy_command(
 }
 
 #[expect(clippy::module_name_repetitions, reason = "clearer naming")]
-#[expect(clippy::missing_errors_doc, reason = "internal")]
 pub fn copy_closure_from(
     host: &Host,
     path: &str,
@@ -288,7 +287,6 @@ pub fn copy_to_remote(
 }
 
 /// Copy a Nix closure from one remote host to another.
-#[expect(clippy::missing_errors_doc, reason = "internal")]
 #[expect(clippy::module_name_repetitions, reason = "clearer")]
 pub fn copy_closure_between_hosts(
     from_host: &Host,

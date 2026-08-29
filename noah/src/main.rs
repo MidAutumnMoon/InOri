@@ -1,22 +1,21 @@
 #![expect(
-    clippy::exhaustive_structs,
     clippy::exhaustive_enums,
     reason = "App only, not published"
 )]
 
 mod app;
-pub mod clean;
+mod clean;
 mod cli;
-pub mod command;
-pub mod diff;
+mod command;
+mod diff;
 mod nix_options;
-pub mod nixos;
-pub mod progress;
-pub mod remote;
-pub mod runtime;
-pub mod search;
-pub mod update;
-pub mod util;
+mod nixos;
+mod progress;
+mod remote;
+mod runtime;
+mod search;
+mod update;
+mod util;
 
 use crate::command::ElevationStrategy;
 use crate::command::ElevationStrategyArg;

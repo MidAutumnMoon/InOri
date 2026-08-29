@@ -1149,7 +1149,6 @@ pub struct ActivateRemoteConfig {
 ///
 /// # Errors
 ///
-#[expect(clippy::module_name_repetitions, reason = "It's clearer")]
 pub fn activate_remote(
     host: &Host,
     system_profile: &Path,
@@ -1519,7 +1518,6 @@ pub struct BuildConfig {
 ///
 /// # Errors
 ///
-#[expect(clippy::module_name_repetitions, reason = "It's clearer")]
 pub fn build_remote(
     installable: &Installable,
     config: &BuildConfig,

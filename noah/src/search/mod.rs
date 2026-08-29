@@ -3,7 +3,7 @@ mod cli;
 mod query;
 mod render;
 mod types;
-pub(crate) use cli::search_cli;
+pub use cli::search_cli;
 
 use std::time::Duration;
 

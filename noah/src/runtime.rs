@@ -26,10 +26,6 @@ const NIX_CHILD_ENV: &[&str] = &[
 /// Capture this once during startup. Application code reads configuration and
 /// explicit child-process environment values from the snapshot instead of
 /// consulting ambient process state at arbitrary points in execution.
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "It's shared across multiple modules, Runtime* makes it clear"
-)]
 pub struct RuntimeEnv {
     vars: HashMap<OsString, OsString>,
     executable: PathBuf,

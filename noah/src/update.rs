@@ -11,10 +11,6 @@ pub enum Selection {
 }
 
 /// Parse the mutually exclusive flake update modes.
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "clearer, mirrors clean_cli/search_cli"
-)]
 #[must_use]
 pub fn update_cli() -> impl Parser<Option<Selection>> {
     let all = long("update")

@@ -1,10 +1,10 @@
 mod cli;
 mod request;
-pub(crate) use cli::{
+pub use cli::{
     boot_cli, build_cli, generations_cli, repl_cli, rollback_cli,
     switch_cli, test_cli,
 };
-pub(crate) use request::{
+pub use request::{
     GenerationsRequest, RebuildCommand, ReplRequest, RollbackRequest,
 };
 pub mod generations;
@@ -103,7 +103,7 @@ fn has_elevation_status(
     Ok(!is_root)
 }
 
-pub(crate) fn run_rebuild(
+pub fn run_rebuild(
     command: RebuildCommand,
     elevation: ElevationStrategy,
     runtime_env: &RuntimeEnv,
@@ -121,7 +121,7 @@ pub(crate) fn run_rebuild(
     )
 }
 
-pub(crate) fn run_rollback(
+pub fn run_rollback(
     request: RollbackRequest,
     elevation: ElevationStrategy,
     runtime_env: &RuntimeEnv,
@@ -130,7 +130,7 @@ pub(crate) fn run_rollback(
     rollback::run(request, elevation, runtime_env, sudo_config)
 }
 
-pub(crate) fn run_repl(
+pub fn run_repl(
     request: ReplRequest,
     runtime_env: &RuntimeEnv,
     flake_config: &FlakeConfig,
@@ -138,6 +138,6 @@ pub(crate) fn run_repl(
     repl::run(request, runtime_env, flake_config)
 }
 
-pub(crate) fn run_info(request: &GenerationsRequest) -> Result<()> {
+pub fn run_info(request: &GenerationsRequest) -> Result<()> {
     info::run(request)
 }
