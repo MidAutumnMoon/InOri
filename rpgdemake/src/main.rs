@@ -1,12 +1,18 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
+use bpaf::OptionParser;
+use bpaf::Parser as _;
+use bpaf::construct;
+use bpaf::long;
+use bpaf::positional;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::option_ext::OptionExt as _;
+use rootcause::prelude::ResultExt as _;
 use tap::Pipe as _;
 use tracing::debug;
-
-use anyhow::Context as _;
-use anyhow::ensure;
-use clap::Parser as _;
 
 mod key;
 mod lore;
@@ -16,7 +22,7 @@ use lore::DecryptAction;
 use lore::EncryptedAsset;
 
 /// Decrypt mode.
-#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum Mode {
     /// Decrypt PNG images only, without needing the encryption key.
     Light,
@@ -24,39 +30,83 @@ enum Mode {
     Full,
 }
 
-/// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
-#[derive(clap::Parser, Debug)]
-struct CliOpts {
-    /// Path to the directory containing the game.
-    game_dir: PathBuf,
+impl FromStr for Mode {
+    type Err = String;
 
-    /// Decryption mode.
-    ///
-    /// "light" (default) skips the key and only decrypts PNG images
-    /// by restoring the known PNG header. "full" reads the encryption
-    /// key from System.json and decrypts all asset types (PNG, OGG, M4A).
-    #[arg(long, value_enum, default_value = "light")]
-    mode: Mode,
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "light" => Ok(Self::Light),
+            "full" => Ok(Self::Full),
+            other => Err(format!(
+                "expected one of `light`, `full`, got `{other}`"
+            )),
+        }
+    }
 }
 
-fn main() -> anyhow::Result<()> {
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Light => "light",
+            Self::Full => "full",
+        })
+    }
+}
+
+/// A simple CLI tool for batch decrypting RPG Maker MV/MZ assets.
+#[derive(Debug)]
+struct CliOpts {
+    /// Decryption mode.
+    mode: Mode,
+
+    /// Path to the directory containing the game.
+    game_dir: PathBuf,
+}
+
+#[must_use]
+fn cli() -> OptionParser<CliOpts> {
+    let mode = long("mode")
+        .argument::<Mode>("MODE")
+        .help(
+            "Decryption mode: `light` (default) skips the key and only \
+             decrypts PNG images by restoring the known PNG header; \
+             `full` reads the encryption key from System.json and \
+             decrypts all asset types (PNG, OGG, M4A)",
+        )
+        .fallback(Mode::Light)
+        .display_fallback();
+    let game_dir = positional::<PathBuf>("GAME_DIR")
+        .help("Path to the directory containing the game");
+    construct!(CliOpts { mode, game_dir })
+        .to_options()
+        .descr("A simple CLI tool for batch decrypting RPG Maker MV/MZ assets")
+        .version(env!("CARGO_PKG_VERSION"))
+}
+
+fn main() -> Result<()> {
     let _log_guard = ino_tracing::init_tracing_subscriber();
     rlimit::increase_nofile_limit(u64::MAX)?;
 
-    let cliopts = CliOpts::parse();
+    let cliopts = cli().run();
 
     debug!(?cliopts);
 
     let root = &cliopts.game_dir;
 
-    ensure! { root.is_dir(),
-        "{} is not a directory", root.display()
-    };
-    ensure! { root.join("locales").try_exists()?,
-        "Game folder doesn't contain necessary files to be recognized \
-        as a RPG Maker game. Maybe the directory is wrong, \
-        it's not a RPG Maker MV/MZ game, or the files are packed into the exe."
-    };
+    if !root.is_dir() {
+        bail!("{} is not a directory", root.display());
+    }
+    let has_locales = root
+        .join("locales")
+        .try_exists()
+        .context("Failed to check for the locales entry")?;
+    if !has_locales {
+        bail!(
+            "Game folder doesn't contain necessary files to be recognized \
+            as a RPG Maker game. Maybe the directory is wrong, \
+            it's not a RPG Maker MV/MZ game, or the files are packed into the exe."
+        );
+    }
 
     // Collect encrypted files
 
@@ -72,21 +122,16 @@ fn main() -> anyhow::Result<()> {
         Mode::Full => {
             let system_json = find_system_json(root)
                 .context("Failed to locate System.json")?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "System.json not found in game directory"
-                    )
-                })?;
+                .context("System.json not found in game directory")?;
 
             debug!(?system_json, "read encryption key from System.json");
 
             let key = std::fs::read_to_string(system_json)?
                 .pipe_as_ref(key::Key::parse_json)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "System.json does not contain encryption key, maybe assets are not encrypted?"
-                    )
-                })?;
+                .context(
+                    "System.json does not contain encryption key, \
+                     maybe assets are not encrypted?",
+                )?;
 
             DecryptAction::Full(key)
         }
@@ -105,10 +150,7 @@ fn main() -> anyhow::Result<()> {
 /// - `Mode::Light`: only encrypted PNG files (`.rpgmvp` / `.png_`).
 /// - `Mode::Full`: all encrypted RPG Maker asset types.
 #[tracing::instrument]
-fn find(
-    toplevel: &Path,
-    mode: Mode,
-) -> anyhow::Result<Vec<EncryptedAsset>> {
+fn find(toplevel: &Path, mode: Mode) -> Result<Vec<EncryptedAsset>> {
     let assets = walkdir::WalkDir::new(toplevel)
         .into_iter()
         .filter_map(std::result::Result::ok)
@@ -130,7 +172,7 @@ fn find(
 /// FOOTGUN: returns the *first* match, which may not be the game's
 /// System.json if other files share that name (e.g. bundled plugins).
 #[tracing::instrument]
-fn find_system_json(root: &Path) -> anyhow::Result<Option<PathBuf>> {
+fn find_system_json(root: &Path) -> Result<Option<PathBuf>> {
     for entry in walkdir::WalkDir::new(root) {
         let entry = entry?;
         if !entry.file_type().is_dir()

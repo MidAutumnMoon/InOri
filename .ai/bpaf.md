@@ -35,6 +35,10 @@ Each applet calls `cli().run_inner(Args::from(args).set_name(NAME))`. `set_name(
 
 For "exactly one of these flags" (e.g. `--clipboard` xor `--stdin`), use the array form `construct!([a, b, c])`. bpaf rejects both or neither on its own. The struct form `construct!(Struct { a, b })` requires field names to match the struct; see `qr.rs` / `completion.rs`.
 
+### `positional` must be last in `construct!`
+
+Compiles and parses fine anyway; panics only when usage is rendered (`--help`) with `bpaf usage BUG: all positional and command items must be placed in the right most position`.
+
 ## `run_inner` vs `run`
 
 - `run()` panics or exits directly. Fine for simple single-command CLIs.

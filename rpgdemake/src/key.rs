@@ -1,5 +1,6 @@
-use anyhow::Context as _;
-use anyhow::ensure;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 use crate::lore::ENCRYPTED_PART_LEN;
@@ -17,11 +18,13 @@ pub struct Key {
 
 impl Key {
     /// Decode a hex-encoded encryption key string.
-    fn from_hex(raw_key: &str) -> anyhow::Result<Self> {
-        ensure! { raw_key.len() == 2 * KEY_LEN,
-            "\"{raw_key}\" is not a valid encryption key. \
-            Maybe it's fake, obfuscated or broken.",
-        };
+    fn from_hex(raw_key: &str) -> Result<Self> {
+        if raw_key.len() != 2 * KEY_LEN {
+            bail!(
+                "\"{raw_key}\" is not a valid encryption key. \
+                Maybe it's fake, obfuscated or broken."
+            );
+        }
 
         let mut value = [0_u8; KEY_LEN];
         hex::decode_to_slice(raw_key, &mut value)?;
@@ -30,13 +33,15 @@ impl Key {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn parse_json(json: &str) -> anyhow::Result<Option<Self>> {
+    pub fn parse_json(json: &str) -> Result<Option<Self>> {
         use serde_json::Value;
 
         debug!("try find encryption key in JSON");
 
-        let fields: Value = serde_json::from_str(json)
-            .context("Unable to parse JSON, maybe the System.json itself is encrypted or contains BOM?")?;
+        let fields: Value = serde_json::from_str(json).context(
+            "Unable to parse JSON, maybe the System.json itself \
+             is encrypted or contains BOM?",
+        )?;
 
         let Some(Value::String(key)) = fields.get("encryptionKey") else {
             return Ok(None);

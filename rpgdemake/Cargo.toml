@@ -9,8 +9,7 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
+bpaf.workspace = true
 hex = "0.4.3"
 indicatif.workspace = true
 ino_color.workspace = true
@@ -18,6 +17,7 @@ ino_tracing.workspace = true
 itertools = "0"
 rayon.workspace = true
 rlimit = "0"
+rootcause.workspace = true
 serde_json.workspace = true
 tap.workspace = true
 tracing.workspace = true

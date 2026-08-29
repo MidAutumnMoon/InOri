@@ -1,9 +1,10 @@
-use anyhow::Context as _;
-use anyhow::ensure;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use ino_color::ceprintln;
 use ino_color::fg;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
 
 use crate::lore::DecryptAction;
 use crate::lore::ENCRYPTED_PART_LEN;
@@ -22,26 +23,24 @@ use crate::lore::RPG_HEADER_LEN;
 pub fn decrypt(
     asset: &EncryptedAsset,
     method: &DecryptAction,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if matches!(method, DecryptAction::Light) && !asset.is_png() {
-        anyhow::bail!(
-            "light mode only supports PNG, got {:?}",
-            asset.kind()
-        );
+        bail!("light mode only supports PNG, got {:?}", asset.kind());
     }
 
-    let mut content = std::fs::read(asset.path()).with_context(|| {
+    let mut content = std::fs::read(asset.path()).context_with(|| {
         format!("failed to read {}", asset.path().display())
     })?;
 
-    ensure! {
-        content.len() >= RPG_HEADER_LEN + ENCRYPTED_PART_LEN,
-        "Insufficient data to decode"
-    };
-    ensure! {
-        content.get(..RPG_HEADER_LEN).is_some_and(|header| header == RPG_HEADER),
-        "RPG Maker header mismatch"
-    };
+    if content.len() < RPG_HEADER_LEN + ENCRYPTED_PART_LEN {
+        bail!("Insufficient data to decode");
+    }
+    if content
+        .get(..RPG_HEADER_LEN)
+        .is_none_or(|header| header != RPG_HEADER)
+    {
+        bail!("RPG Maker header mismatch");
+    }
 
     // Strip RPG header; the rest is the original file content
     // with its first 16 bytes XOR'd by the key.
@@ -68,7 +67,7 @@ pub fn decrypt(
 
     let target = asset.decrypted_path();
 
-    std::fs::write(&target, content).with_context(|| {
+    std::fs::write(&target, content).context_with(|| {
         format!("failed to write {}", target.display())
     })?;
 
@@ -80,7 +79,7 @@ pub fn decrypt(
 pub fn run(
     assets: &[EncryptedAsset],
     method: &DecryptAction,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     use rayon::prelude::*;
 
     let pb = ProgressBar::new(assets.len() as u64);
@@ -88,9 +87,7 @@ pub fn run(
         ProgressStyle::with_template(
             "{spinner:.blue} {pos}/{len} [{wide_bar:.cyan/blue}] {msg}",
         )
-        .map_err(|err| {
-            anyhow::anyhow!("invalid progress template: {err}")
-        })?
+        .context("invalid progress template")?
         .progress_chars("█▓░"),
     );
 
@@ -109,7 +106,7 @@ pub fn run(
                 pb.suspend(|| {
                     ceprintln!(
                         fg::Red,
-                        "(err) {}: {err:#}",
+                        "(err) {}: {err}",
                         asset.path().display()
                     );
                 });
@@ -123,7 +120,7 @@ pub fn run(
         Ok(())
     } else {
         pb.finish_and_clear();
-        anyhow::bail!(
+        bail!(
             "{} of {} file(s) failed to decrypt",
             errors.len(),
             assets.len()

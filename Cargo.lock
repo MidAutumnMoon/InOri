@@ -1961,9 +1961,8 @@ dependencies = [
 name = "rpgdemake"
 version = "2.2.0"
 dependencies = [
- "anyhow",
  "assert_fs",
- "clap",
+ "bpaf",
  "hex",
  "indicatif",
  "ino_color",
@@ -1971,6 +1970,7 @@ dependencies = [
  "itertools",
  "rayon",
  "rlimit",
+ "rootcause",
  "serde_json",
  "tap",
  "tracing",
