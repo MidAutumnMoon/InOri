@@ -62,7 +62,7 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 ### Error Handling
 
-- New apps should use `rootcause` crate instead of `anyhow`. Usage of `anyhow` is legacy and is gradually being replaced.
+- New apps should use `rootcause` crate instead of `anyhow`. Usage of `anyhow` is legacy and is gradually being replaced. For gotchas, see [`.ai/rootcause.md`](./.ai/rootcause.md).
 - Prefer richer return types instead of convention.
 - Avoid `unwrap()` and `panic` in production code (Clippy will warn).
 

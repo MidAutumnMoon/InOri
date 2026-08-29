@@ -55,3 +55,13 @@ pub enum ParseFailure {
 ## Testing parsers
 
 Use `run_inner` (not `run`, which exits). Match on `ParseFailure::Stderr` for parse errors. If you `.unwrap()` the success path, add `#[allow(clippy::unwrap_used)]` to the test module — the workspace's strict clippy flags it otherwise.
+
+## Migrating from clap
+
+- No derive. Doc comments become explicit calls: field docs → `.help("...")`; the struct/enum doc → `.descr("...")` on the `to_options()` builder.
+- Short flags are not derived from field names — write `.short('n')` explicitly.
+- `--version` is not automatic — add `.version(env!("CARGO_PKG_VERSION"))` on the `to_options()` builder.
+- Clap's `#[arg(long, short, value_name = "PATH")]` maps to
+  `long("name").short('n').argument::<T>("PATH").help("...").optional()`;
+  attach `.help()` after `.argument()`.
+
