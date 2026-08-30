@@ -6,11 +6,14 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 
+use ino_shell::Shell;
+use ino_shell::cmd;
 use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
 use rustix::system::uname;
+use tracing::debug;
 
 use crate::command::Elevation;
 use crate::command::ElevationStrategy;
@@ -177,6 +180,13 @@ impl fmt::Debug for Env {
     }
 }
 
+/// Variant of the system Nix. Determinate Nix is not supported.
+#[derive(Debug)]
+pub enum NixVariant {
+    Nix,
+    Lix,
+}
+
 /// Configuration for a single run, assembled once after CLI parsing.
 #[derive(Debug)]
 pub struct Config {
@@ -184,6 +194,7 @@ pub struct Config {
     pub elevation: Elevation,
     pub flake: FlakeConfig,
     pub ssh: SshConfig,
+    pub nix_variant: NixVariant,
 }
 
 impl Config {
@@ -210,7 +221,48 @@ impl Config {
             elevation,
             flake,
             ssh,
+            nix_variant: nix_variant()?,
         })
+    }
+}
+
+fn nix_variant() -> rootcause::Result<NixVariant> {
+    let variant = guess_nix_variant_from_version_output()?;
+    ensure_features_needed_are_set()?;
+    Ok(variant)
+}
+
+fn guess_nix_variant_from_version_output() -> rootcause::Result<NixVariant>
+{
+    let shell = Shell::new()?;
+    let version_output = cmd!(shell, "nix --version")
+        .read()
+        .context("Failed to run `nix --version`")?;
+
+    if version_output.to_lowercase().contains("lix") {
+        Ok(NixVariant::Lix)
+    } else {
+        Ok(NixVariant::Nix)
+    }
+}
+
+fn ensure_features_needed_are_set() -> rootcause::Result<()> {
+    let shell = Shell::new()?;
+    let expr_features =
+        cmd!(shell, "nix config show experimental-features")
+            .read()
+            .context("Failed to read enabled experimental features")?;
+
+    debug!(expr_features);
+
+    if expr_features.contains("flakes")
+        && expr_features.contains("nix-command")
+    {
+        Ok(())
+    } else {
+        rootcause::bail!(
+            "Required flake features (nix-command, flakes) are not enabled"
+        )
     }
 }
 
