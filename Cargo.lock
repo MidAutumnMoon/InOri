@@ -1491,7 +1491,6 @@ dependencies = [
  "ino_tracing",
  "inquire",
  "jiff",
- "nh-installable",
  "nix",
  "nix-command",
  "proptest",
@@ -1513,16 +1512,6 @@ dependencies = [
  "walkdir",
  "which",
  "yansi",
-]
-
-[[package]]
-name = "nh-installable"
-version = "5.0.0"
-dependencies = [
- "bpaf",
- "rootcause",
- "tempfile",
- "tracing",
 ]
 
 [[package]]

@@ -1,8 +1,9 @@
 use bpaf::{Parser, construct, long};
-use nh_installable::Installable;
 use nix_command::{CommandKind, NixCommand};
 use rootcause::{Result, bail};
 use tracing::{info, warn};
+
+use crate::target::BuildTarget;
 
 #[derive(Clone, Debug)]
 pub enum Selection {
@@ -27,20 +28,20 @@ pub fn update_cli() -> impl Parser<Option<Selection>> {
     construct!([all, inputs]).optional()
 }
 
-/// Update flake inputs for an installable.
+/// Update flake inputs for a target.
 ///
 /// # Errors
 ///
 /// Returns an error if `nix flake update` fails.
 pub fn update(
-    installable: &Installable,
+    target: &BuildTarget,
     selection: &Selection,
     commit_lock_file: bool,
 ) -> Result<()> {
-    let Installable::Flake { reference, .. } = installable else {
+    let BuildTarget::Flake { reference, .. } = target else {
         warn!(
-            "Only flake installables can be updated, {} is not supported",
-            installable.str_kind()
+            "Only flake targets can be updated, {} is not supported",
+            target.kind()
         );
         return Ok(());
     };

@@ -8,7 +8,6 @@ use std::path::PathBuf;
 
 use ino_shell::Shell;
 use ino_shell::cmd;
-use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
@@ -192,7 +191,6 @@ pub enum NixVariant {
 pub struct Config {
     pub env: Env,
     pub elevation: Elevation,
-    pub flake: FlakeConfig,
     pub ssh: SshConfig,
     pub nix_variant: NixVariant,
 }
@@ -209,17 +207,11 @@ impl Config {
         elevation_strategy: Option<ElevationStrategy>,
     ) -> Result<Self> {
         let elevation = Elevation::new(elevation_strategy, &env)?;
-        let flake = FlakeConfig {
-            flake: env.non_empty_var("NH_FLAKE").map(str::to_owned),
-            file: env.non_empty_var("NH_FILE").map(str::to_owned),
-            attrp: env.var("NH_ATTRP").unwrap_or_default().to_owned(),
-        };
         let ssh = SshConfig::from_env(&env)?;
 
         Ok(Self {
             env,
             elevation,
-            flake,
             ssh,
             nix_variant: nix_variant()?,
         })

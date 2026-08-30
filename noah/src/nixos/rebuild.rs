@@ -2,7 +2,6 @@ use std::convert::Into;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
-use nh_installable::{FlakeConfig, Installable};
 use rootcause::{Result, bail, prelude::ResultExt as _, report};
 use tracing::{debug, info, warn};
 
@@ -23,6 +22,8 @@ use crate::remote::{
     open_ssh_control_master, probe_remote_uid, validate_remote_closure,
 };
 use crate::runtime::Config;
+use crate::runtime::Env;
+use crate::target::{self, BuildTarget};
 use crate::update::update;
 use crate::util::{ensure_ssh_key_login, get_hostname};
 struct Rebuild(RebuildRequest);
@@ -84,7 +85,7 @@ impl ActivationRequest {
 
         let toplevel = self
             .rebuild
-            .prepare_toplevel(&target_hostname, &config.flake)?;
+            .prepare_toplevel(&target_hostname, &config.env)?;
 
         // Initialize SSH control early if we have remote hosts - guard will keep
         // connections alive for both build and activation
@@ -519,58 +520,55 @@ impl Rebuild {
     fn prepare_toplevel(
         &self,
         target_hostname: &str,
-        flake_config: &FlakeConfig,
-    ) -> Result<Installable> {
-        let mut toplevel = self
-            .build
-            .installable
-            .clone()
-            .resolve_or_default(flake_config)?;
-        let attrs = ["config", "system", "build", "toplevel"]
-            .into_iter()
-            .map(String::from);
+        env: &Env,
+    ) -> Result<BuildTarget> {
+        const TOPLEVEL_ATTRS: [&str; 4] =
+            ["config", "system", "build", "toplevel"];
+
+        let mut toplevel = target::resolve(self.build.target.clone(), env)?;
 
         match &mut toplevel {
-            Installable::Flake { attribute, .. } => {
-                let first = attribute.first().cloned();
-                let second = attribute.get(1).cloned();
-                match (first.as_deref(), attribute.len()) {
-                    (None, _) => {
-                        attribute
-                            .push(String::from("nixosConfigurations"));
+            BuildTarget::Flake { attribute, .. } => {
+                let second = attribute
+                    .get(1)
+                    .map_or_else(String::new, String::clone);
+                match attribute.first().map(String::as_str) {
+                    None => {
+                        attribute.push(String::from("nixosConfigurations"));
                         attribute.push(target_hostname.to_owned());
                     }
-                    (Some("nixosConfigurations"), 1) => {
-                        info!(
-                            "Inferring hostname '{target_hostname}' for \
-                             nixosConfigurations"
-                        );
-                        attribute.push(target_hostname.to_owned());
-                    }
-                    (Some("nixosConfigurations"), 2) => {}
-                    (Some("nixosConfigurations"), _) => {
-                        bail!(
-                            "Attribute path is too specific: {}. Please either:\n  1. Use the \
-                             flake reference without attributes (e.g., '.')\n  2. Specify \
-                             only the configuration name (e.g., '.#{}')",
-                            attribute.join("."),
-                            second.as_deref().unwrap_or_default()
-                        );
-                    }
-                    _ => {
+                    Some("nixosConfigurations") => match attribute.len() {
+                        1 => {
+                            info!(
+                                "Inferring hostname '{target_hostname}' for \
+                                 nixosConfigurations"
+                            );
+                            attribute.push(target_hostname.to_owned());
+                        }
+                        2 => {}
+                        _ => {
+                            bail!(
+                                "Attribute path is too specific: {attribute}. Please \
+                                 either:\n  1. Use the flake reference without \
+                                 attributes (e.g., '.')\n  2. Specify only the \
+                                 configuration name (e.g., '.#{second}')"
+                            );
+                        }
+                    },
+                    Some(_) => {
                         attribute.insert(
                             0,
                             String::from("nixosConfigurations"),
                         );
                     }
                 }
-                attribute.extend(attrs);
+                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
             }
-            Installable::File { attribute, .. }
-            | Installable::Expression { attribute, .. } => {
-                attribute.extend(attrs);
+            BuildTarget::File { attribute, .. }
+            | BuildTarget::Expression { attribute, .. } => {
+                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
             }
-            Installable::Store { .. } => {}
+            BuildTarget::StorePath(_) => {}
         }
 
         if let Some(selection) = &self.update {
@@ -582,7 +580,7 @@ impl Rebuild {
 
     fn execute_build(
         &self,
-        toplevel: Installable,
+        toplevel: BuildTarget,
         out_path: &Path,
         ssh_config: &SshConfig,
     ) -> Result<Option<PathBuf>> {
@@ -633,7 +631,7 @@ impl Rebuild {
 
     fn build_and_diff(
         &self,
-        toplevel: Installable,
+        toplevel: BuildTarget,
         out_path: &Path,
         ssh_config: &SshConfig,
     ) -> Result<BuiltConfiguration> {
@@ -708,7 +706,7 @@ impl Rebuild {
             self.determine_output_path(false)?;
 
         let toplevel =
-            self.prepare_toplevel(&target_hostname, &config.flake)?;
+            self.prepare_toplevel(&target_hostname, &config.env)?;
         self.build_and_diff(toplevel, &out_path, &config.ssh)?;
 
         Ok(())

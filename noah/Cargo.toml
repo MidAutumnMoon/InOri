@@ -20,7 +20,6 @@ inquire = { default-features = false, features = [ "crossterm" ], version = "0.9
 ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
 ino_tracing.workspace = true
 jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
-nh-installable = { path = "./crates/nh-installable" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 nix-command = { path = "./crates/nix-command" }
 regex = "1.12.2"

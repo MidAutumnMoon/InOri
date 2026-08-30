@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
-use nh_installable::InstallableArgs;
-
 use crate::diff::Mode as DiffMode;
 use crate::nix_options::NixBuildOptions;
 use crate::nixos::generations::Field;
 use crate::remote::Host;
+use crate::target::BuildTarget;
 use crate::update::Selection;
 #[derive(Clone, Debug)]
 pub enum RebuildCommand {
@@ -29,7 +28,7 @@ pub struct RebuildRequest {
 
 #[derive(Clone, Debug)]
 pub struct BuildOptions {
-    pub installable: InstallableArgs,
+    pub target: Option<BuildTarget>,
     pub no_nom: bool,
     pub out_link: Option<PathBuf>,
     pub diff: DiffMode,
@@ -106,7 +105,7 @@ pub struct RollbackRequest {
 
 #[derive(Clone, Debug)]
 pub struct ReplRequest {
-    pub installable: InstallableArgs,
+    pub target: Option<BuildTarget>,
     pub hostname: Option<String>,
 }
 

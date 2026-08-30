@@ -8,6 +8,7 @@ mod progress;
 mod remote;
 mod runtime;
 mod search;
+mod target;
 mod update;
 mod util;
 mod weather;
@@ -56,9 +57,7 @@ fn run(command: CliCommand, config: &Config) -> rootcause::Result<()> {
         CliCommand::Rebuild(command) => {
             nixos::run_rebuild(*command, config)
         }
-        CliCommand::Repl(request) => {
-            nixos::run_repl(request, &config.env, &config.flake)
-        }
+        CliCommand::Repl(request) => nixos::run_repl(request, &config.env),
         CliCommand::Info(request) => nixos::run_info(&request),
         CliCommand::Rollback(request) => {
             nixos::run_rollback(request, config)

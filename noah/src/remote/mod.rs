@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::command::Elevation;
 use crate::runtime::Env;
-use nh_installable::Installable;
+use crate::target::BuildTarget;
 use nix_command::CommandKind;
 use nix_command::NixCommand;
 use rootcause::Report;
@@ -1355,51 +1355,24 @@ fn activate_nixos_remote(
 /// Used by remote activation functions.
 const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
-/// Evaluate a flake installable to get its derivation path.
+/// Evaluate a target to get its derivation path.
 /// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`.
-fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
-    // Build the installable with .drvPath appended
-    let drv_installable = match installable {
-        Installable::Flake {
-            reference,
-            attribute,
-        } => {
-            let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_owned());
-            Installable::Flake {
-                reference: reference.clone(),
-                attribute: drv_attr,
-            }
-        }
-        Installable::File { path, attribute } => {
-            let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_owned());
-            Installable::File {
-                path: path.clone(),
-                attribute: drv_attr,
-            }
-        }
-        Installable::Expression {
-            expression,
-            attribute,
-        } => {
-            let mut drv_attr = attribute.clone();
-            drv_attr.push("drvPath".to_owned());
-            Installable::Expression {
-                expression: expression.clone(),
-                attribute: drv_attr,
-            }
-        }
-        Installable::Store { path } => {
-            bail!(
-                "Cannot perform remote build with store path '{}'. Store paths are \
+fn eval_drv_path(target: &BuildTarget) -> Result<PathBuf> {
+    if let BuildTarget::StorePath(path) = target {
+        bail!(
+            "Cannot perform remote build with store path '{}'. Store paths are \
          already built.",
-                path.display()
-            );
-        }
-    };
+            path.display()
+        );
+    }
 
-    let args = drv_installable.to_args();
+    // Append .drvPath to the attribute path of the target
+    let mut drv_target = target.clone();
+    if let Some(attribute) = drv_target.attribute_mut() {
+        attribute.push(String::from("drvPath"));
+    }
+
+    let args = drv_target.to_args();
     debug!("Evaluating drvPath: nix eval --raw {:?}", args);
 
     let cmd = NixCommand::new(CommandKind::Eval)
@@ -1473,7 +1446,7 @@ pub struct BuildConfig {
     pub extra_args: Vec<OsString>,
 }
 
-/// Perform a remote build of a flake installable.
+/// Perform a remote build of a target.
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
 /// 1. Evaluate drvPath locally via `nix eval --raw`
@@ -1486,7 +1459,7 @@ pub struct BuildConfig {
 /// # Errors
 ///
 pub fn build_remote(
-    installable: &Installable,
+    target: &BuildTarget,
     config: &BuildConfig,
     out_link: Option<&std::path::Path>,
     ssh_config: &SshConfig,
@@ -1496,7 +1469,7 @@ pub fn build_remote(
 
     // Step 1: Evaluate drvPath locally
     info!("Evaluating derivation path");
-    let drv_path = eval_drv_path(installable)?;
+    let drv_path = eval_drv_path(target)?;
 
     // Step 2: Copy derivation to build host
     copy_to_remote(build_host, &drv_path, use_substitutes, ssh_config)?;

@@ -13,7 +13,6 @@ mod rebuild;
 mod repl;
 mod rollback;
 
-use nh_installable::FlakeConfig;
 use rootcause::Result;
 use rootcause::bail;
 use rootcause::report;
@@ -117,12 +116,8 @@ pub fn run_rollback(
     rollback::run(request, config)
 }
 
-pub fn run_repl(
-    request: ReplRequest,
-    env: &Env,
-    flake_config: &FlakeConfig,
-) -> Result<()> {
-    repl::run(request, env, flake_config)
+pub fn run_repl(request: ReplRequest, env: &Env) -> Result<()> {
+    repl::run(request, env)
 }
 
 pub fn run_info(request: &GenerationsRequest) -> Result<()> {

@@ -6,7 +6,6 @@ use super::request::{
     RollbackRequest, SpecialisationSelection,
 };
 use bpaf::{Parser, construct, long, positional};
-use nh_installable::InstallableArgs;
 
 use crate::cli::env_bool_strict;
 use crate::cli::env_boolish;
@@ -16,6 +15,8 @@ use crate::nix_options::NixCliOptions;
 use crate::nix_options::nix_build_options_cli;
 use crate::nixos::generations::Field;
 use crate::remote::Host;
+use crate::target::BuildTarget;
+use crate::target::parser as target_parser;
 use crate::update::update_cli;
 
 #[derive(Clone, Debug)]
@@ -45,18 +46,18 @@ fn build_options_cli() -> impl Parser<ParsedBuildOptions> {
         .fallback(DiffMode::Auto)
         .display_fallback();
     let nix = nix_build_options_cli();
-    let installable = nh_installable::installable_args();
+    let target = target_parser();
 
-    construct!(no_nom, out_link, diff, nix, installable).map(
-        |(no_nom, out_link, diff, nix, installable): (
+    construct!(no_nom, out_link, diff, nix, target).map(
+        |(no_nom, out_link, diff, nix, target): (
             bool,
             Option<PathBuf>,
             DiffMode,
             NixCliOptions,
-            InstallableArgs,
+            Option<BuildTarget>,
         )| ParsedBuildOptions {
             options: BuildOptions {
-                installable,
+                target,
                 no_nom,
                 out_link,
                 diff,
@@ -92,7 +93,7 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
         .short('H')
         .argument::<String>("HOSTNAME")
         .help(
-            "When using a flake installable, select this hostname from \
+            "When using a flake, select this hostname from \
              nixosConfigurations.\n\nWhen unspecified, defaults to the local \
              hostname for local deployments, and hostname of the target \
              machine for remote deployments (see --target-host)",
@@ -327,15 +328,15 @@ pub fn repl_cli() -> impl Parser<ReplRequest> {
         .short('H')
         .argument::<String>("HOSTNAME")
         .help(
-            "When using a flake installable, select this hostname from \
+            "When using a flake, select this hostname from \
              nixosConfigurations",
         )
         .optional();
-    let installable = nh_installable::installable_args();
+    let target = target_parser();
 
     construct!(ReplRequest {
         hostname,
-        installable,
+        target,
     })
 }
 
@@ -378,15 +379,12 @@ fn parse_field_selection(
 #[expect(
     clippy::unwrap_used,
     clippy::panic,
-    clippy::wildcard_enum_match_arm,
     reason = "Test assertions"
 )]
 mod tests {
     use std::path::PathBuf;
 
     use bpaf::{Args, ParseFailure, Parser as _};
-    use nh_installable::Installable;
-    use nh_installable::InstallableArgs;
 
     use super::ActivationAction;
     use super::GenerationsRequest;
@@ -399,6 +397,7 @@ mod tests {
     use super::switch_cli;
     use super::test_cli;
     use crate::nixos::generations::Field;
+    use crate::target::BuildTarget;
 
     fn parse_build(
         args: &[&str],
@@ -425,36 +424,31 @@ mod tests {
         assert_eq!(request.extra_args, ["--option", "a", "b", "-j", "1"]);
         assert!(request.build.nix.option.is_empty());
         assert!(request.build.nix.max_jobs.is_none());
-        match request.build.installable {
-            InstallableArgs::Specified(Installable::Flake {
-                reference,
-                ..
-            }) => assert_eq!(reference, "."),
-            other => panic!("Expected a flake installable, got {other:?}"),
+        match request.build.target {
+            Some(BuildTarget::Flake { reference, .. }) => {
+                assert_eq!(reference, ".");
+            }
+            other => panic!("Expected a flake target, got {other:?}"),
         }
     }
 
     #[test]
-    fn named_flags_parse_around_positional_installable() {
+    fn named_flags_parse_around_positional_target() {
         let request = parse_build(&["-j", "2", "."]).unwrap();
 
         assert_eq!(request.build.nix.max_jobs, Some(2));
-        assert!(matches!(
-            request.build.installable,
-            InstallableArgs::Specified(_)
-        ));
+        assert!(request.build.target.is_some());
     }
 
     #[test]
-    fn file_and_installable_positional_combine() {
+    fn file_and_positional_target_combine() {
         let request = parse_build(&["-f", "file.nix", "attr"]).unwrap();
 
-        match request.build.installable {
-            InstallableArgs::Specified(Installable::File {
-                attribute,
-                ..
-            }) => assert_eq!(attribute, ["attr"]),
-            other => panic!("Expected a file installable, got {other:?}"),
+        match request.build.target {
+            Some(BuildTarget::File { attribute, .. }) => {
+                assert_eq!(attribute.to_vec(), ["attr"]);
+            }
+            other => panic!("Expected a file target, got {other:?}"),
         }
     }
 
@@ -463,12 +457,10 @@ mod tests {
         let request =
             parse_build(&["-E", "{ pkgs }: pkgs.hello"]).unwrap();
 
-        match request.build.installable {
-            InstallableArgs::Specified(Installable::Expression {
-                ..
-            }) => {}
+        match request.build.target {
+            Some(BuildTarget::Expression { .. }) => {}
             other => {
-                panic!("Expected an expression installable, got {other:?}")
+                panic!("Expected an expression target, got {other:?}")
             }
         }
     }

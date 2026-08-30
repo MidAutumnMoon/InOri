@@ -8,7 +8,6 @@ use std::{
     str::FromStr,
 };
 
-use nh_installable::Installable;
 use nix_command::CommandKind;
 use nix_command::NixCommand;
 use rootcause::{Result, bail, prelude::ResultExt as _, report};
@@ -19,6 +18,7 @@ use which::which_in;
 
 use crate::nix_options::NixBuildOptions;
 use crate::runtime::Env;
+use crate::target::BuildTarget;
 
 struct CaptureWriter<W> {
     stream: W,
@@ -650,17 +650,17 @@ impl<'env> Command<'env> {
 #[derive(Debug)]
 pub struct Build {
     message: Option<String>,
-    installable: Installable,
+    target: BuildTarget,
     extra_args: Vec<OsString>,
     nom: bool,
 }
 
 impl Build {
     #[must_use]
-    pub const fn new(installable: Installable) -> Self {
+    pub const fn new(target: BuildTarget) -> Self {
         Self {
             message: None,
-            installable,
+            target,
             extra_args: vec![],
             nom: false,
         }
@@ -712,11 +712,11 @@ impl Build {
             info!("{message}");
         }
 
-        let installable_args = self.installable.to_args();
+        let target_args = self.target.to_args();
 
         let base_command = NixCommand::new(CommandKind::Build)
             .print_build_logs(false)
-            .args(&installable_args)
+            .args(&target_args)
             .args(&self.extra_args)
             .into_exec();
 
