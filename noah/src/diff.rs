@@ -83,6 +83,9 @@ pub fn print_dix_report(
 
 /// Handles NixOS system diffing for a rebuild.
 ///
+/// `target_profile` is the store path of the profile to compare against the
+/// currently booted system.
+///
 /// # Errors
 ///
 /// Returns an error if the local store snapshot queries or the diff report
@@ -99,13 +102,6 @@ pub fn handle_nixos(diff: &Mode, target_profile: &Path) -> Result<()> {
             warn!(
                 "current profile {} does not exist, skipping dix diffing",
                 current_profile.display()
-            );
-            return Ok(());
-        }
-        Mode::Auto if !target_profile.exists() => {
-            warn!(
-                "target profile {} does not exist, skipping dix diffing",
-                target_profile.display()
             );
             return Ok(());
         }

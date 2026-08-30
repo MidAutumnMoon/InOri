@@ -62,6 +62,57 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
     ("sw/bin", "system path"),
 ];
 
+/// A successfully built system closure.
+///
+/// The build leaves an out-link pointing at the toplevel; the selected
+/// profile is either the toplevel itself or one of its specialisations.
+/// Both paths are canonical store paths, so diffing, validation, and
+/// activation never have to re-resolve them.
+#[derive(Debug)]
+struct BuiltSystem {
+    /// Store path of the built toplevel (the out-link's target).
+    toplevel: PathBuf,
+
+    /// Store path of the selected profile: the toplevel, or a
+    /// specialisation of it.
+    profile: PathBuf,
+}
+
+impl BuiltSystem {
+    /// Resolve the built system from the out-link left by the build.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the out-link cannot be resolved to a store path,
+    /// or a selected specialisation does not exist in the built
+    /// configuration.
+    fn resolve(out_link: &Path, specialisation: Option<&str>) -> Result<Self> {
+        let toplevel = out_link.canonicalize().context(
+            "Failed to resolve output path to actual store path",
+        )?;
+
+        let profile = match specialisation {
+            None => toplevel.clone(),
+            Some(spec) => {
+                let spec_link = out_link.join("specialisation").join(spec);
+                if !spec_link.exists() {
+                    bail!(
+                        "Specialisation '{spec}' does not exist in the built \
+                         configuration"
+                    );
+                }
+                spec_link.canonicalize().context_with(|| {
+                    format!(
+                        "Failed to resolve specialisation '{spec}' to a store path"
+                    )
+                })?
+            }
+        };
+
+        Ok(Self { toplevel, profile })
+    }
+}
+
 impl ActivationRequest {
     fn build_and_activate(&self, config: &Config) -> Result<()> {
         let (elevate, target_hostname) = self
@@ -74,8 +125,7 @@ impl ActivationRequest {
         let toplevel =
             self.rebuild.prepare_toplevel(&target_hostname, &config.env)?;
 
-        let target_profile =
-            self.rebuild.build_and_diff(toplevel, &out_path)?;
+        let built = self.rebuild.build_and_diff(toplevel, &out_path)?;
 
         if self.activation.dry {
             if self.activation.ask {
@@ -85,20 +135,14 @@ impl ActivationRequest {
             return Ok(());
         }
 
-        self.activate_rebuilt_config(
-            &out_path,
-            &target_profile,
-            elevate,
-            config,
-        )?;
+        self.activate_rebuilt_config(&built, elevate, config)?;
 
         Ok(())
     }
 
     fn activate_rebuilt_config(
         &self,
-        out_path: &Path,
-        target_profile: &Path,
+        built: &BuiltSystem,
         elevate: bool,
         config: &Config,
     ) -> Result<()> {
@@ -115,7 +159,7 @@ impl ActivationRequest {
         }
 
         let switch_to_configuration =
-            self.resolve_closure(target_profile)?;
+            self.resolve_closure(&built.profile)?;
 
         match action {
             ActivationAction::Test { .. } => {
@@ -127,7 +171,7 @@ impl ActivationRequest {
             }
             ActivationAction::Boot { .. } => {
                 self.activate_boot_phase(
-                    out_path,
+                    built,
                     &switch_to_configuration,
                     elevate,
                     config,
@@ -140,7 +184,7 @@ impl ActivationRequest {
                     config,
                 )?;
                 self.activate_boot_phase(
-                    out_path,
+                    built,
                     &switch_to_configuration,
                     elevate,
                     config,
@@ -149,7 +193,8 @@ impl ActivationRequest {
         }
 
         debug!(
-            "Completed {action:?} operation with output path: {out_path:?}"
+            "Completed {action:?} operation with store path: {}",
+            built.profile.display()
         );
 
         Ok(())
@@ -157,11 +202,7 @@ impl ActivationRequest {
 
     /// Validates the closure to activate and resolves the path to its
     /// `switch-to-configuration` binary.
-    fn resolve_closure(&self, target_profile: &Path) -> Result<PathBuf> {
-        let resolved_profile = target_profile.canonicalize().context(
-            "Failed to resolve output path to actual store path",
-        )?;
-
+    fn resolve_closure(&self, profile: &Path) -> Result<PathBuf> {
         if self.activation.no_validate {
             warn!(
                 "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
@@ -172,10 +213,10 @@ impl ActivationRequest {
          incomplete"
             );
         } else {
-            validate_system_closure(&resolved_profile)?;
+            validate_system_closure(profile)?;
         }
 
-        let switch_to_configuration = resolved_profile
+        let switch_to_configuration = profile
             .join("bin")
             .join("switch-to-configuration")
             .canonicalize()
@@ -210,7 +251,7 @@ impl ActivationRequest {
     /// Sets the system profile and installs the bootloader entry.
     fn activate_boot_phase(
         &self,
-        out_path: &Path,
+        built: &BuiltSystem,
         switch_to_configuration: &Path,
         elevate: bool,
         config: &Config,
@@ -218,13 +259,9 @@ impl ActivationRequest {
         // Use the base system closure instead of the specialisation one.
         // This is what makes all specialisations visible in the bootloader
         // instead of only the generation with the specialisation.
-        let base_store_path = out_path
-            .canonicalize()
-            .context("Failed to resolve base output path to store path")?;
-
         Command::new("nix", &config.env, &config.elevation)
             .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-            .arg(&base_store_path)
+            .arg(&built.toplevel)
             .elevate(elevate)
             .run()
             .context("Failed to set system profile")?;
@@ -380,56 +417,21 @@ impl Rebuild {
         &self,
         toplevel: BuildTarget,
         out_path: &Path,
-    ) -> Result<PathBuf> {
+    ) -> Result<BuiltSystem> {
         self.execute_build(toplevel, out_path)?;
-        let target_profile =
-            self.resolve_specialisation_and_profile(out_path)?;
 
-        handle_nixos(&self.build.diff, &target_profile)?;
-
-        Ok(target_profile)
-    }
-
-    fn resolve_specialisation_and_profile(
-        &self,
-        out_path: &Path,
-    ) -> Result<PathBuf> {
         let target_specialisation =
             resolve_specialisation(&self.specialisation);
-
         debug!("Target specialisation: {target_specialisation:?}");
 
-        // Determine target profile, falling back to base if specialisation
-        // doesn't exist
-        let target_profile = match &target_specialisation {
-            None => out_path.to_path_buf(),
-            Some(spec) => {
-                let spec_path = out_path.join("specialisation").join(spec);
+        let built =
+            BuiltSystem::resolve(out_path, target_specialisation.as_deref())?;
+        debug!("Built toplevel: {}", built.toplevel.display());
+        debug!("Selected profile: {}", built.profile.display());
 
-                // Check if specialisation exists and fail if not
-                if out_path.exists() && !spec_path.exists() {
-                    bail!(
-                        "Specialisation '{}' does not exist in the built configuration",
-                        spec
-                    );
-                }
+        handle_nixos(&self.build.diff, &built.profile)?;
 
-                spec_path
-            }
-        };
-
-        debug!("Output path: {out_path:?}");
-        debug!("Target profile path: {}", target_profile.display());
-
-        // Validate the final target profile exists
-        if out_path.exists() && !target_profile.exists() {
-            return Err(report!(
-                "Target profile path does not exist: {}",
-                target_profile.display()
-            ));
-        }
-
-        Ok(target_profile)
+        Ok(built)
     }
 
     /// Builds the toplevel configuration without activating (`nh build`).
@@ -486,4 +488,65 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Test assertions")]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// Lay out a fake built system: an out-link to a toplevel containing one
+    /// specialisation, both as store-path-shaped directories.
+    fn fake_built_system(dir: &Path) -> PathBuf {
+        let toplevel = dir.join("store-toplevel");
+        let spec = dir.join("store-spec");
+        fs::create_dir_all(toplevel.join("specialisation")).unwrap();
+        fs::create_dir_all(&spec).unwrap();
+        std::os::unix::fs::symlink(
+            &spec,
+            toplevel.join("specialisation/foo"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&toplevel, dir.join("result")).unwrap();
+        dir.join("result")
+    }
+
+    #[test]
+    fn resolve_without_specialisation_selects_the_toplevel() {
+        let dir = tempfile::tempdir().unwrap();
+        let out_link = fake_built_system(dir.path());
+        let base = dir.path().canonicalize().unwrap();
+
+        let built = BuiltSystem::resolve(&out_link, None).unwrap();
+
+        assert_eq!(built.toplevel, base.join("store-toplevel"));
+        assert_eq!(built.profile, built.toplevel);
+    }
+
+    #[test]
+    fn resolve_resolves_specialisation_to_its_own_store_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let out_link = fake_built_system(dir.path());
+        let base = dir.path().canonicalize().unwrap();
+
+        let built =
+            BuiltSystem::resolve(&out_link, Some("foo")).unwrap();
+
+        assert_eq!(built.toplevel, base.join("store-toplevel"));
+        assert_eq!(built.profile, base.join("store-spec"));
+    }
+
+    #[test]
+    fn resolve_rejects_missing_specialisation() {
+        let dir = tempfile::tempdir().unwrap();
+        let out_link = fake_built_system(dir.path());
+
+        let error =
+            BuiltSystem::resolve(&out_link, Some("missing")).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("does not exist in the built configuration"));
+    }
 }
