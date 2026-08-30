@@ -16,7 +16,6 @@ use tracing::debug;
 
 use crate::command::Elevation;
 use crate::command::ElevationStrategy;
-use crate::remote::SshConfig;
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",
@@ -57,12 +56,14 @@ impl Env {
             arguments: env::args_os().skip(1).collect(),
             current_dir: env::current_dir()
                 .context("Failed to determine the current directory")?,
-            current_machine_hostname: Self::hostname()?,
+            current_machine_hostname: hostname()?,
         })
     }
 
-    pub fn hostname() -> rootcause::Result<String> {
-        Ok(uname().nodename().to_str()?.to_owned())
+    /// Captured hostname of the machine nh runs on.
+    #[must_use]
+    pub fn hostname(&self) -> &str {
+        &self.current_machine_hostname
     }
 
     /// Return a captured environment value as UTF-8.
@@ -179,11 +180,13 @@ impl fmt::Debug for Env {
     }
 }
 
-/// Variant of the system Nix. Determinate Nix is not supported.
-#[derive(Debug)]
-pub enum NixVariant {
-    Nix,
-    Lix,
+/// Hostname of the local machine, read once from the kernel.
+///
+/// # Errors
+///
+/// Returns an error if the kernel hostname is not valid UTF-8.
+pub(crate) fn hostname() -> rootcause::Result<String> {
+    Ok(uname().nodename().to_str()?.to_owned())
 }
 
 /// Configuration for a single run, assembled once after CLI parsing.
@@ -191,8 +194,6 @@ pub enum NixVariant {
 pub struct Config {
     pub env: Env,
     pub elevation: Elevation,
-    pub ssh: SshConfig,
-    pub nix_variant: NixVariant,
 }
 
 impl Config {
@@ -200,41 +201,17 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Returns an error if the elevation policy or SSH settings cannot be
-    /// derived from the environment.
+    /// Returns an error if the elevation policy cannot be derived from the
+    /// environment or the required Nix experimental features are not enabled.
     pub fn from_env(
         env: Env,
         elevation_strategy: Option<ElevationStrategy>,
     ) -> Result<Self> {
         let elevation = Elevation::new(elevation_strategy, &env)?;
-        let ssh = SshConfig::from_env(&env)?;
 
-        Ok(Self {
-            env,
-            elevation,
-            ssh,
-            nix_variant: nix_variant()?,
-        })
-    }
-}
+        ensure_features_needed_are_set()?;
 
-fn nix_variant() -> rootcause::Result<NixVariant> {
-    let variant = guess_nix_variant_from_version_output()?;
-    ensure_features_needed_are_set()?;
-    Ok(variant)
-}
-
-fn guess_nix_variant_from_version_output() -> rootcause::Result<NixVariant>
-{
-    let shell = Shell::new()?;
-    let version_output = cmd!(shell, "nix --version")
-        .read()
-        .context("Failed to run `nix --version`")?;
-
-    if version_output.to_lowercase().contains("lix") {
-        Ok(NixVariant::Lix)
-    } else {
-        Ok(NixVariant::Nix)
+        Ok(Self { env, elevation })
     }
 }
 

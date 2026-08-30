@@ -4,13 +4,10 @@ mod command;
 mod diff;
 mod nix_options;
 mod nixos;
-mod progress;
-mod remote;
 mod runtime;
 mod search;
 mod target;
 mod update;
-mod util;
 mod weather;
 
 use crate::cli::CliCommand;

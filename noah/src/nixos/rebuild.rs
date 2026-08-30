@@ -1,4 +1,3 @@
-use std::convert::Into;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
@@ -10,22 +9,14 @@ use super::request::{
     ActivationRequest as ParsedActivationRequest, RebuildCommand,
     RebuildRequest,
 };
-use super::{
-    SYSTEM_PROFILE, has_elevation_status, resolve_specialisation,
-};
+use super::{SYSTEM_PROFILE, has_elevation_status, resolve_specialisation};
 use crate::command::{self, Command, Elevation};
 use crate::diff::handle_nixos;
-use crate::remote::copy::copy_to_remote;
-use crate::remote::{
-    ActivateRemoteConfig, ActivationType, BuildConfig, Host, Platform,
-    SshConfig, activate_remote, build_remote, init_ssh_control,
-    open_ssh_control_master, probe_remote_uid, validate_remote_closure,
-};
 use crate::runtime::Config;
 use crate::runtime::Env;
 use crate::target::{self, BuildTarget};
 use crate::update::update;
-use crate::util::{ensure_ssh_key_login, get_hostname};
+
 struct Rebuild(RebuildRequest);
 
 impl Deref for Rebuild {
@@ -70,66 +61,21 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
     ("init", "system init script"),
     ("sw/bin", "system path"),
 ];
-struct BuiltConfiguration {
-    target_profile: PathBuf,
-    actual_store_path: Option<PathBuf>,
-}
+
 impl ActivationRequest {
     fn build_and_activate(&self, config: &Config) -> Result<()> {
-        let (local_elevate, target_hostname) = self
+        let (elevate, target_hostname) = self
             .rebuild
-            .setup_build_context(&config.elevation, &config.ssh)?;
+            .setup_build_context(&config.elevation, &config.env)?;
 
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
 
-        let toplevel = self
-            .rebuild
-            .prepare_toplevel(&target_hostname, &config.env)?;
+        let toplevel =
+            self.rebuild.prepare_toplevel(&target_hostname, &config.env)?;
 
-        // Initialize SSH control early if we have remote hosts - guard will keep
-        // connections alive for both build and activation
-        let _ssh_guard = if self.rebuild.build_host.is_some()
-            || self.rebuild.target_host.is_some()
-        {
-            let guard = init_ssh_control(&config.ssh)?;
-
-            // Pre-establish ControlMaster connections so that delegated SSH
-            // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
-            // authenticated socket rather than opening a fresh connection where
-            // SSH option ordering may differ.
-            if let Some(build_host) = &self.rebuild.build_host {
-                open_ssh_control_master(build_host, &config.ssh).context(
-                    "Failed to establish SSH connection to build host",
-                )?;
-            }
-
-            if let Some(target_host) = &self.rebuild.target_host {
-                open_ssh_control_master(target_host, &config.ssh).context(
-                    "Failed to establish SSH connection to target host",
-                )?;
-            }
-
-            Some(guard)
-        } else {
-            None
-        };
-
-        // Now that the ControlMaster is up, probe the remote uid for elevation.
-        let elevate = if self.rebuild.target_host.is_some() {
-            self.rebuild.determine_remote_elevation(
-                &config.elevation,
-                &config.ssh,
-            )?
-        } else {
-            local_elevate
-        };
-
-        let built = self.rebuild.build_and_diff(
-            toplevel,
-            &out_path,
-            &config.ssh,
-        )?;
+        let target_profile =
+            self.rebuild.build_and_diff(toplevel, &out_path)?;
 
         if self.activation.dry {
             if self.activation.ask {
@@ -141,8 +87,7 @@ impl ActivationRequest {
 
         self.activate_rebuilt_config(
             &out_path,
-            &built.target_profile,
-            built.actual_store_path.as_deref(),
+            &target_profile,
             elevate,
             config,
         )?;
@@ -154,12 +99,11 @@ impl ActivationRequest {
         &self,
         out_path: &Path,
         target_profile: &Path,
-        actual_store_path: Option<&Path>,
         elevate: bool,
         config: &Config,
     ) -> Result<()> {
         let action = self.activation.action;
-        let ssh_config = &config.ssh;
+
         if self.activation.ask {
             let confirmation = inquire::Confirm::new("Apply the config?")
                 .with_default(false)
@@ -170,32 +114,12 @@ impl ActivationRequest {
             }
         }
 
-        // Only copy if the output path exists locally (i.e., was copied back
-        // from a remote build).
-        if let Some(target_host) = &self.rebuild.target_host
-            && out_path.exists()
-        {
-            copy_to_remote(
-                target_host,
-                target_profile,
-                self.rebuild.use_substitutes,
-                ssh_config,
-            )
-            .context("Failed to copy configuration to target host")?;
-        }
-
-        let (resolved_profile, switch_to_configuration) = self
-            .resolve_closure(
-                out_path,
-                target_profile,
-                actual_store_path,
-                ssh_config,
-            )?;
+        let switch_to_configuration =
+            self.resolve_closure(target_profile)?;
 
         match action {
             ActivationAction::Test { .. } => {
                 self.activate_test_phase(
-                    &resolved_profile,
                     &switch_to_configuration,
                     elevate,
                     config,
@@ -204,7 +128,6 @@ impl ActivationRequest {
             ActivationAction::Boot { .. } => {
                 self.activate_boot_phase(
                     out_path,
-                    &resolved_profile,
                     &switch_to_configuration,
                     elevate,
                     config,
@@ -212,14 +135,12 @@ impl ActivationRequest {
             }
             ActivationAction::Switch { .. } => {
                 self.activate_test_phase(
-                    &resolved_profile,
                     &switch_to_configuration,
                     elevate,
                     config,
                 )?;
                 self.activate_boot_phase(
                     out_path,
-                    &resolved_profile,
                     &switch_to_configuration,
                     elevate,
                     config,
@@ -227,49 +148,19 @@ impl ActivationRequest {
             }
         }
 
-        if let Some(store_path) = actual_store_path {
-            debug!(
-                "Completed {action:?} operation with store path: {store_path:?}"
-            );
-        } else {
-            debug!(
-                "Completed {action:?} operation with local output path: {out_path:?}"
-            );
-        }
+        debug!(
+            "Completed {action:?} operation with output path: {out_path:?}"
+        );
 
         Ok(())
     }
 
-    /// Resolves and validates the closure to activate.
-    ///
-    /// Returns the resolved profile path and the path to the
+    /// Validates the closure to activate and resolves the path to its
     /// `switch-to-configuration` binary.
-    fn resolve_closure(
-        &self,
-        out_path: &Path,
-        target_profile: &Path,
-        actual_store_path: Option<&Path>,
-        ssh_config: &SshConfig,
-    ) -> Result<(PathBuf, PathBuf)> {
-        let is_remote_build = self.rebuild.target_host.is_some();
-
-        // Validate system closure before activation, unless bypassed. For remote
-        // builds, use the actual store path returned from the build. For local
-        // builds, canonicalize the target_profile.
-        let resolved_profile: PathBuf =
-            if let Some(store_path) = actual_store_path {
-                // Remote build - use the actual store path from the build output
-                store_path.to_path_buf()
-            } else if is_remote_build && !out_path.exists() {
-                // Remote build with no local result and no store path captured
-                // (shouldn't happen, but fallback)
-                target_profile.to_path_buf()
-            } else {
-                // Local build - canonicalize the symlink to get the store path
-                target_profile.canonicalize().context(
-                    "Failed to resolve output path to actual store path",
-                )?
-            };
+    fn resolve_closure(&self, target_profile: &Path) -> Result<PathBuf> {
+        let resolved_profile = target_profile.canonicalize().context(
+            "Failed to resolve output path to actual store path",
+        )?;
 
         if self.activation.no_validate {
             warn!(
@@ -280,88 +171,38 @@ impl ActivationRequest {
                 "This may result in activation failures if the system closure is \
          incomplete"
             );
-        } else if let Some(target_host) = &self.rebuild.target_host {
-            validate_system_closure_remote(
-                &resolved_profile,
-                target_host,
-                self.rebuild.build_host.as_ref(),
-                ssh_config,
-            )?;
         } else {
             validate_system_closure(&resolved_profile)?;
         }
 
-        let switch_to_configuration_path =
-            resolved_profile.join("bin").join("switch-to-configuration");
+        let switch_to_configuration = resolved_profile
+            .join("bin")
+            .join("switch-to-configuration")
+            .canonicalize()
+            .context("Failed to resolve switch-to-configuration path")?;
 
-        let switch_to_configuration =
-            if is_remote_build && !out_path.exists() {
-                // Remote build with no local result. Use uncanonicalized path
-                // for SSH.
-                switch_to_configuration_path
-            } else {
-                switch_to_configuration_path.canonicalize().context(
-                    "Failed to resolve switch-to-configuration path",
-                )?
-            };
-
-        Ok((resolved_profile, switch_to_configuration))
+        Ok(switch_to_configuration)
     }
 
-    /// Runs the test phase. For remote switches this runs the full `switch`
-    /// action instead of `test`.
+    /// Runs the test phase of activation.
     fn activate_test_phase(
         &self,
-        resolved_profile: &Path,
         switch_to_configuration: &Path,
         elevate: bool,
         config: &Config,
     ) -> Result<()> {
-        let action = self.activation.action;
-        if let Some(target_host) = &self.rebuild.target_host {
-            let activation_type = match action {
-                ActivationAction::Test { .. } => ActivationType::Test,
-                ActivationAction::Switch { .. } => ActivationType::Switch,
-                #[expect(
-                    clippy::unreachable,
-                    reason = "the boot action has no test phase"
-                )]
-                ActivationAction::Boot { .. } => {
-                    unreachable!("the boot action has no test phase")
-                }
-            };
-
-            activate_remote(
-                target_host,
-                resolved_profile,
-                &ActivateRemoteConfig {
-                    platform: Platform::NixOS,
-                    activation_type,
-                    install_bootloader: false,
-                    show_logs: self.activation.action.show_logs(),
-                    elevation: elevate.then_some(&config.elevation),
-                },
-                &config.env,
-                &config.ssh,
-            )
-            .context(format!(
-                "Activation ({}) failed",
-                activation_type.as_str()
-            ))?;
-        } else {
-            Command::new(
-                switch_to_configuration,
-                &config.env,
-                &config.elevation,
-            )
-            .arg("test")
-            .message("Activating configuration")
-            .elevate(elevate)
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .show_output(self.activation.action.show_logs())
-            .run()
-            .context("Activation (test) failed")?;
-        }
+        Command::new(
+            switch_to_configuration,
+            &config.env,
+            &config.elevation,
+        )
+        .arg("test")
+        .message("Activating configuration")
+        .elevate(elevate)
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+        .show_output(self.activation.action.show_logs())
+        .run()
+        .context("Activation (test) failed")?;
 
         Ok(())
     }
@@ -370,134 +211,71 @@ impl ActivationRequest {
     fn activate_boot_phase(
         &self,
         out_path: &Path,
-        resolved_profile: &Path,
         switch_to_configuration: &Path,
         elevate: bool,
         config: &Config,
     ) -> Result<()> {
-        if let Some(target_host) = &self.rebuild.target_host {
-            activate_remote(
-                target_host,
-                resolved_profile,
-                &ActivateRemoteConfig {
-                    platform: Platform::NixOS,
-                    activation_type: ActivationType::Boot,
-                    install_bootloader: self
-                        .activation
-                        .action
-                        .install_bootloader(),
-                    show_logs: false,
-                    elevation: elevate.then_some(&config.elevation),
-                },
-                &config.env,
-                &config.ssh,
-            )
-            .context("Bootloader activation failed")?;
-        } else {
-            // Use the base system closure instead of the specialisation one.
-            // This is what makes all specialisations visible in the bootloader
-            // instead of only the generation with the specialisation.
-            let base_store_path = out_path.canonicalize().context(
-                "Failed to resolve base output path to store path",
-            )?;
+        // Use the base system closure instead of the specialisation one.
+        // This is what makes all specialisations visible in the bootloader
+        // instead of only the generation with the specialisation.
+        let base_store_path = out_path
+            .canonicalize()
+            .context("Failed to resolve base output path to store path")?;
 
-            Command::new("nix", &config.env, &config.elevation)
-                .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-                .arg(&base_store_path)
-                .elevate(elevate)
-                .run()
-                .context("Failed to set system profile")?;
-
-            let mut cmd = Command::new(
-                switch_to_configuration,
-                &config.env,
-                &config.elevation,
-            )
-            .arg("boot")
+        Command::new("nix", &config.env, &config.elevation)
+            .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+            .arg(&base_store_path)
             .elevate(elevate)
-            .message("Adding configuration to bootloader")
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+            .run()
+            .context("Failed to set system profile")?;
 
-            if self.activation.action.install_bootloader() {
-                cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
-            }
+        let mut cmd = Command::new(
+            switch_to_configuration,
+            &config.env,
+            &config.elevation,
+        )
+        .arg("boot")
+        .elevate(elevate)
+        .message("Adding configuration to bootloader")
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
-            cmd.run().context("Bootloader activation failed")?;
+        if self.activation.action.install_bootloader() {
+            cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
         }
+
+        cmd.run()
+            .context("Bootloader activation failed")?;
 
         Ok(())
     }
 }
+
 impl Rebuild {
-    /// Performs initial setup and gathers context for an OS rebuild operation.
+    /// Performs initial setup for an OS rebuild operation:
     ///
-    /// This includes:
-    /// - Ensuring SSH key login if a remote build/target host is involved.
-    /// - Determining elevation status for local activation; the remote case is
-    ///   handled by [`Self::determine_remote_elevation`] after the SSH
-    ///   `ControlMaster` is up.
-    /// - Performing updates to Nix inputs if specified.
+    /// - Determining whether activation needs elevation (and enforcing the
+    ///   root guard unless bypassed).
     /// - Resolving the target hostname for the build.
     ///
     /// # Returns
     ///
-    /// `Result` containing a tuple:
+    /// A tuple of:
     ///
-    /// - `bool`: `true` if local elevation is required. When `target_host` is set
-    ///   this value is meaningless (returned as `false`), and the real answer is
-    ///   produced by [`Self::determine_remote_elevation`] once the SSH
-    ///   `ControlMaster` is up.
+    /// - `bool`: `true` if activation requires elevation.
     /// - `String`: The resolved target hostname.
     fn setup_build_context(
         &self,
         elevation: &Elevation,
-        ssh_config: &SshConfig,
+        env: &Env,
     ) -> Result<(bool, String)> {
-        // Only check SSH key login if remote hosts are involved
-        if self.build_host.is_some() || self.target_host.is_some() {
-            ensure_ssh_key_login(ssh_config)?;
-        }
+        let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
 
-        // We still call this for the local-root guard it performs, even though
-        // remote-target flows take their elevate answer from
-        // `determine_remote_elevation` later.
-        let local_elevate =
-            has_elevation_status(self.bypass_root_check, elevation)?;
-        let elevate = self.target_host.is_none() && local_elevate;
-
-        let target_hostname = get_hostname(
-            self.hostname
-                .as_deref()
-                .or_else(|| self.target_host.as_ref().map(Host::hostname))
-                .map(ToOwned::to_owned),
-        )?;
-        Ok((elevate, target_hostname))
-    }
-
-    /// Probe the remote uid to decide whether activation needs elevation.
-    ///
-    /// This must be called after [`crate::remote::open_ssh_control_master`]
-    /// so the probe reuses the established connection.
-    ///
-    /// # Returns
-    ///
-    /// `false` when `target_host` is unset (caller should use
-    /// [`Self::setup_build_context`] or [`has_elevation_status`] for the
-    /// local case) or when elevation is disabled via
-    /// `--elevation-strategy=none`.
-    fn determine_remote_elevation(
-        &self,
-        elevation: &Elevation,
-        ssh_config: &SshConfig,
-    ) -> Result<bool> {
-        let Some(target_host) = self.target_host.as_ref() else {
-            return Ok(false);
+        let target_hostname = match &self.hostname {
+            Some(hostname) => hostname.clone(),
+            None => env.hostname().to_owned(),
         };
-        if elevation.is_disabled() {
-            return Ok(false);
-        }
-        let uid = probe_remote_uid(target_host, ssh_config)?;
-        Ok(uid != 0)
+
+        Ok((elevate, target_hostname))
     }
 
     fn determine_output_path(
@@ -582,77 +360,34 @@ impl Rebuild {
         &self,
         toplevel: BuildTarget,
         out_path: &Path,
-        ssh_config: &SshConfig,
-    ) -> Result<Option<PathBuf>> {
+    ) -> Result<()> {
         const MESSAGE: &str = "Building NixOS configuration";
 
-        // If a build host is specified, use proper remote build semantics:
-        //
-        // 1. Evaluate derivation locally
-        // 2. Copy derivation to build host (user-initiated SSH)
-        // 3. Build on remote host
-        // 4. Copy result back (to localhost or target_host)
-        if let Some(build_host) = self.build_host.clone() {
-            info!("{MESSAGE}");
-            let mut extra_args =
-                self.extra_args.iter().map(Into::into).collect();
-            self.build.nix.append_args(&mut extra_args);
-            let config = BuildConfig {
-                build_host,
-                target_host: self.target_host.clone(),
-                use_nom: !self.build.no_nom,
-                use_substitutes: self.use_substitutes,
-                extra_args,
-            };
+        command::Build::new(toplevel)
+            .extra_arg("--out-link")
+            .extra_arg(out_path)
+            .extra_args(&self.extra_args)
+            .nix_options(&self.build.nix)
+            .message(MESSAGE)
+            .nom(!self.build.no_nom)
+            .run()
+            .context("Failed to build configuration")?;
 
-            let actual_store_path = build_remote(
-                &toplevel,
-                &config,
-                Some(out_path),
-                ssh_config,
-            )?;
-
-            Ok(Some(actual_store_path))
-        } else {
-            // Local build - use the existing path
-            command::Build::new(toplevel)
-                .extra_arg("--out-link")
-                .extra_arg(out_path)
-                .extra_args(&self.extra_args)
-                .nix_options(&self.build.nix)
-                .message(MESSAGE)
-                .nom(!self.build.no_nom)
-                .run()
-                .context("Failed to build configuration")?;
-
-            Ok(None) // Local builds don't have separate store path
-        }
+        Ok(())
     }
 
     fn build_and_diff(
         &self,
         toplevel: BuildTarget,
         out_path: &Path,
-        ssh_config: &SshConfig,
-    ) -> Result<BuiltConfiguration> {
-        let actual_store_path =
-            self.execute_build(toplevel, out_path, ssh_config)?;
+    ) -> Result<PathBuf> {
+        self.execute_build(toplevel, out_path)?;
         let target_profile =
             self.resolve_specialisation_and_profile(out_path)?;
 
-        handle_nixos(
-            &self.build.diff,
-            self.target_host.as_ref(),
-            &target_profile,
-            actual_store_path.as_deref(),
-            out_path,
-            ssh_config,
-        )?;
+        handle_nixos(&self.build.diff, &target_profile)?;
 
-        Ok(BuiltConfiguration {
-            target_profile,
-            actual_store_path,
-        })
+        Ok(target_profile)
     }
 
     fn resolve_specialisation_and_profile(
@@ -664,14 +399,14 @@ impl Rebuild {
 
         debug!("Target specialisation: {target_specialisation:?}");
 
-        // Determine target profile, falling back to base if specialisation doesn't
-        // exist
+        // Determine target profile, falling back to base if specialisation
+        // doesn't exist
         let target_profile = match &target_specialisation {
             None => out_path.to_path_buf(),
             Some(spec) => {
                 let spec_path = out_path.join("specialisation").join(spec);
 
-                // For local builds, check if specialisation exists and fall back if not
+                // Check if specialisation exists and fail if not
                 if out_path.exists() && !spec_path.exists() {
                     bail!(
                         "Specialisation '{}' does not exist in the built configuration",
@@ -686,7 +421,7 @@ impl Rebuild {
         debug!("Output path: {out_path:?}");
         debug!("Target profile path: {}", target_profile.display());
 
-        // Validate the final target profile exists if it's a local build
+        // Validate the final target profile exists
         if out_path.exists() && !target_profile.exists() {
             return Err(report!(
                 "Target profile path does not exist: {}",
@@ -700,18 +435,19 @@ impl Rebuild {
     /// Builds the toplevel configuration without activating (`nh build`).
     fn build_only(&self, config: &Config) -> Result<()> {
         let (_, target_hostname) =
-            self.setup_build_context(&config.elevation, &config.ssh)?;
+            self.setup_build_context(&config.elevation, &config.env)?;
 
         let (out_path, _tempdir_guard) =
             self.determine_output_path(false)?;
 
         let toplevel =
             self.prepare_toplevel(&target_hostname, &config.env)?;
-        self.build_and_diff(toplevel, &out_path, &config.ssh)?;
+        self.build_and_diff(toplevel, &out_path)?;
 
         Ok(())
     }
 }
+
 /// Validates that essential files exist in the system closure.
 ///
 /// Checks for a few critical files that must be present in a complete NixOS
@@ -750,32 +486,4 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Validates essential files on a remote host via SSH.
-///
-/// Similar to [`validate_system_closure`] but executes checks on a remote host.
-fn validate_system_closure_remote(
-    system_path: &Path,
-    target_host: &Host,
-    build_host: Option<&Host>,
-    ssh_config: &SshConfig,
-) -> Result<()> {
-    // Build context string for error messages
-    let context = build_host.map(|build| {
-        if build.hostname() == target_host.hostname() {
-            "also build host".to_owned()
-        } else {
-            format!("built on '{build}'")
-        }
-    });
-
-    // Delegate to the generic remote validation function
-    validate_remote_closure(
-        target_host,
-        system_path,
-        ESSENTIAL_FILES,
-        context.as_deref(),
-        ssh_config,
-    )
 }

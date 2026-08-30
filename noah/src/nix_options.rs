@@ -85,7 +85,6 @@ pub struct NixBuildOptions {
 pub struct NixCliOptions {
     pub build: NixBuildOptions,
     pub commit_lock_file: bool,
-    pub use_substitutes: bool,
 }
 
 /// One `--option NAME VALUE` occurrence, parsed as an adjacent group.
@@ -194,9 +193,6 @@ pub fn nix_build_options_cli() -> impl Parser<NixCliOptions> {
         .short('Q')
         .switch()
         .help("Suppress build output");
-    let use_substitutes = long("use-substitutes")
-        .switch()
-        .help("Use substitutes when copying");
     let json = long("json").switch().help("Output results in JSON format");
     let option = nix_option_pair().many();
     let override_input = override_input_pair().many();
@@ -232,7 +228,6 @@ pub fn nix_build_options_cli() -> impl Parser<NixCliOptions> {
     construct!(NixCliOptions {
         build,
         commit_lock_file,
-        use_substitutes,
     })
 }
 

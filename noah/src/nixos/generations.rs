@@ -14,6 +14,8 @@ use tracing::warn;
 use nix_command::CommandKind;
 use nix_command::NixCommand;
 
+use super::CURRENT_PROFILE;
+
 #[derive(Debug, Clone)]
 pub struct GenerationInfo {
     /// Number of a generation.
@@ -368,7 +370,7 @@ pub fn describe(
     };
 
     // Check if this generation is the current one
-    let Some(run_current_target) = fs::read_link("/run/current-system")
+    let Some(run_current_target) = fs::read_link(CURRENT_PROFILE)
         .ok()
         .and_then(|path| fs::canonicalize(path).ok())
     else {
@@ -454,7 +456,7 @@ pub fn print_info(
         // Profile out of sync with /run/current-system.
         // This can happen if a previous switch failed during activation
         let fallback_version =
-            fs::read_to_string("/run/current-system/nixos-version")
+            fs::read_to_string(format!("{CURRENT_PROFILE}/nixos-version"))
                 .unwrap_or_else(|_| "unknown".to_owned());
         warn!(
             "Profile is out of sync with /run/current-system. This may happen if a \

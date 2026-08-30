@@ -14,7 +14,6 @@ use crate::diff::Mode as DiffMode;
 use crate::nix_options::NixCliOptions;
 use crate::nix_options::nix_build_options_cli;
 use crate::nixos::generations::Field;
-use crate::remote::Host;
 use crate::target::BuildTarget;
 use crate::target::parser as target_parser;
 use crate::update::update_cli;
@@ -23,7 +22,6 @@ use crate::update::update_cli;
 struct ParsedBuildOptions {
     options: BuildOptions,
     commit_lock_file: bool,
-    use_substitutes: bool,
 }
 
 #[must_use]
@@ -64,7 +62,6 @@ fn build_options_cli() -> impl Parser<ParsedBuildOptions> {
                 nix: nix.build,
             },
             commit_lock_file: nix.commit_lock_file,
-            use_substitutes: nix.use_substitutes,
         },
     )
 }
@@ -95,8 +92,7 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
         .help(
             "When using a flake, select this hostname from \
              nixosConfigurations.\n\nWhen unspecified, defaults to the local \
-             hostname for local deployments, and hostname of the target \
-             machine for remote deployments (see --target-host)",
+             hostname",
         )
         .optional();
     let specialisation = specialisation_cli();
@@ -107,16 +103,6 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
             .switch(),
         env_bool_strict("NH_BYPASS_ROOT_CHECK"),
     );
-    let target_host = long("target-host")
-        .argument::<Host>("HOST")
-        .help(
-            "Deploy the built configuration to a different host over SSH",
-        )
-        .optional();
-    let build_host = long("build-host")
-        .argument::<Host>("HOST")
-        .help("Build the configuration on a different host over SSH")
-        .optional();
     let parsed_build = build_options_cli();
     let extra_args = positional::<String>("EXTRA")
         .strict()
@@ -128,8 +114,6 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
         hostname,
         specialisation,
         bypass_root_check,
-        target_host,
-        build_host,
         parsed_build,
         extra_args
     )
@@ -139,8 +123,6 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
             hostname,
             specialisation,
             bypass_root_check,
-            target_host,
-            build_host,
             parsed_build,
             extra_args,
         )| RebuildRequest {
@@ -150,10 +132,7 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
             specialisation,
             extra_args,
             bypass_root_check,
-            target_host,
-            build_host,
             commit_lock_file: parsed_build.commit_lock_file,
-            use_substitutes: parsed_build.use_substitutes,
         },
     )
 }

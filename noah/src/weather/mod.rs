@@ -5,7 +5,7 @@ use rootcause::Result;
 use tracing::instrument;
 
 use crate::runtime::Config;
-use crate::runtime::Env;
+use crate::runtime::hostname;
 
 #[derive(Clone, Debug)]
 pub struct WeatherRequest {
@@ -19,20 +19,19 @@ pub struct WeatherRequest {
 ///
 /// Returns an error if the weather query or reporting fails.
 #[instrument(skip_all)]
-pub fn run(_request: &WeatherRequest, config: &Config) -> Result<()> {
-    dbg!(&config);
+pub fn run(_request: &WeatherRequest, _config: &Config) -> Result<()> {
     todo!()
 }
 
 /// Assemble the `nh weather` parser.
 #[must_use]
 pub fn weather_cli() -> impl Parser<WeatherRequest> {
-    // TODO: Pass env or config to *_cli() and get rid of unwrap.
+    // TODO: Pass env or config to *_cli() and get rid of expect.
     #[expect(
         clippy::expect_used,
         reason = "Remove this in later refactor"
     )]
-    let hostname = Env::hostname().expect("hostname");
+    let hostname = hostname().expect("hostname");
 
     let hostname = long("hostname")
         .short('H')
@@ -42,5 +41,3 @@ pub fn weather_cli() -> impl Parser<WeatherRequest> {
 
     construct!(WeatherRequest { hostname })
 }
-
-fn nix_build_dry_run_parser() {}

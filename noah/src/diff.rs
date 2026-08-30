@@ -1,23 +1,14 @@
-use std::any::Any;
 use std::io::{self, Write as _};
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::thread;
 
 use crate::external_report;
-use crate::progress;
-use crate::remote::Host;
-use crate::remote::SshConfig;
-// TODO: get rid of this fucking module heirachy structure
-use crate::remote::dix::ResolvedRemoteStorePath;
+use crate::nixos::CURRENT_PROFILE;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
-use rootcause::report;
-use tracing::debug;
-use tracing::info;
-use tracing::warn;
+use tracing::{debug, info, warn};
 use yansi::Paint;
+
 #[derive(Clone, Default, Debug)]
 pub enum Mode {
     /// Display a package diff when the current and deployed configurations are
@@ -55,37 +46,10 @@ impl std::fmt::Display for Mode {
     }
 }
 
-const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
-
 struct QueriedDiff {
     old_label: PathBuf,
     new_label: PathBuf,
     report: dix::DiffReport,
-}
-
-enum DiffEndpoint {
-    Local(PathBuf),
-    Remote(ResolvedRemoteStorePath),
-}
-
-impl DiffEndpoint {
-    fn label(&self) -> PathBuf {
-        match self {
-            Self::Local(path) => display_path(path),
-            Self::Remote(root) => root.path().to_path_buf(),
-        }
-    }
-
-    fn query_snapshot(
-        &self,
-        ssh_config: &SshConfig,
-    ) -> Result<dix::StoreSnapshot> {
-        match self {
-            Self::Local(path) => dix::query_store_snapshot(path, true)
-                .map_err(external_report),
-            Self::Remote(root) => root.query_snapshot(ssh_config),
-        }
-    }
 }
 
 impl QueriedDiff {
@@ -105,57 +69,40 @@ pub fn print_dix_report(
     old_generation: &Path,
     new_generation: &Path,
 ) -> Result<()> {
-    query_local_dix_diff(old_generation, new_generation)?.write()
-}
-
-fn query_local_dix_diff(
-    old_generation: &Path,
-    new_generation: &Path,
-) -> Result<QueriedDiff> {
     let report =
         dix::query_diff_report(old_generation, new_generation, true)
             .map_err(external_report)?;
 
-    Ok(QueriedDiff {
+    QueriedDiff {
         old_label: display_path(old_generation),
         new_label: display_path(new_generation),
         report,
-    })
+    }
+    .write()
 }
 
-/// Handles NixOS system diffing for local and remote rebuilds.
+/// Handles NixOS system diffing for a rebuild.
 ///
 /// # Errors
 ///
-/// Returns an error if local or remote store snapshot queries fail, or if the
-/// diff report cannot be written.
-pub fn handle_nixos(
-    diff: &Mode,
-    target_host: Option<&Host>,
-    target_profile: &Path,
-    actual_store_path: Option<&Path>,
-    out_path: &Path,
-    ssh_config: &SshConfig,
-) -> Result<()> {
-    let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
+/// Returns an error if the local store snapshot queries or the diff report
+/// writing fail.
+pub fn handle_nixos(diff: &Mode, target_profile: &Path) -> Result<()> {
+    let current_profile = Path::new(CURRENT_PROFILE);
 
     match diff {
         Mode::Never => {
             debug!("Not running dix as the --diff flag is set to never.");
             return Ok(());
         }
-        Mode::Auto
-            if target_host.is_none() && !current_profile.exists() =>
-        {
+        Mode::Auto if !current_profile.exists() => {
             warn!(
                 "current profile {} does not exist, skipping dix diffing",
                 current_profile.display()
             );
             return Ok(());
         }
-        Mode::Auto
-            if target_host.is_none() && !target_profile.exists() =>
-        {
+        Mode::Auto if !target_profile.exists() => {
             warn!(
                 "target profile {} does not exist, skipping dix diffing",
                 target_profile.display()
@@ -172,141 +119,7 @@ pub fn handle_nixos(
         Mode::Always => {}
     }
 
-    print_nixos_generation_diff(
-        target_host,
-        current_profile,
-        target_profile,
-        actual_store_path,
-        out_path,
-        ssh_config,
-    )
-}
-
-fn print_nixos_generation_diff(
-    target_host: Option<&Host>,
-    current_profile: &Path,
-    target_profile: &Path,
-    actual_store_path: Option<&Path>,
-    out_path: &Path,
-    ssh_config: &SshConfig,
-) -> Result<()> {
-    let Some(target_host) = target_host else {
-        return print_dix_report(current_profile, target_profile);
-    };
-
-    let remote_profile =
-        remote_profile_path(out_path, target_profile, actual_store_path);
-    let message = if remote_profile.is_some() {
-        format!(
-            "Gathering system diff data from remote host '{target_host}'..."
-        )
-    } else {
-        format!(
-            "Gathering system diff data from remote host '{target_host}' and local \
-       store..."
-        )
-    };
-
-    let spinner = progress::spinner(message);
-    let diff = query_remote_nixos_diff(
-        target_host,
-        current_profile,
-        target_profile,
-        remote_profile,
-        ssh_config,
-    );
-    spinner.finish_and_clear();
-
-    diff?.write()
-}
-
-fn query_remote_nixos_diff(
-    target_host: &Host,
-    current_profile: &Path,
-    target_profile: &Path,
-    remote_profile: Option<PathBuf>,
-    ssh_config: &SshConfig,
-) -> Result<QueriedDiff> {
-    let old_root = ResolvedRemoteStorePath::resolve(
-        target_host,
-        current_profile,
-        ssh_config,
-    )?;
-
-    let new = remote_profile
-        .map(|path| {
-            ResolvedRemoteStorePath::resolve(
-                target_host,
-                &path,
-                ssh_config,
-            )
-            .map(DiffEndpoint::Remote)
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            DiffEndpoint::Local(target_profile.to_path_buf())
-        });
-
-    query_endpoint_diff(&DiffEndpoint::Remote(old_root), &new, ssh_config)
-}
-
-/// Recover the panic message from a [`thread::Result`] error payload.
-///
-/// Panics raised with a string payload (`panic!("...")`) are reported
-/// verbatim; anything else degrades to a placeholder.
-fn panic_message(payload: &(dyn Any + Send)) -> &str {
-    payload
-        .downcast_ref::<&str>()
-        .copied()
-        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-        .unwrap_or("non-string panic value")
-}
-
-fn query_endpoint_diff(
-    old: &DiffEndpoint,
-    new: &DiffEndpoint,
-    ssh_config: &SshConfig,
-) -> Result<QueriedDiff> {
-    thread::scope(|scope| -> Result<_> {
-        let old_snapshot = scope.spawn(|| old.query_snapshot(ssh_config));
-        let new_snapshot = scope.spawn(|| new.query_snapshot(ssh_config));
-
-        let old_snapshot = old_snapshot.join().map_err(|payload| {
-            report!(
-                "old diff endpoint snapshot thread panicked: {}",
-                panic_message(&*payload)
-            )
-        })??;
-        let new_snapshot = new_snapshot.join().map_err(|payload| {
-            report!(
-                "new diff endpoint snapshot thread panicked: {}",
-                panic_message(&*payload)
-            )
-        })??;
-        Ok(QueriedDiff {
-            old_label: old.label(),
-            new_label: new.label(),
-            report: dix::diff_store_snapshots(
-                &old_snapshot,
-                &new_snapshot,
-            ),
-        })
-    })
-}
-
-fn remote_profile_path(
-    out_path: &Path,
-    target_profile: &Path,
-    actual_store_path: Option<&Path>,
-) -> Option<PathBuf> {
-    let actual_store_path = actual_store_path?;
-    let suffix = target_profile.strip_prefix(out_path).ok()?;
-
-    if suffix.as_os_str().is_empty() {
-        Some(actual_store_path.to_path_buf())
-    } else {
-        Some(actual_store_path.join(suffix))
-    }
+    print_dix_report(current_profile, target_profile)
 }
 
 fn display_path(path: &Path) -> PathBuf {
@@ -339,50 +152,4 @@ fn write_dix_report(report: &dix::DiffReport) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn remote_profile_path_uses_store_path_for_base_profile() {
-        let out_path = Path::new("result");
-        let actual = Path::new("/nix/store/abc-system");
-
-        assert_eq!(
-            remote_profile_path(out_path, out_path, Some(actual))
-                .as_deref(),
-            Some(actual)
-        );
-    }
-
-    #[test]
-    fn remote_profile_path_preserves_specialisation_suffix() {
-        let out_path = Path::new("result");
-        let target_profile = Path::new("result/specialisation/foo");
-        let actual = Path::new("/nix/store/abc-system");
-
-        assert_eq!(
-            remote_profile_path(out_path, target_profile, Some(actual))
-                .as_deref(),
-            Some(Path::new("/nix/store/abc-system/specialisation/foo"))
-        );
-    }
-
-    #[test]
-    fn panic_message_recovers_string_payloads() {
-        let str_payload: Box<dyn Any + Send> = Box::new("boom");
-        assert_eq!(panic_message(&*str_payload), "boom");
-
-        let string_payload: Box<dyn Any + Send> =
-            Box::new(String::from("boom"));
-        assert_eq!(panic_message(&*string_payload), "boom");
-
-        let other_payload: Box<dyn Any + Send> = Box::new(42_u8);
-        assert_eq!(
-            panic_message(&*other_payload),
-            "non-string panic value"
-        );
-    }
 }

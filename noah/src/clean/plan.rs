@@ -19,7 +19,6 @@ use super::{
 };
 use crate::command::Command;
 use crate::runtime::Config;
-use crate::util::self_elevate;
 
 struct CleanPlan {
     profiles: ProfilesTagged,
@@ -59,7 +58,7 @@ impl CleanPlan {
             }
             Scope::All => {
                 if !uid.is_root() {
-                    self_elevate(&config.elevation, &config.env);
+                    Command::self_elevate(&config.elevation, &config.env);
                 }
 
                 let paths_to_check = [

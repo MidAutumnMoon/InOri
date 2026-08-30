@@ -15,20 +15,17 @@ bpaf.workspace                = true
 dix = "2.1.0"
 elasticsearch-dsl = "0.4.24"
 humantime = "2.3.0"
-indicatif.workspace           = true
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
 ino_tracing.workspace = true
 jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
-nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+nix = { default-features = false, features = [ "fs", "user" ], version = "0.31.1" }
 nix-command = { path = "./crates/nix-command" }
 regex = "1.12.2"
 rootcause.workspace           = true
-secrecy = { features = [ "serde" ], version = "0.10.3" }
 serde.workspace               = true
 serde_json.workspace          = true
 shlex = "2.0.1"
-signal-hook = "0.4.1"
 subprocess = "1.2.1"
 supports-hyperlinks = "3.1.0"
 tempfile = "3.23.0"
@@ -39,11 +36,6 @@ walkdir = "2.5.0"
 which = "8.0.0"
 yansi = "1.0.1"
 rustix.workspace = true
-tap.workspace = true
-
-[dev-dependencies]
-proptest = "1.9.0"
-tempfile = "3.23.0"
 
 [lints]
 workspace = true

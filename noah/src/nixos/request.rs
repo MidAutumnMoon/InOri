@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use crate::diff::Mode as DiffMode;
 use crate::nix_options::NixBuildOptions;
 use crate::nixos::generations::Field;
-use crate::remote::Host;
 use crate::target::BuildTarget;
 use crate::update::Selection;
 #[derive(Clone, Debug)]
@@ -20,10 +19,7 @@ pub struct RebuildRequest {
     pub specialisation: SpecialisationSelection,
     pub extra_args: Vec<String>,
     pub bypass_root_check: bool,
-    pub target_host: Option<Host>,
-    pub build_host: Option<Host>,
     pub commit_lock_file: bool,
-    pub use_substitutes: bool,
 }
 
 #[derive(Clone, Debug)]

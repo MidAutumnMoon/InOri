@@ -25,7 +25,7 @@ use crate::runtime::Config;
 use crate::runtime::Env;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
-const CURRENT_PROFILE: &str = "/run/current-system";
+pub(crate) const CURRENT_PROFILE: &str = "/run/current-system";
 
 const SPEC_LOCATION: &str = "/etc/specialisation";
 fn resolve_specialisation(

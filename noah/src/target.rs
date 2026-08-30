@@ -136,19 +136,6 @@ pub enum BuildTarget {
 }
 
 impl BuildTarget {
-    /// Mutable attribute path of the target, if it has one.
-    ///
-    /// Store paths have no attribute path.
-    #[must_use]
-    pub fn attribute_mut(&mut self) -> Option<&mut AttrPath> {
-        match self {
-            Self::Flake { attribute, .. }
-            | Self::File { attribute, .. }
-            | Self::Expression { attribute, .. } => Some(attribute),
-            Self::StorePath(_) => None,
-        }
-    }
-
     /// Name of the target kind, for user-facing messages.
     #[must_use]
     pub const fn kind(&self) -> &'static str {
@@ -632,21 +619,6 @@ mod tests {
 
         let store = BuildTarget::StorePath(PathBuf::from("/nix/store/abc"));
         assert_eq!(store.to_args(), ["/nix/store/abc"]);
-    }
-
-    #[test]
-    fn attribute_mut_appends_to_attr_path() {
-        let mut file = BuildTarget::File {
-            path: PathBuf::from("f"),
-            attribute: path(&["a"]),
-        };
-        if let Some(attribute) = file.attribute_mut() {
-            attribute.push(String::from("drvPath"));
-        }
-        assert_eq!(file.to_args(), ["--file", "f", "a.drvPath"]);
-
-        let mut store = BuildTarget::StorePath(PathBuf::from("/nix/store/x"));
-        assert!(store.attribute_mut().is_none());
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     ffi::{OsStr, OsString},
-    io::{self, Write},
+    os::unix::process::CommandExt as _,
     path::PathBuf,
     str::FromStr,
 };
@@ -19,85 +19,6 @@ use which::which_in;
 use crate::nix_options::NixBuildOptions;
 use crate::runtime::Env;
 use crate::target::BuildTarget;
-
-struct CaptureWriter<W> {
-    stream: W,
-    captured: Vec<u8>,
-}
-
-impl<W> CaptureWriter<W> {
-    fn new(stream: W) -> Self {
-        Self {
-            stream,
-            captured: Vec::new(),
-        }
-    }
-
-    fn into_string(self) -> String {
-        String::from_utf8_lossy(&self.captured).into_owned()
-    }
-}
-
-impl<W: Write> Write for CaptureWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stream.write_all(buf)?;
-        self.captured.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
-    }
-}
-
-/// Run an [`Exec`], draining stdout and stderr concurrently into the supplied
-/// writers.
-///
-/// # Errors
-///
-/// Returns an error if the command cannot start, communication fails, or the
-/// process cannot be reaped.
-pub fn exec_with_writers(
-    cmd: Exec,
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-) -> Result<subprocess::ExitStatus> {
-    let mut job = cmd
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .start()
-        .context("Failed to start command")?;
-
-    let communication = job
-        .communicate()
-        .context("Failed to open command pipes")?
-        .read_to(stdout, stderr);
-    if let Err(error) = communication {
-        job.kill()?;
-        job.wait()?;
-        return Err(error)
-            .context("Failed to stream command output")
-            .map_err(Into::into);
-    }
-
-    job.wait()
-        .context("Failed to wait for command completion")
-        .map_err(Into::into)
-}
-
-/// Run a command while forwarding and retaining both output streams.
-///
-/// # Errors
-///
-/// Returns an error if command execution or output streaming fails.
-pub fn exec_with_streaming(
-    cmd: Exec,
-) -> Result<(subprocess::ExitStatus, String, String)> {
-    let mut stdout = CaptureWriter::new(io::stdout());
-    let mut stderr = CaptureWriter::new(io::stderr());
-    let status = exec_with_writers(cmd, &mut stdout, &mut stderr)?;
-    Ok((status, stdout.into_string(), stderr.into_string()))
-}
 
 /// Strategy for handling privilege elevation when running commands.
 ///
@@ -232,12 +153,6 @@ impl Elevation {
     #[must_use]
     pub const fn is_passwordless(&self) -> bool {
         matches!(self.strategy, ElevationStrategy::Passwordless)
-    }
-
-    /// Extra options to pass to `sudo`.
-    #[must_use]
-    pub fn sudo_opts(&self) -> &[String] {
-        &self.opts
     }
 
     /// Path to the elevation program, resolved on first use and cached for
@@ -579,6 +494,26 @@ impl<'env> Command<'env> {
         Ok(command)
     }
 
+    /// Self-elevates the current process by re-executing it with the
+    /// configured elevation program.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the process re-execution with elevated privileges fails.
+    #[expect(
+        clippy::panic,
+        clippy::expect_used,
+        reason = "re-exec failure is fatal; the `# Panics` section documents the contract"
+    )]
+    pub fn self_elevate(elevation: &'env Elevation, env: &'env Env) -> ! {
+        let mut cmd = Self::self_elevate_cmd(elevation, env)
+            .expect("Failed to create self-elevation command");
+        debug!("{cmd:?}");
+
+        let err = cmd.exec();
+        panic!("{err}");
+    }
+
     /// Run the configured command.
     ///
     /// # Errors
@@ -876,7 +811,7 @@ mod tests {
         let elevation =
             Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
         assert_eq!(
-            elevation.sudo_opts(),
+            elevation.opts,
             ["--preserve-env=NIX_CONFIG NIX_PATH"]
         );
         assert_eq!(elevation.askpass.as_deref(), Some("/bin/askpass"));
@@ -899,24 +834,6 @@ mod tests {
         let elevation = Elevation::new(None, &env).unwrap();
 
         assert!(elevation.is_disabled());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn exec_with_writers_drains_both_output_streams() {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let status = exec_with_writers(
-            Exec::cmd("sh")
-                .args(["-c", "printf stdout; printf stderr >&2"]),
-            &mut stdout,
-            &mut stderr,
-        )
-        .unwrap();
-
-        assert!(status.success());
-        assert_eq!(stdout, b"stdout");
-        assert_eq!(stderr, b"stderr");
     }
 
     #[cfg(unix)]
