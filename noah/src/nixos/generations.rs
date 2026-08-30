@@ -11,8 +11,8 @@ use rootcause::Result;
 use tracing::debug;
 use tracing::warn;
 
-use nix_command::CommandKind;
-use nix_command::NixCommand;
+use crate::nix_command::CommandKind;
+use crate::nix_command::NixCommand;
 
 use super::CURRENT_PROFILE;
 
@@ -218,62 +218,56 @@ pub fn get_closure_sizes_batch(
         .collect()
 }
 
-#[must_use]
-pub fn get_closure_size(generation_dir: &Path) -> String {
-    let store_path = generation_dir
-        .read_link()
-        .unwrap_or_else(|_| generation_dir.to_path_buf());
-    let store_path_str = store_path.to_string_lossy();
-
-    let output = match NixCommand::new(CommandKind::PathInfo)
-        .args(["-Sh", "--json"])
-        .arg(generation_dir)
-        .output()
-    {
-        Ok(out) => out,
-        Err(err) => {
-            debug!(
-                "get_closure_size: failed to run nix path-info: {err:?}"
-            );
-            return "Unknown".to_owned();
-        }
+/// Whether the system currently runs this generation.
+fn is_current(generation_dir: &Path) -> bool {
+    let Some(run_current_target) = fs::read_link(CURRENT_PROFILE)
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        return false;
     };
 
-    let output_str = String::from_utf8_lossy(&output.stdout);
-
-    let json: serde_json::Value = match serde_json::from_str::<
-        serde_json::Value,
-    >(&output_str)
-    {
-        Ok(j) => j,
-        Err(err) => {
-            debug!(
-                "get_closure_size: failed to parse JSON: {err} output: {output_str}"
-            );
-            return "Unknown".to_owned();
-        }
+    let Some(gen_store_path) = fs::read_link(generation_dir)
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        return false;
     };
 
-    closure_size_from_json(&json, &store_path_str).map_or_else(
-    || {
-      debug!(
-        "get_closure_size: store_path not found or closureSize missing. \
-         store_path: {store_path_str}, output: {output_str}"
-      );
-      "Unknown".to_owned()
-    },
-    bytes_to_gb_string,
-  )
+    run_current_target == gen_store_path
 }
 
+/// The facts about a generation entry readable from the profiles directory
+/// alone, without the metadata queries [`describe`] performs.
+#[derive(Debug, Clone)]
+pub struct Summary {
+    /// Number of a generation.
+    pub number: u64,
+
+    /// Whether the system currently runs this generation.
+    pub current: bool,
+}
+
+/// Summarize a generation entry in the profiles directory.
+#[must_use]
+pub fn summarize(generation_dir: &Path) -> Option<Summary> {
+    Some(Summary {
+        number: from_dir(generation_dir)?,
+        current: is_current(generation_dir),
+    })
+}
+
+/// Describe a generation entry in full, for display.
+///
+/// `closure_size` is supplied by the caller (see
+/// [`get_closure_sizes_batch`]); describing many generations with
+/// per-entry queries is expensive.
 #[must_use]
 pub fn describe(
     generation_dir: &Path,
-    closure_size: Option<String>,
+    closure_size: String,
 ) -> Option<GenerationInfo> {
     let generation_number = from_dir(generation_dir)?;
-    let closure_size =
-        closure_size.unwrap_or_else(|| get_closure_size(generation_dir));
     // Get metadata once and reuse for both date and existence checks
     let metadata = fs::metadata(generation_dir).ok()?;
     let build_date = metadata
@@ -370,40 +364,6 @@ pub fn describe(
     };
 
     // Check if this generation is the current one
-    let Some(run_current_target) = fs::read_link(CURRENT_PROFILE)
-        .ok()
-        .and_then(|path| fs::canonicalize(path).ok())
-    else {
-        return Some(GenerationInfo {
-            number: generation_number,
-            date: build_date,
-            nixos_version,
-            kernel_version,
-            configuration_revision,
-            specialisations,
-            current: false,
-            closure_size,
-        });
-    };
-
-    let Some(gen_store_path) = fs::read_link(generation_dir)
-        .ok()
-        .and_then(|path| fs::canonicalize(path).ok())
-    else {
-        return Some(GenerationInfo {
-            number: generation_number,
-            date: build_date,
-            nixos_version,
-            kernel_version,
-            configuration_revision,
-            specialisations,
-            current: false,
-            closure_size,
-        });
-    };
-
-    let current = run_current_target == gen_store_path;
-
     Some(GenerationInfo {
         number: generation_number,
         date: build_date,
@@ -411,7 +371,7 @@ pub fn describe(
         kernel_version,
         configuration_revision,
         specialisations,
-        current,
+        current: is_current(generation_dir),
         closure_size,
     })
 }

@@ -17,6 +17,8 @@ use rootcause::Result;
 use rootcause::bail;
 use rootcause::report;
 use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 use tracing::warn;
 
 use self::request::SpecialisationSelection;
@@ -40,6 +42,16 @@ fn resolve_specialisation(
         SpecialisationSelection::Base => None,
         SpecialisationSelection::Named(name) => Some(name.clone()),
     }
+}
+
+/// Path of a named specialisation inside a system profile, if it exists.
+///
+/// Whether a missing specialisation is an error or falls back to the base
+/// profile is a per-flow policy: rebuilds fail (the spec was just built),
+/// rollbacks fall back to the base configuration with a warning.
+fn specialisation_in(profile: &Path, spec: &str) -> Option<PathBuf> {
+    let spec_link = profile.join("specialisation").join(spec);
+    spec_link.exists().then_some(spec_link)
 }
 
 /// Returns an error indicating that the 'switch-to-configuration' binary is

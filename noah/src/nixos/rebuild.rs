@@ -9,7 +9,10 @@ use super::request::{
     ActivationRequest as ParsedActivationRequest, RebuildCommand,
     RebuildRequest,
 };
-use super::{SYSTEM_PROFILE, has_elevation_status, resolve_specialisation};
+use super::{
+    SYSTEM_PROFILE, has_elevation_status, resolve_specialisation,
+    specialisation_in,
+};
 use crate::command::{self, Command, Elevation};
 use crate::diff::handle_nixos;
 use crate::runtime::Config;
@@ -94,13 +97,13 @@ impl BuiltSystem {
         let profile = match specialisation {
             None => toplevel.clone(),
             Some(spec) => {
-                let spec_link = out_link.join("specialisation").join(spec);
-                if !spec_link.exists() {
-                    bail!(
-                        "Specialisation '{spec}' does not exist in the built \
-                         configuration"
-                    );
-                }
+                let spec_link = specialisation_in(out_link, spec)
+                    .ok_or_else(|| {
+                        report!(
+                            "Specialisation '{spec}' does not exist in the built \
+                             configuration"
+                        )
+                    })?;
                 spec_link.canonicalize().context_with(|| {
                     format!(
                         "Failed to resolve specialisation '{spec}' to a store path"

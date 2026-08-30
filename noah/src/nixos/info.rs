@@ -36,7 +36,10 @@ pub(super) fn run(request: &GenerationsRequest) -> Result<()> {
     let descriptions: Vec<generations::GenerationInfo> = generations
         .iter()
         .filter_map(|gen_dir| {
-            let size = closure_sizes.get(gen_dir).cloned();
+            let size = closure_sizes
+                .get(gen_dir)
+                .cloned()
+                .unwrap_or_else(|| String::from("Unknown"));
             generations::describe(gen_dir, size)
         })
         .collect();

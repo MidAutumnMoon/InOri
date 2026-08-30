@@ -65,7 +65,7 @@ impl QueriedDiff {
 /// # Errors
 ///
 /// Returns an error if querying the store or writing the diff report fails.
-pub fn print_dix_report(
+fn print_dix_report(
     old_generation: &Path,
     new_generation: &Path,
 ) -> Result<()> {

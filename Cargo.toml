@@ -8,7 +8,6 @@ members = [
     "rpgdemake",
     "imgo",
     "./noah",
-    "./noah/crates/*",
 ]
 
 [workspace.package]

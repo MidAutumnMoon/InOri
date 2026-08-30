@@ -7,11 +7,12 @@ use tracing::{debug, info, warn};
 
 use super::request::RollbackRequest as ParsedRollbackRequest;
 use super::{
-    CURRENT_PROFILE, SYSTEM_PROFILE, generations, has_elevation_status,
+    SYSTEM_PROFILE, generations, has_elevation_status,
     missing_switch_to_configuration_error, resolve_specialisation,
+    specialisation_in,
 };
 use crate::command::Command;
-use crate::diff::{Mode as DiffMode, print_dix_report};
+use crate::diff::handle_nixos;
 use crate::runtime::Config;
 struct Rollback(ParsedRollbackRequest);
 
@@ -77,23 +78,10 @@ impl Rollback {
 
         debug!("target_specialisation: {target_specialisation:?}");
 
-        // Compare changes between current and target generation
-        if matches!(self.diff, DiffMode::Never) {
-            debug!(
-                "Not running dix as the target hostname is different from the system \
-         hostname."
-            );
-        } else {
-            debug!(
-                "Comparing with target profile: {}",
-                generation_link.display()
-            );
-            if let Err(error) = print_dix_report(
-                &PathBuf::from(CURRENT_PROFILE),
-                &generation_link,
-            ) {
-                warn!(%error, "Failed to compare the current and target profiles");
-            }
+        // Compare the currently running system with the target generation.
+        // A failed comparison must not block the rollback itself.
+        if let Err(error) = handle_nixos(&self.diff, &generation_link) {
+            warn!(%error, "Failed to compare the current and target profiles");
         }
 
         if self.dry {
@@ -134,20 +122,14 @@ impl Rollback {
         let final_profile = match &target_specialisation {
             None => generation_link,
             Some(spec) => {
-                let spec_path =
-                    generation_link.join("specialisation").join(spec);
-                if spec_path.exists() {
-                    spec_path
-                } else {
+                specialisation_in(&generation_link, spec).unwrap_or_else(|| {
                     warn!(
-                        "Specialisation '{}' does not exist in generation {}",
-                        spec, target_generation.number
+                        "Specialisation '{spec}' does not exist in generation {}",
+                        target_generation.number
                     );
-                    warn!(
-                        "Using base configuration without specialisations"
-                    );
-                    generation_link
-                }
+                    warn!("Using base configuration without specialisations");
+                    generation_link.clone()
+                })
             }
         };
 
@@ -209,8 +191,8 @@ impl Rollback {
 }
 fn find_previous_generation(
     current_number: u64,
-    generations: &[generations::GenerationInfo],
-) -> Result<generations::GenerationInfo> {
+    generations: &[generations::Summary],
+) -> Result<generations::Summary> {
     let current = generations
         .iter()
         .find(|generation| generation.number == current_number)
@@ -228,15 +210,15 @@ fn find_previous_generation(
 
 fn get_generation_by_number(
     number: u64,
-    generations: &[generations::GenerationInfo],
-) -> Result<&generations::GenerationInfo> {
+    generations: &[generations::Summary],
+) -> Result<&generations::Summary> {
     generations
         .iter()
         .find(|generation| generation.number == number)
         .ok_or_else(|| report!("Generation {} not found", number))
 }
 
-fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
+fn list_generations() -> Result<Vec<generations::Summary>> {
     let profile_path = PathBuf::from(SYSTEM_PROFILE);
     let profiles_dir = profile_path
         .parent()
@@ -260,9 +242,9 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
             path.file_name().and_then(|os_str| os_str.to_str())
             && name.starts_with("system-")
             && name.ends_with("-link")
-            && let Some(gen_info) = generations::describe(&path, None)
+            && let Some(summary) = generations::summarize(&path)
         {
-            generations.push(gen_info);
+            generations.push(summary);
         }
     }
 

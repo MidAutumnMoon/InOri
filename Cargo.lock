@@ -1470,7 +1470,6 @@ dependencies = [
  "inquire",
  "jiff",
  "nix",
- "nix-command",
  "regex",
  "rootcause",
  "rustix",
@@ -1498,14 +1497,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
-]
-
-[[package]]
-name = "nix-command"
-version = "0.3.0"
-dependencies = [
- "subprocess",
- "thiserror",
 ]
 
 [[package]]

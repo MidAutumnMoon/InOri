@@ -8,8 +8,8 @@ use std::{
     str::FromStr,
 };
 
-use nix_command::CommandKind;
-use nix_command::NixCommand;
+use crate::nix_command::CommandKind;
+use crate::nix_command::NixCommand;
 use rootcause::{Result, bail, prelude::ResultExt as _, report};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
@@ -111,6 +111,11 @@ impl Elevation {
             askpass: env
                 .non_empty_var("NH_SUDO_ASKPASS")
                 .map(str::to_owned),
+            // TODO: NH_PRESERVE_ENV keeps upstream's legacy semantics where any
+            // value except "0" enables it, so `false` enables it too; the
+            // env_bool_* helpers in cli.rs parse `false` as disabled. Pick one
+            // policy for all NH_* environment booleans — migrating here
+            // changes behavior for `NH_PRESERVE_ENV=false`.
             preserve_env: env
                 .var("NH_PRESERVE_ENV")
                 .is_none_or(|value| value != "0"),
@@ -650,7 +655,6 @@ impl Build {
         let target_args = self.target.to_args();
 
         let base_command = NixCommand::new(CommandKind::Build)
-            .print_build_logs(false)
             .args(&target_args)
             .args(&self.extra_args)
             .into_exec();

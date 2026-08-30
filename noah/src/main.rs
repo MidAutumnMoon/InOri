@@ -2,6 +2,7 @@ mod clean;
 mod cli;
 mod command;
 mod diff;
+mod nix_command;
 mod nix_options;
 mod nixos;
 mod runtime;

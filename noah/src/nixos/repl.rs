@@ -1,4 +1,4 @@
-use nix_command::{CommandKind, NixCommand};
+use crate::nix_command::{CommandKind, NixCommand};
 use rootcause::{Result, bail};
 
 use super::request::ReplRequest;
