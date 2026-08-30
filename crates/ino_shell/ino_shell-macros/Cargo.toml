@@ -1,10 +1,13 @@
 [package]
 name = "ino_shell-macros"
-description = "Private implementation detail of ino_shell crate"
-version = "0.3.0-pre.2"
+description = "Private implementation detail of ino_shell crate (fork of xshell)"
+version = "1.0.0"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/matklad/xshell"
-authors = ["Aleksey Kladov <aleksey.kladov@gmail.com>"]
+repository = "https://github.com/MidAutumnMoon/InOri"
+authors = [
+    "Aleksey Kladov <aleksey.kladov@gmail.com>",
+    "MidAutumnMoon"
+]
 edition.workspace = true
 rust-version.workspace = true
 

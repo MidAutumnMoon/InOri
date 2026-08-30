@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "ino_shell"
-version = "0.3.0-pre.2"
+version = "1.0.0"
 dependencies = [
  "ino_shell-macros",
  "rootcause",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "ino_shell-macros"
-version = "0.3.0-pre.2"
+version = "1.0.0"
 
 [[package]]
 name = "ino_tracing"

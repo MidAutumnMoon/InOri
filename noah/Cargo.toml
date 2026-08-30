@@ -16,7 +16,7 @@ dix = "2.1.0"
 elasticsearch-dsl = "0.4.24"
 humantime = "2.3.0"
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
-ino_shell = { version = "0.3.0-pre.2", path = "../crates/ino_shell" }
+ino_shell = { path = "../crates/ino_shell" }
 ino_tracing.workspace = true
 jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 nix = { default-features = false, features = [ "fs", "user" ], version = "0.31.1" }
