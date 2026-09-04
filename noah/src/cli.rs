@@ -4,12 +4,12 @@ use bpaf::long;
 
 use crate::clean::Request as CleanRequest;
 use crate::clean::clean_cli;
-use crate::command::ElevationStrategy;
-use crate::nixos::{
-    GenerationsRequest, RebuildCommand, ReplRequest, RollbackRequest,
-    boot_cli, build_cli, generations_cli, repl_cli, rollback_cli,
-    switch_cli, test_cli,
-};
+use crate::elevation::ElevationStrategy;
+use crate::os::cli::{boot_cli, build_cli, switch_cli, test_cli};
+use crate::os::info;
+use crate::os::rebuild::RebuildCommand;
+use crate::os::repl;
+use crate::os::rollback;
 use crate::search::Request as SearchRequest;
 use crate::search::search_cli;
 
@@ -33,11 +33,11 @@ pub enum CliCommand {
     /// Build or activate a NixOS configuration.
     Rebuild(Box<RebuildCommand>),
     /// Load system in a repl.
-    Repl(ReplRequest),
+    Repl(repl::Request),
     /// List available generations from profile path.
-    Info(GenerationsRequest),
+    Info(info::Request),
     /// Rollback to a previous generation.
-    Rollback(RollbackRequest),
+    Rollback(rollback::Request),
     /// Searches packages or NixOS options via search.nixos.org.
     Search(SearchRequest),
     /// Enhanced nix cleanup.
@@ -92,17 +92,17 @@ pub fn cli() -> bpaf::OptionParser<Cli> {
         .descr("Build the new configuration.")
         .command("build")
         .map(|command| CliCommand::Rebuild(Box::new(command)));
-    let repl = repl_cli()
+    let repl = repl::cli()
         .to_options()
         .descr("Load system in a repl.")
         .command("repl")
         .map(CliCommand::Repl);
-    let info = generations_cli()
+    let info = info::cli()
         .to_options()
         .descr("List available generations from profile path.")
         .command("info")
         .map(CliCommand::Info);
-    let rollback = rollback_cli()
+    let rollback = rollback::cli()
         .to_options()
         .descr("Rollback to a previous generation.")
         .command("rollback")
@@ -140,7 +140,7 @@ mod tests {
 
     use super::CliCommand;
     use super::cli;
-    use crate::command::ElevationStrategy;
+    use crate::elevation::ElevationStrategy;
 
     fn parse(args: &[&str]) -> std::result::Result<super::Cli, String> {
         let options = cli();

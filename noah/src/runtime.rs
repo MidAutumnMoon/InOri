@@ -14,8 +14,8 @@ use rootcause::report;
 use rustix::system::uname;
 use tracing::debug;
 
-use crate::command::Elevation;
-use crate::command::ElevationStrategy;
+use crate::elevation::Elevation;
+use crate::elevation::ElevationStrategy;
 
 const NIX_CHILD_ENV: &[&str] = &[
     "LOCALE_ARCHIVE",
@@ -169,6 +169,12 @@ impl Env {
     }
 }
 
+// `current_machine_hostname` is left out on purpose: Debug output must not
+// expose machine-identifying values.
+#[expect(
+    clippy::missing_fields_in_debug,
+    reason = "environment values and the hostname are redacted from Debug"
+)]
 impl fmt::Debug for Env {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Env")
@@ -185,7 +191,7 @@ impl fmt::Debug for Env {
 /// # Errors
 ///
 /// Returns an error if the kernel hostname is not valid UTF-8.
-pub(crate) fn hostname() -> rootcause::Result<String> {
+fn hostname() -> rootcause::Result<String> {
     Ok(uname().nodename().to_str()?.to_owned())
 }
 

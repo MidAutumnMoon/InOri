@@ -1,35 +1,45 @@
-mod cli;
-mod request;
-pub use cli::{
-    boot_cli, build_cli, generations_cli, repl_cli, rollback_cli,
-    switch_cli, test_cli,
-};
-pub use request::{
-    GenerationsRequest, RebuildCommand, ReplRequest, RollbackRequest,
-};
-pub mod generations;
-mod info;
-mod rebuild;
-mod repl;
-mod rollback;
+//! Managing a NixOS system.
+//!
+//! The `switch`, `boot`, `test`, and `build` commands share one rebuild
+//! flow ([`rebuild`]); `repl`, `info`, and `rollback` are self-contained.
+//! This module holds what the family shares: profile locations,
+//! specialisation selection, and the root guard.
+
+pub mod cli;
+mod diff;
+pub mod info;
+pub mod rebuild;
+pub mod repl;
+pub mod rollback;
+mod update;
+
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 
 use rootcause::Result;
 use rootcause::bail;
 use rootcause::report;
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
 use tracing::warn;
 
-use self::request::SpecialisationSelection;
-use crate::command::Elevation;
-use crate::runtime::Config;
-use crate::runtime::Env;
+use crate::elevation::Elevation;
 
-const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
-pub(crate) const CURRENT_PROFILE: &str = "/run/current-system";
+pub const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
+pub const CURRENT_PROFILE: &str = "/run/current-system";
 
 const SPEC_LOCATION: &str = "/etc/specialisation";
+
+/// Which specialisation of a configuration to select.
+#[derive(Clone, Debug)]
+pub enum SpecialisationSelection {
+    /// The specialisation currently recorded in `/etc/specialisation`.
+    Current,
+    /// The base configuration, ignoring specialisations.
+    Base,
+    /// A named specialisation.
+    Named(String),
+}
+
 fn resolve_specialisation(
     selection: &SpecialisationSelection,
 ) -> Option<String> {
@@ -81,7 +91,7 @@ fn missing_switch_to_configuration_error() -> rootcause::Report {
 /// # Errors
 ///
 /// Returns an error if `bypass_root_check` is false and the user is root,
-/// as `nh os` subcommands should not be run directly as root.
+/// as the os subcommands should not be run directly as root.
 fn has_elevation_status(
     bypass_root_check: bool,
     elevation: &Elevation,
@@ -114,24 +124,31 @@ fn has_elevation_status(
     Ok(!is_root)
 }
 
-pub fn run_rebuild(
-    command: RebuildCommand,
-    config: &Config,
-) -> Result<()> {
-    rebuild::run(command, config)
+/// Generation number of a profile-directory entry such as `system-42-link`.
+pub fn from_dir(generation_dir: &Path) -> Option<u64> {
+    let generation_base = generation_dir
+        .file_name()
+        .and_then(|os_str| os_str.to_str())?;
+    let no_link_gen = generation_base.trim_end_matches("-link");
+    let (_, generation_num) = no_link_gen.rsplit_once('-')?;
+    generation_num.parse::<u64>().ok()
 }
 
-pub fn run_rollback(
-    request: RollbackRequest,
-    config: &Config,
-) -> Result<()> {
-    rollback::run(request, config)
-}
+/// Whether the system currently runs this generation.
+pub fn is_current(generation_dir: &Path) -> bool {
+    let Some(run_current_target) = fs::read_link(CURRENT_PROFILE)
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        return false;
+    };
 
-pub fn run_repl(request: ReplRequest, env: &Env) -> Result<()> {
-    repl::run(request, env)
-}
+    let Some(gen_store_path) = fs::read_link(generation_dir)
+        .ok()
+        .and_then(|path| fs::canonicalize(path).ok())
+    else {
+        return false;
+    };
 
-pub fn run_info(request: &GenerationsRequest) -> Result<()> {
-    info::run(request)
+    run_current_target == gen_store_path
 }

@@ -1,37 +1,110 @@
+//! The `rollback` command: switch the system profile to an older
+//! generation and activate it.
+
 use std::fs;
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use rootcause::{Result, bail, prelude::ResultExt as _, report};
-use tracing::{debug, info, warn};
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
-use super::request::RollbackRequest as ParsedRollbackRequest;
-use super::{
-    SYSTEM_PROFILE, generations, has_elevation_status,
-    missing_switch_to_configuration_error, resolve_specialisation,
-    specialisation_in,
-};
+use super::SYSTEM_PROFILE;
+use super::SpecialisationSelection;
+use super::diff::DiffMode;
+use super::from_dir;
+use super::has_elevation_status;
+use super::is_current;
+use super::missing_switch_to_configuration_error;
+use super::resolve_specialisation;
+use super::specialisation_in;
 use crate::command::Command;
-use crate::diff::handle_nixos;
 use crate::runtime::Config;
-struct Rollback(ParsedRollbackRequest);
 
-impl Deref for Rollback {
-    type Target = ParsedRollbackRequest;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub dry: bool,
+    pub ask: bool,
+    pub specialisation: SpecialisationSelection,
+    pub to: Option<u64>,
+    pub bypass_root_check: bool,
+    pub diff: DiffMode,
 }
 
-pub(super) fn run(
-    request: ParsedRollbackRequest,
-    config: &Config,
-) -> Result<()> {
-    Rollback(request).rollback(config)
+/// Parse the `rollback` command.
+#[must_use]
+pub fn cli() -> impl Parser<Request> {
+    let dry = long("dry")
+        .short('n')
+        .switch()
+        .help("Only print actions, without performing them");
+    let ask = long("ask").short('a').help("Ask for confirmation").switch();
+    let specialisation = super::cli::specialisation_cli();
+    let to = long("to")
+        .short('t')
+        .argument::<u64>("GENERATION")
+        .help(
+            "Rollback to a specific generation number (defaults to previous \
+             generation)",
+        )
+        .optional();
+    let bypass_root_check = long("bypass-root-check")
+        .short('R')
+        .help("Don't panic if calling nh as root")
+        .switch();
+    let diff = long("diff")
+        .short('d')
+        .argument::<DiffMode>("DIFF")
+        .help("Whether to display a package diff")
+        .fallback(DiffMode::Auto)
+        .display_fallback();
+
+    construct!(Request {
+        dry,
+        ask,
+        specialisation,
+        to,
+        bypass_root_check,
+        diff,
+    })
 }
 
-impl Rollback {
+/// Run a rollback request.
+///
+/// # Errors
+///
+/// Returns an error if the profile cannot be switched or activation fails.
+pub fn run(request: &Request, config: &Config) -> Result<()> {
+    request.rollback(config)
+}
+
+/// The facts about a generation entry readable from the profiles directory
+/// alone, without the metadata queries the full description performs.
+#[derive(Debug, Clone)]
+struct GenerationSummary {
+    /// Number of a generation.
+    number: u64,
+
+    /// Whether the system currently runs this generation.
+    current: bool,
+}
+
+/// Summarize a generation entry in the profiles directory.
+fn summarize(generation_dir: &Path) -> Option<GenerationSummary> {
+    Some(GenerationSummary {
+        number: from_dir(generation_dir)?,
+        current: is_current(generation_dir),
+    })
+}
+
+impl Request {
     #[expect(
         clippy::too_many_lines,
         reason = "linear rollback flow whose errors carry their own context"
@@ -80,7 +153,8 @@ impl Rollback {
 
         // Compare the currently running system with the target generation.
         // A failed comparison must not block the rollback itself.
-        if let Err(error) = handle_nixos(&self.diff, &generation_link) {
+        if let Err(error) = super::diff::run(&self.diff, &generation_link)
+        {
             warn!(%error, "Failed to compare the current and target profiles");
         }
 
@@ -189,10 +263,11 @@ impl Rollback {
         Ok(())
     }
 }
+
 fn find_previous_generation(
     current_number: u64,
-    generations: &[generations::Summary],
-) -> Result<generations::Summary> {
+    generations: &[GenerationSummary],
+) -> Result<GenerationSummary> {
     let current = generations
         .iter()
         .find(|generation| generation.number == current_number)
@@ -210,15 +285,15 @@ fn find_previous_generation(
 
 fn get_generation_by_number(
     number: u64,
-    generations: &[generations::Summary],
-) -> Result<&generations::Summary> {
+    generations: &[GenerationSummary],
+) -> Result<&GenerationSummary> {
     generations
         .iter()
         .find(|generation| generation.number == number)
         .ok_or_else(|| report!("Generation {} not found", number))
 }
 
-fn list_generations() -> Result<Vec<generations::Summary>> {
+fn list_generations() -> Result<Vec<GenerationSummary>> {
     let profile_path = PathBuf::from(SYSTEM_PROFILE);
     let profiles_dir = profile_path
         .parent()
@@ -242,7 +317,7 @@ fn list_generations() -> Result<Vec<generations::Summary>> {
             path.file_name().and_then(|os_str| os_str.to_str())
             && name.starts_with("system-")
             && name.ends_with("-link")
-            && let Some(summary) = generations::summarize(&path)
+            && let Some(summary) = summarize(&path)
         {
             generations.push(summary);
         }

@@ -1,56 +1,127 @@
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
+//! Building and activating a NixOS configuration.
+//!
+//! One flow serves four commands: `build` stops after building; `switch`,
+//! `boot`, and `test` continue with the corresponding activation. The
+//! command line produces a [`RebuildCommand`], and [`run`] executes it.
 
-use rootcause::{Result, bail, prelude::ResultExt as _, report};
-use tracing::{debug, info, warn};
+use std::path::Path;
+use std::path::PathBuf;
 
-use super::request::{
-    Activation, ActivationAction,
-    ActivationRequest as ParsedActivationRequest, RebuildCommand,
-    RebuildRequest,
-};
-use super::{
-    SYSTEM_PROFILE, has_elevation_status, resolve_specialisation,
-    specialisation_in,
-};
-use crate::command::{self, Command, Elevation};
-use crate::diff::handle_nixos;
+use rootcause::Result;
+use rootcause::bail;
+use rootcause::prelude::ResultExt as _;
+use rootcause::report;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
+
+use super::SYSTEM_PROFILE;
+use super::SpecialisationSelection;
+use super::diff::DiffMode;
+use super::has_elevation_status;
+use super::resolve_specialisation;
+use super::specialisation_in;
+use super::update;
+use crate::command::Command;
+use crate::elevation::Elevation;
+use crate::nix::build::Build;
+use crate::nix::options::NixBuildOptions;
 use crate::runtime::Config;
 use crate::runtime::Env;
 use crate::target::{self, BuildTarget};
-use crate::update::update;
 
-struct Rebuild(RebuildRequest);
+/// Which rebuild flow to run: build only, or build followed by activation.
+#[derive(Clone, Debug)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "rebuild::Command would read as the generic runner Command"
+)]
+pub enum RebuildCommand {
+    Build(Request),
+    Activate(ActivationRequest),
+}
 
-impl Deref for Rebuild {
-    type Target = RebuildRequest;
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub build: BuildOptions,
+    pub update: Option<update::Selection>,
+    pub hostname: Option<String>,
+    pub specialisation: SpecialisationSelection,
+    pub extra_args: Vec<String>,
+    pub bypass_root_check: bool,
+    pub commit_lock_file: bool,
+}
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+#[derive(Clone, Debug)]
+pub struct BuildOptions {
+    pub target: Option<BuildTarget>,
+    pub no_nom: bool,
+    pub out_link: Option<PathBuf>,
+    pub diff: DiffMode,
+    pub nix: NixBuildOptions,
+}
+
+#[derive(Clone, Debug)]
+pub struct ActivationRequest {
+    pub rebuild: Request,
+    pub activation: Activation,
+}
+
+#[derive(Clone, Debug)]
+pub struct Activation {
+    pub action: ActivationAction,
+    pub dry: bool,
+    pub ask: bool,
+    pub no_validate: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ActivationAction {
+    Test {
+        show_logs: bool,
+    },
+    Boot {
+        install_bootloader: bool,
+    },
+    Switch {
+        show_logs: bool,
+        install_bootloader: bool,
+    },
+}
+
+impl ActivationAction {
+    #[must_use]
+    pub const fn show_logs(self) -> bool {
+        match self {
+            Self::Test { show_logs } | Self::Switch { show_logs, .. } => {
+                show_logs
+            }
+            Self::Boot { .. } => false,
+        }
     }
-}
 
-struct ActivationRequest {
-    rebuild: Rebuild,
-    activation: Activation,
-}
-
-impl From<ParsedActivationRequest> for ActivationRequest {
-    fn from(request: ParsedActivationRequest) -> Self {
-        Self {
-            rebuild: Rebuild(request.rebuild),
-            activation: request.activation,
+    #[must_use]
+    pub const fn install_bootloader(self) -> bool {
+        match self {
+            Self::Boot { install_bootloader }
+            | Self::Switch {
+                install_bootloader, ..
+            } => install_bootloader,
+            Self::Test { .. } => false,
         }
     }
 }
 
-pub(super) fn run(command: RebuildCommand, config: &Config) -> Result<()> {
+/// Execute a rebuild command.
+///
+/// # Errors
+///
+/// Returns an error if building or activating the configuration fails.
+pub fn run(command: RebuildCommand, config: &Config) -> Result<()> {
     match command {
-        RebuildCommand::Build(request) => {
-            Rebuild(request).build_only(config)
-        }
+        RebuildCommand::Build(request) => request.build_only(config),
         RebuildCommand::Activate(request) => {
-            ActivationRequest::from(request).build_and_activate(config)
+            request.build_and_activate(config)
         }
     }
 }
@@ -89,7 +160,10 @@ impl BuiltSystem {
     /// Returns an error if the out-link cannot be resolved to a store path,
     /// or a selected specialisation does not exist in the built
     /// configuration.
-    fn resolve(out_link: &Path, specialisation: Option<&str>) -> Result<Self> {
+    fn resolve(
+        out_link: &Path,
+        specialisation: Option<&str>,
+    ) -> Result<Self> {
         let toplevel = out_link.canonicalize().context(
             "Failed to resolve output path to actual store path",
         )?;
@@ -116,6 +190,174 @@ impl BuiltSystem {
     }
 }
 
+impl Request {
+    /// Performs initial setup for an OS rebuild operation:
+    ///
+    /// - Determining whether activation needs elevation (and enforcing the
+    ///   root guard unless bypassed).
+    /// - Resolving the target hostname for the build.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of:
+    ///
+    /// - `bool`: `true` if activation requires elevation.
+    /// - `String`: The resolved target hostname.
+    fn setup_build_context(
+        &self,
+        elevation: &Elevation,
+        env: &Env,
+    ) -> Result<(bool, String)> {
+        let elevate =
+            has_elevation_status(self.bypass_root_check, elevation)?;
+
+        let target_hostname = self
+            .hostname
+            .clone()
+            .unwrap_or_else(|| env.hostname().to_owned());
+
+        Ok((elevate, target_hostname))
+    }
+
+    fn determine_output_path(
+        &self,
+        temporary: bool,
+    ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+        if let Some(path) = self.build.out_link.clone() {
+            return Ok((path, None));
+        }
+
+        if temporary {
+            let dir =
+                tempfile::Builder::new().prefix("nh-os").tempdir()?;
+            Ok((dir.as_ref().join("result"), Some(dir)))
+        } else {
+            Ok((PathBuf::from("result"), None))
+        }
+    }
+
+    fn prepare_toplevel(
+        &self,
+        target_hostname: &str,
+        env: &Env,
+    ) -> Result<BuildTarget> {
+        const TOPLEVEL_ATTRS: [&str; 4] =
+            ["config", "system", "build", "toplevel"];
+
+        let mut toplevel =
+            target::resolve(self.build.target.clone(), env)?;
+
+        match &mut toplevel {
+            BuildTarget::Flake { attribute, .. } => {
+                let second = attribute
+                    .get(1)
+                    .map_or_else(String::new, String::clone);
+                match attribute.first().map(String::as_str) {
+                    None => {
+                        attribute
+                            .push(String::from("nixosConfigurations"));
+                        attribute.push(target_hostname.to_owned());
+                    }
+                    Some("nixosConfigurations") => match attribute.len() {
+                        1 => {
+                            info!(
+                                "Inferring hostname '{target_hostname}' for \
+                                 nixosConfigurations"
+                            );
+                            attribute.push(target_hostname.to_owned());
+                        }
+                        2 => {}
+                        _ => {
+                            bail!(
+                                "Attribute path is too specific: {attribute}. Please \
+                                 either:\n  1. Use the flake reference without \
+                                 attributes (e.g., '.')\n  2. Specify only the \
+                                 configuration name (e.g., '.#{second}')"
+                            );
+                        }
+                    },
+                    Some(_) => {
+                        attribute.insert(
+                            0,
+                            String::from("nixosConfigurations"),
+                        );
+                    }
+                }
+                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
+            }
+            BuildTarget::File { attribute, .. }
+            | BuildTarget::Expression { attribute, .. } => {
+                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
+            }
+            BuildTarget::StorePath(_) => {}
+        }
+
+        if let Some(selection) = &self.update {
+            update::run(&toplevel, selection, self.commit_lock_file)?;
+        }
+
+        Ok(toplevel)
+    }
+
+    fn execute_build(
+        &self,
+        toplevel: BuildTarget,
+        out_path: &Path,
+    ) -> Result<()> {
+        const MESSAGE: &str = "Building NixOS configuration";
+
+        Build::new(toplevel)
+            .extra_arg("--out-link")
+            .extra_arg(out_path)
+            .extra_args(&self.extra_args)
+            .nix_options(&self.build.nix)
+            .message(MESSAGE)
+            .nom(!self.build.no_nom)
+            .run()
+            .context("Failed to build configuration")?;
+
+        Ok(())
+    }
+
+    fn build_and_diff(
+        &self,
+        toplevel: BuildTarget,
+        out_path: &Path,
+    ) -> Result<BuiltSystem> {
+        self.execute_build(toplevel, out_path)?;
+
+        let target_specialisation =
+            resolve_specialisation(&self.specialisation);
+        debug!("Target specialisation: {target_specialisation:?}");
+
+        let built = BuiltSystem::resolve(
+            out_path,
+            target_specialisation.as_deref(),
+        )?;
+        debug!("Built toplevel: {}", built.toplevel.display());
+        debug!("Selected profile: {}", built.profile.display());
+
+        super::diff::run(&self.build.diff, &built.profile)?;
+
+        Ok(built)
+    }
+
+    /// Builds the toplevel configuration without activating (`nh build`).
+    fn build_only(&self, config: &Config) -> Result<()> {
+        let (_, target_hostname) =
+            self.setup_build_context(&config.elevation, &config.env)?;
+
+        let (out_path, _tempdir_guard) =
+            self.determine_output_path(false)?;
+
+        let toplevel =
+            self.prepare_toplevel(&target_hostname, &config.env)?;
+        self.build_and_diff(toplevel, &out_path)?;
+
+        Ok(())
+    }
+}
+
 impl ActivationRequest {
     fn build_and_activate(&self, config: &Config) -> Result<()> {
         let (elevate, target_hostname) = self
@@ -125,8 +367,9 @@ impl ActivationRequest {
         let (out_path, _tempdir_guard) =
             self.rebuild.determine_output_path(true)?;
 
-        let toplevel =
-            self.rebuild.prepare_toplevel(&target_hostname, &config.env)?;
+        let toplevel = self
+            .rebuild
+            .prepare_toplevel(&target_hostname, &config.env)?;
 
         let built = self.rebuild.build_and_diff(toplevel, &out_path)?;
 
@@ -282,171 +525,7 @@ impl ActivationRequest {
             cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
         }
 
-        cmd.run()
-            .context("Bootloader activation failed")?;
-
-        Ok(())
-    }
-}
-
-impl Rebuild {
-    /// Performs initial setup for an OS rebuild operation:
-    ///
-    /// - Determining whether activation needs elevation (and enforcing the
-    ///   root guard unless bypassed).
-    /// - Resolving the target hostname for the build.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of:
-    ///
-    /// - `bool`: `true` if activation requires elevation.
-    /// - `String`: The resolved target hostname.
-    fn setup_build_context(
-        &self,
-        elevation: &Elevation,
-        env: &Env,
-    ) -> Result<(bool, String)> {
-        let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
-
-        let target_hostname = match &self.hostname {
-            Some(hostname) => hostname.clone(),
-            None => env.hostname().to_owned(),
-        };
-
-        Ok((elevate, target_hostname))
-    }
-
-    fn determine_output_path(
-        &self,
-        temporary: bool,
-    ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
-        if let Some(path) = self.build.out_link.clone() {
-            return Ok((path, None));
-        }
-
-        if temporary {
-            let dir =
-                tempfile::Builder::new().prefix("nh-os").tempdir()?;
-            Ok((dir.as_ref().join("result"), Some(dir)))
-        } else {
-            Ok((PathBuf::from("result"), None))
-        }
-    }
-
-    fn prepare_toplevel(
-        &self,
-        target_hostname: &str,
-        env: &Env,
-    ) -> Result<BuildTarget> {
-        const TOPLEVEL_ATTRS: [&str; 4] =
-            ["config", "system", "build", "toplevel"];
-
-        let mut toplevel = target::resolve(self.build.target.clone(), env)?;
-
-        match &mut toplevel {
-            BuildTarget::Flake { attribute, .. } => {
-                let second = attribute
-                    .get(1)
-                    .map_or_else(String::new, String::clone);
-                match attribute.first().map(String::as_str) {
-                    None => {
-                        attribute.push(String::from("nixosConfigurations"));
-                        attribute.push(target_hostname.to_owned());
-                    }
-                    Some("nixosConfigurations") => match attribute.len() {
-                        1 => {
-                            info!(
-                                "Inferring hostname '{target_hostname}' for \
-                                 nixosConfigurations"
-                            );
-                            attribute.push(target_hostname.to_owned());
-                        }
-                        2 => {}
-                        _ => {
-                            bail!(
-                                "Attribute path is too specific: {attribute}. Please \
-                                 either:\n  1. Use the flake reference without \
-                                 attributes (e.g., '.')\n  2. Specify only the \
-                                 configuration name (e.g., '.#{second}')"
-                            );
-                        }
-                    },
-                    Some(_) => {
-                        attribute.insert(
-                            0,
-                            String::from("nixosConfigurations"),
-                        );
-                    }
-                }
-                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
-            }
-            BuildTarget::File { attribute, .. }
-            | BuildTarget::Expression { attribute, .. } => {
-                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
-            }
-            BuildTarget::StorePath(_) => {}
-        }
-
-        if let Some(selection) = &self.update {
-            update(&toplevel, selection, self.commit_lock_file)?;
-        }
-
-        Ok(toplevel)
-    }
-
-    fn execute_build(
-        &self,
-        toplevel: BuildTarget,
-        out_path: &Path,
-    ) -> Result<()> {
-        const MESSAGE: &str = "Building NixOS configuration";
-
-        command::Build::new(toplevel)
-            .extra_arg("--out-link")
-            .extra_arg(out_path)
-            .extra_args(&self.extra_args)
-            .nix_options(&self.build.nix)
-            .message(MESSAGE)
-            .nom(!self.build.no_nom)
-            .run()
-            .context("Failed to build configuration")?;
-
-        Ok(())
-    }
-
-    fn build_and_diff(
-        &self,
-        toplevel: BuildTarget,
-        out_path: &Path,
-    ) -> Result<BuiltSystem> {
-        self.execute_build(toplevel, out_path)?;
-
-        let target_specialisation =
-            resolve_specialisation(&self.specialisation);
-        debug!("Target specialisation: {target_specialisation:?}");
-
-        let built =
-            BuiltSystem::resolve(out_path, target_specialisation.as_deref())?;
-        debug!("Built toplevel: {}", built.toplevel.display());
-        debug!("Selected profile: {}", built.profile.display());
-
-        handle_nixos(&self.build.diff, &built.profile)?;
-
-        Ok(built)
-    }
-
-    /// Builds the toplevel configuration without activating (`nh build`).
-    fn build_only(&self, config: &Config) -> Result<()> {
-        let (_, target_hostname) =
-            self.setup_build_context(&config.elevation, &config.env)?;
-
-        let (out_path, _tempdir_guard) =
-            self.determine_output_path(false)?;
-
-        let toplevel =
-            self.prepare_toplevel(&target_hostname, &config.env)?;
-        self.build_and_diff(toplevel, &out_path)?;
+        cmd.run().context("Bootloader activation failed")?;
 
         Ok(())
     }
@@ -532,8 +611,7 @@ mod tests {
         let out_link = fake_built_system(dir.path());
         let base = dir.path().canonicalize().unwrap();
 
-        let built =
-            BuiltSystem::resolve(&out_link, Some("foo")).unwrap();
+        let built = BuiltSystem::resolve(&out_link, Some("foo")).unwrap();
 
         assert_eq!(built.toplevel, base.join("store-toplevel"));
         assert_eq!(built.profile, base.join("store-spec"));
@@ -547,8 +625,10 @@ mod tests {
         let error =
             BuiltSystem::resolve(&out_link, Some("missing")).unwrap_err();
 
-        assert!(error
-            .to_string()
-            .contains("does not exist in the built configuration"));
+        assert!(
+            error
+                .to_string()
+                .contains("does not exist in the built configuration")
+        );
     }
 }

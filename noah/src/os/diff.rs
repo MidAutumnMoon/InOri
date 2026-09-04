@@ -1,16 +1,23 @@
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+//! Package diff between system generations, powered by `dix`.
+//!
+//! Shown after a rebuild (`build`, `switch`, `boot`, `test`) and before a
+//! `rollback`, per the `--diff` mode.
+
+use std::io::Write as _;
+use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::external_report;
-use crate::nixos::CURRENT_PROFILE;
+use super::CURRENT_PROFILE;
 use rootcause::Result;
 use rootcause::prelude::ResultExt as _;
-use tracing::{debug, info, warn};
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 use yansi::Paint;
 
 #[derive(Clone, Default, Debug)]
-pub enum Mode {
+pub enum DiffMode {
     /// Display a package diff when the current and deployed configurations are
     /// comparable.
     #[default]
@@ -21,7 +28,7 @@ pub enum Mode {
     Never,
 }
 
-impl FromStr for Mode {
+impl FromStr for DiffMode {
     type Err = String;
 
     fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
@@ -36,7 +43,7 @@ impl FromStr for Mode {
     }
 }
 
-impl std::fmt::Display for Mode {
+impl std::fmt::Display for DiffMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Auto => "auto",
@@ -44,6 +51,22 @@ impl std::fmt::Display for Mode {
             Self::Never => "never",
         })
     }
+}
+
+/// Converts an error produced by an external crate into a
+/// [`rootcause::Report`].
+///
+/// Dependencies that don't speak rootcause (i.e. `dix`) report their failures
+/// through the boxed-error representation; this is the seam where such
+/// errors enter rootcause.
+fn external_report<E>(err: E) -> rootcause::Report
+where
+    Box<dyn std::error::Error + Send + Sync>: From<E>,
+{
+    rootcause::report!(Box::<dyn std::error::Error + Send + Sync>::from(
+        err
+    ))
+    .into()
 }
 
 struct QueriedDiff {
@@ -90,29 +113,29 @@ fn print_dix_report(
 ///
 /// Returns an error if the local store snapshot queries or the diff report
 /// writing fail.
-pub fn handle_nixos(diff: &Mode, target_profile: &Path) -> Result<()> {
+pub fn run(diff: &DiffMode, target_profile: &Path) -> Result<()> {
     let current_profile = Path::new(CURRENT_PROFILE);
 
     match diff {
-        Mode::Never => {
+        DiffMode::Never => {
             debug!("Not running dix as the --diff flag is set to never.");
             return Ok(());
         }
-        Mode::Auto if !current_profile.exists() => {
+        DiffMode::Auto if !current_profile.exists() => {
             warn!(
                 "current profile {} does not exist, skipping dix diffing",
                 current_profile.display()
             );
             return Ok(());
         }
-        Mode::Auto => {
+        DiffMode::Auto => {
             debug!(
                 "Comparing current profile {} with target profile: {}",
                 current_profile.display(),
                 target_profile.display()
             );
         }
-        Mode::Always => {}
+        DiffMode::Always => {}
     }
 
     print_dix_report(current_profile, target_profile)
@@ -139,7 +162,7 @@ fn write_dix_report(report: &dix::DiffReport) -> Result<()> {
     let mut out = String::new();
     let wrote = dix::write_diff_report(&mut out, report)?;
 
-    io::stdout()
+    std::io::stdout()
         .write_all(out.as_bytes())
         .context("Failed to write diff report to stdout")?;
 

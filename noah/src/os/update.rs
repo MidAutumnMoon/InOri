@@ -1,8 +1,16 @@
-use bpaf::{Parser, construct, long};
-use crate::nix_command::{CommandKind, NixCommand};
-use rootcause::{Result, bail};
-use tracing::{info, warn};
+//! Flake input updates performed before a rebuild (`--update`,
+//! `--update-input`).
 
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use rootcause::Result;
+use rootcause::bail;
+use tracing::info;
+use tracing::warn;
+
+use crate::nix::command::Kind;
+use crate::nix::command::NixCommand;
 use crate::target::BuildTarget;
 
 #[derive(Clone, Debug)]
@@ -33,7 +41,7 @@ pub fn update_cli() -> impl Parser<Option<Selection>> {
 /// # Errors
 ///
 /// Returns an error if `nix flake update` fails.
-pub fn update(
+pub fn run(
     target: &BuildTarget,
     selection: &Selection,
     commit_lock_file: bool,
@@ -46,7 +54,7 @@ pub fn update(
         return Ok(());
     };
 
-    let mut cmd = NixCommand::new(CommandKind::Flake).arg("update");
+    let mut cmd = NixCommand::new(Kind::Flake).arg("update");
 
     if commit_lock_file {
         cmd = cmd.arg("--commit-lock-file");

@@ -1,14 +1,12 @@
 mod clean;
 mod cli;
 mod command;
-mod diff;
-mod nix_command;
-mod nix_options;
-mod nixos;
+mod elevation;
+mod nix;
+mod os;
 mod runtime;
 mod search;
 mod target;
-mod update;
 
 use crate::cli::CliCommand;
 use crate::runtime::Config;
@@ -16,22 +14,6 @@ use crate::runtime::Env;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NH_REV: Option<&str> = option_env!("NH_REV");
-
-/// Converts an error produced by an external crate into a
-/// [`rootcause::Report`].
-///
-/// Dependencies that don't speak rootcause (e.g. `dix`) report their failures
-/// through the boxed-error representation; this is the seam where such
-/// errors enter rootcause.
-pub(crate) fn external_report<E>(err: E) -> rootcause::Report
-where
-    Box<dyn std::error::Error + Send + Sync>: From<E>,
-{
-    rootcause::report!(Box::<dyn std::error::Error + Send + Sync>::from(
-        err
-    ))
-    .into()
-}
 
 fn main() -> rootcause::Result<()> {
     let _log_guard = ino_tracing::init_tracing_subscriber();
@@ -51,13 +33,11 @@ fn main() -> rootcause::Result<()> {
 
 fn run(command: CliCommand, config: &Config) -> rootcause::Result<()> {
     match command {
-        CliCommand::Rebuild(command) => {
-            nixos::run_rebuild(*command, config)
-        }
-        CliCommand::Repl(request) => nixos::run_repl(request, &config.env),
-        CliCommand::Info(request) => nixos::run_info(&request),
+        CliCommand::Rebuild(command) => os::rebuild::run(*command, config),
+        CliCommand::Repl(request) => os::repl::run(request, &config.env),
+        CliCommand::Info(request) => os::info::run(&request),
         CliCommand::Rollback(request) => {
-            nixos::run_rollback(request, config)
+            os::rollback::run(&request, config)
         }
         CliCommand::Search(request) => search::run(&request),
         CliCommand::Clean(request) => clean::run(&request, config),

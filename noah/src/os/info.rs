@@ -1,3 +1,5 @@
+//! The `info` command: list the generations of a NixOS profile.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -5,18 +7,116 @@ use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
 
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use rootcause::Result;
+use rootcause::report;
 use tracing::debug;
 use tracing::warn;
 
-use crate::nix_command::CommandKind;
-use crate::nix_command::NixCommand;
-
 use super::CURRENT_PROFILE;
+use super::from_dir;
+use super::is_current;
+use crate::nix::command::Kind;
+use crate::nix::command::NixCommand;
+
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub profile: PathBuf,
+    pub fields: Option<Vec<Field>>,
+}
+
+/// Parse the `info` command.
+#[must_use]
+pub fn cli() -> impl Parser<Request> {
+    let profile = long("profile")
+        .short('P')
+        .argument::<String>("PROFILE")
+        .help("Path to Nix' profiles directory")
+        .fallback(String::from("/nix/var/nix/profiles/system"))
+        .display_fallback()
+        .map(PathBuf::from);
+    let fields = long("fields")
+        .argument::<String>("FIELDS")
+        .help("Comma-delimited list of field(s) to display")
+        .many()
+        .parse(|values: Vec<String>| {
+            if values.is_empty() {
+                return Ok(None);
+            }
+            parse_field_selection(&values).map(Some)
+        });
+
+    construct!(Request { profile, fields })
+}
+
+fn parse_field_selection(
+    values: &[String],
+) -> std::result::Result<Vec<Field>, String> {
+    let mut fields = Vec::new();
+    for value in values {
+        for part in value.split(',') {
+            fields.push(part.parse::<Field>()?);
+        }
+    }
+    Ok(fields)
+}
+
+/// Run an info request.
+///
+/// # Errors
+///
+/// Returns an error if the profile cannot be read or output fails.
+pub fn run(request: &Request) -> Result<()> {
+    let profile = &request.profile;
+
+    if !profile.is_symlink() {
+        return Err(report!(
+            "No profile `{:?}` found",
+            profile.file_name().unwrap_or_default()
+        ));
+    }
+
+    let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+
+    let generations: Vec<_> = fs::read_dir(profile_dir)?
+        .filter_map(|entry| {
+            let dir_entry = entry.ok()?;
+            let path = dir_entry.path();
+            path.file_name()?
+                .to_str()?
+                .starts_with(profile.file_name()?.to_str()?)
+                .then_some(path)
+        })
+        .collect();
+
+    let gen_dir_refs: Vec<&Path> =
+        generations.iter().map(PathBuf::as_path).collect();
+    let closure_sizes = get_closure_sizes_batch(&gen_dir_refs);
+
+    let descriptions: Vec<GenerationInfo> = generations
+        .iter()
+        .filter_map(|gen_dir| {
+            let size = closure_sizes
+                .get(gen_dir)
+                .cloned()
+                .unwrap_or_else(|| String::from("Unknown"));
+            describe(gen_dir, size)
+        })
+        .collect();
+    print_info(descriptions, request.fields.as_deref());
+
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "GenerationInfo is the domain term for a described generation"
+)]
 pub struct GenerationInfo {
     /// Number of a generation.
     pub number: u64,
@@ -115,15 +215,6 @@ impl Field {
         }
     }
 }
-#[must_use]
-pub fn from_dir(generation_dir: &Path) -> Option<u64> {
-    let generation_base = generation_dir
-        .file_name()
-        .and_then(|os_str| os_str.to_str())?;
-    let no_link_gen = generation_base.trim_end_matches("-link");
-    let (_, generation_num) = no_link_gen.rsplit_once('-')?;
-    generation_num.parse::<u64>().ok()
-}
 
 fn closure_size_from_json(
     json: &serde_json::Value,
@@ -162,7 +253,7 @@ fn bytes_to_gb_string(bytes: u64) -> String {
 /// A map from generation directory path to formatted closure size
 /// string.
 #[must_use]
-pub fn get_closure_sizes_batch(
+fn get_closure_sizes_batch(
     generation_dirs: &[&Path],
 ) -> HashMap<PathBuf, String> {
     if generation_dirs.is_empty() {
@@ -176,7 +267,7 @@ pub fn get_closure_sizes_batch(
         })
         .collect();
 
-    let output = match NixCommand::new(CommandKind::PathInfo)
+    let output = match NixCommand::new(Kind::PathInfo)
         .args(["-Sh", "--json"])
         .args(generation_dirs)
         .output()
@@ -218,52 +309,13 @@ pub fn get_closure_sizes_batch(
         .collect()
 }
 
-/// Whether the system currently runs this generation.
-fn is_current(generation_dir: &Path) -> bool {
-    let Some(run_current_target) = fs::read_link(CURRENT_PROFILE)
-        .ok()
-        .and_then(|path| fs::canonicalize(path).ok())
-    else {
-        return false;
-    };
-
-    let Some(gen_store_path) = fs::read_link(generation_dir)
-        .ok()
-        .and_then(|path| fs::canonicalize(path).ok())
-    else {
-        return false;
-    };
-
-    run_current_target == gen_store_path
-}
-
-/// The facts about a generation entry readable from the profiles directory
-/// alone, without the metadata queries [`describe`] performs.
-#[derive(Debug, Clone)]
-pub struct Summary {
-    /// Number of a generation.
-    pub number: u64,
-
-    /// Whether the system currently runs this generation.
-    pub current: bool,
-}
-
-/// Summarize a generation entry in the profiles directory.
-#[must_use]
-pub fn summarize(generation_dir: &Path) -> Option<Summary> {
-    Some(Summary {
-        number: from_dir(generation_dir)?,
-        current: is_current(generation_dir),
-    })
-}
-
 /// Describe a generation entry in full, for display.
 ///
 /// `closure_size` is supplied by the caller (see
 /// [`get_closure_sizes_batch`]); describing many generations with
 /// per-entry queries is expensive.
 #[must_use]
-pub fn describe(
+fn describe(
     generation_dir: &Path,
     closure_size: String,
 ) -> Option<GenerationInfo> {
@@ -377,18 +429,14 @@ pub fn describe(
 }
 
 /// Print information about the given generations.
-///
-/// # Errors
-///
-/// Returns an error if output or formatting fails.
 #[expect(
     clippy::too_many_lines,
     reason = "field formatters stay together; splitting scatters the table layout"
 )]
-pub fn print_info(
+fn print_info(
     mut generations: Vec<GenerationInfo>,
     fields: Option<&[Field]>,
-) -> Result<()> {
+) {
     // Parse all dates at once and cache them
     let mut parsed_dates = HashMap::with_capacity(generations.len());
     for generation in &generations {
@@ -539,6 +587,47 @@ pub fn print_info(
             .join(" ");
         println!("{row}");
     }
+}
 
-    Ok(())
+#[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::panic, reason = "Test assertions")]
+mod tests {
+    use std::path::PathBuf;
+
+    use bpaf::{Args, Parser as _};
+
+    use super::Field;
+    use super::Request;
+    use super::cli;
+
+    #[test]
+    fn fields_split_on_commas() {
+        let options = cli().to_options();
+        options.check_invariants(false);
+        let request = options
+            .run_inner(
+                Args::from(&["--fields", "id,confRev,date"][..])
+                    .set_name("test"),
+            )
+            .unwrap();
+
+        let Some(fields) = request.fields else {
+            panic!("fields must be present");
+        };
+        assert!(matches!(
+            fields.as_slice(),
+            [Field::Id, Field::Confrev, Field::Date]
+        ));
+    }
+
+    #[test]
+    fn fields_have_canonical_default_profile() {
+        let options = cli().to_options();
+        let Request { profile, fields } = options
+            .run_inner(Args::from(&[] as &[&str]).set_name("test"))
+            .unwrap();
+
+        assert!(fields.is_none());
+        assert_eq!(profile, PathBuf::from("/nix/var/nix/profiles/system"));
+    }
 }

@@ -19,14 +19,14 @@ use subprocess::Job;
 use subprocess::Redirection;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CommandKind {
+pub enum Kind {
     Build,
     Flake,
     PathInfo,
     Repl,
 }
 
-impl CommandKind {
+impl Kind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -43,7 +43,7 @@ impl CommandKind {
 }
 
 pub struct NixCommand {
-    kind: CommandKind,
+    kind: Kind,
     args: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
     interactive: bool,
@@ -51,7 +51,7 @@ pub struct NixCommand {
 
 impl NixCommand {
     #[must_use]
-    pub fn new(kind: CommandKind) -> Self {
+    pub fn new(kind: Kind) -> Self {
         Self {
             kind,
             args: Vec::new(),
@@ -93,10 +93,7 @@ impl NixCommand {
 
     pub fn into_exec(self) -> Exec {
         let Self {
-            kind,
-            args,
-            env,
-            ..
+            kind, args, env, ..
         } = self;
         let mut argv = Vec::with_capacity(2 + args.len());
         argv.push(OsString::from("nix"));
@@ -140,10 +137,8 @@ impl NixCommand {
     }
 
     fn run_interactive(self) -> Result<ExitStatus> {
-        let job = self
-            .into_exec()
-            .start()
-            .context("Failed to start nix")?;
+        let job =
+            self.into_exec().start().context("Failed to start nix")?;
         job.wait()
             .context("Failed to wait for nix")
             .map_err(Into::into)
@@ -228,8 +223,8 @@ mod tests {
 
     #[test]
     fn interactive_defaults_are_schema_owned() {
-        assert!(NixCommand::new(CommandKind::Repl).interactive);
-        assert!(!NixCommand::new(CommandKind::Build).interactive);
+        assert!(NixCommand::new(Kind::Repl).interactive);
+        assert!(!NixCommand::new(Kind::Build).interactive);
     }
 
     #[cfg(unix)]

@@ -1,19 +1,34 @@
+//! Command-line parsers for the rebuild family: `switch`, `boot`, `test`,
+//! and `build`.
+//!
+//! The four commands differ only in what happens after the build, so they
+//! share one request parser ([`rebuild_cli`]) and wrap it with
+//! command-specific activation flags.
+#![expect(
+    clippy::module_name_repetitions,
+    reason = "the *_cli parser names mirror the subcommand names"
+)]
+
 use std::path::PathBuf;
 
-use super::request::{
-    Activation, ActivationAction, ActivationRequest, BuildOptions,
-    GenerationsRequest, RebuildCommand, RebuildRequest, ReplRequest,
-    RollbackRequest, SpecialisationSelection,
-};
-use bpaf::{Parser, construct, long, positional};
+use bpaf::Parser;
+use bpaf::construct;
+use bpaf::long;
+use bpaf::positional;
 
-use crate::diff::Mode as DiffMode;
-use crate::nix_options::NixCliOptions;
-use crate::nix_options::nix_build_options_cli;
-use crate::nixos::generations::Field;
+use super::SpecialisationSelection;
+use super::diff::DiffMode;
+use super::rebuild::Activation;
+use super::rebuild::ActivationAction;
+use super::rebuild::ActivationRequest;
+use super::rebuild::BuildOptions;
+use super::rebuild::RebuildCommand;
+use super::rebuild::Request;
+use super::update::update_cli;
+use crate::nix::options::NixCliOptions;
+use crate::nix::options::nix_build_options_cli;
 use crate::target::BuildTarget;
 use crate::target::parser as target_parser;
-use crate::update::update_cli;
 
 #[derive(Clone, Debug)]
 struct ParsedBuildOptions {
@@ -63,8 +78,11 @@ fn build_options_cli() -> impl Parser<ParsedBuildOptions> {
     )
 }
 
+/// Parse the specialisation selection shared by the rebuild family and
+/// `rollback`.
 #[must_use]
-fn specialisation_cli() -> impl Parser<SpecialisationSelection> {
+pub(super) fn specialisation_cli() -> impl Parser<SpecialisationSelection>
+{
     let named = long("specialisation")
         .short('s')
         .argument::<String>("NAME")
@@ -81,7 +99,7 @@ fn specialisation_cli() -> impl Parser<SpecialisationSelection> {
 }
 
 #[must_use]
-fn rebuild_cli() -> impl Parser<RebuildRequest> {
+fn rebuild_cli() -> impl Parser<Request> {
     let update = update_cli();
     let hostname = long("hostname")
         .short('H')
@@ -119,7 +137,7 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
             bypass_root_check,
             parsed_build,
             extra_args,
-        )| RebuildRequest {
+        )| Request {
             build: parsed_build.options,
             update,
             hostname,
@@ -157,7 +175,7 @@ fn activation_flags_cli() -> impl Parser<ActivationFlags> {
 }
 
 fn activation_request(
-    rebuild: RebuildRequest,
+    rebuild: Request,
     flags: ActivationFlags,
     action: ActivationAction,
 ) -> RebuildCommand {
@@ -172,11 +190,13 @@ fn activation_request(
     })
 }
 
+/// Parse the `build` command: build without activating.
 #[must_use]
 pub fn build_cli() -> impl Parser<RebuildCommand> {
     rebuild_cli().map(RebuildCommand::Build)
 }
 
+/// Parse the `test` command: build and activate the running system.
 #[must_use]
 pub fn test_cli() -> impl Parser<RebuildCommand> {
     let rebuild = rebuild_cli();
@@ -196,6 +216,8 @@ pub fn test_cli() -> impl Parser<RebuildCommand> {
     )
 }
 
+/// Parse the `boot` command: build and make the configuration the boot
+/// default.
 #[must_use]
 pub fn boot_cli() -> impl Parser<RebuildCommand> {
     let rebuild = rebuild_cli();
@@ -215,6 +237,7 @@ pub fn boot_cli() -> impl Parser<RebuildCommand> {
     )
 }
 
+/// Parse the `switch` command: build, activate, and set the boot default.
 #[must_use]
 pub fn switch_cli() -> impl Parser<RebuildCommand> {
     let rebuild = rebuild_cli();
@@ -240,123 +263,22 @@ pub fn switch_cli() -> impl Parser<RebuildCommand> {
     )
 }
 
-#[must_use]
-pub fn rollback_cli() -> impl Parser<RollbackRequest> {
-    let dry = long("dry")
-        .short('n')
-        .switch()
-        .help("Only print actions, without performing them");
-    let ask = long("ask").short('a').help("Ask for confirmation").switch();
-    let specialisation = specialisation_cli();
-    let to = long("to")
-        .short('t')
-        .argument::<u64>("GENERATION")
-        .help(
-            "Rollback to a specific generation number (defaults to previous \
-             generation)",
-        )
-        .optional();
-    let bypass_root_check = long("bypass-root-check")
-        .short('R')
-        .help("Don't panic if calling nh as root")
-        .switch();
-    let diff = long("diff")
-        .short('d')
-        .argument::<DiffMode>("DIFF")
-        .help("Whether to display a package diff")
-        .fallback(DiffMode::Auto)
-        .display_fallback();
-
-    construct!(RollbackRequest {
-        dry,
-        ask,
-        specialisation,
-        to,
-        bypass_root_check,
-        diff,
-    })
-}
-
-#[must_use]
-pub fn repl_cli() -> impl Parser<ReplRequest> {
-    let hostname = long("hostname")
-        .short('H')
-        .argument::<String>("HOSTNAME")
-        .help(
-            "When using a flake, select this hostname from \
-             nixosConfigurations",
-        )
-        .optional();
-    let target = target_parser();
-
-    construct!(ReplRequest {
-        hostname,
-        target,
-    })
-}
-
-#[must_use]
-pub fn generations_cli() -> impl Parser<GenerationsRequest> {
-    let profile = long("profile")
-        .short('P')
-        .argument::<String>("PROFILE")
-        .help("Path to Nix' profiles directory")
-        .fallback(String::from("/nix/var/nix/profiles/system"))
-        .display_fallback()
-        .map(PathBuf::from);
-    let fields = long("fields")
-        .argument::<String>("FIELDS")
-        .help("Comma-delimited list of field(s) to display")
-        .many()
-        .parse(|values: Vec<String>| {
-            if values.is_empty() {
-                return Ok(None);
-            }
-            parse_field_selection(&values).map(Some)
-        });
-
-    construct!(GenerationsRequest { profile, fields })
-}
-
-fn parse_field_selection(
-    values: &[String],
-) -> std::result::Result<Vec<Field>, String> {
-    let mut fields = Vec::new();
-    for value in values {
-        for part in value.split(',') {
-            fields.push(part.parse::<Field>()?);
-        }
-    }
-    Ok(fields)
-}
-
 #[cfg(test)]
-#[expect(
-    clippy::unwrap_used,
-    clippy::panic,
-    reason = "Test assertions"
-)]
+#[expect(clippy::unwrap_used, clippy::panic, reason = "Test assertions")]
 mod tests {
-    use std::path::PathBuf;
-
     use bpaf::{Args, ParseFailure, Parser as _};
 
     use super::ActivationAction;
-    use super::GenerationsRequest;
     use super::RebuildCommand;
-    use super::RebuildRequest;
+    use super::Request;
     use super::SpecialisationSelection;
     use super::boot_cli;
     use super::build_cli;
-    use super::generations_cli;
     use super::switch_cli;
     use super::test_cli;
-    use crate::nixos::generations::Field;
     use crate::target::BuildTarget;
 
-    fn parse_build(
-        args: &[&str],
-    ) -> std::result::Result<RebuildRequest, String> {
+    fn parse_build(args: &[&str]) -> std::result::Result<Request, String> {
         let options = build_cli().to_options();
         options.check_invariants(false);
         let command = options
@@ -479,36 +401,5 @@ mod tests {
             request.specialisation,
             SpecialisationSelection::Base
         ));
-    }
-
-    #[test]
-    fn fields_split_on_commas() {
-        let options = generations_cli().to_options();
-        options.check_invariants(false);
-        let request = options
-            .run_inner(
-                Args::from(&["--fields", "id,confRev,date"][..])
-                    .set_name("test"),
-            )
-            .unwrap();
-
-        let Some(fields) = request.fields else {
-            panic!("fields must be present");
-        };
-        assert!(matches!(
-            fields.as_slice(),
-            [Field::Id, Field::Confrev, Field::Date]
-        ));
-    }
-
-    #[test]
-    fn fields_have_canonical_default_profile() {
-        let options = generations_cli().to_options();
-        let GenerationsRequest { profile, fields } = options
-            .run_inner(Args::from(&[] as &[&str]).set_name("test"))
-            .unwrap();
-
-        assert!(fields.is_none());
-        assert_eq!(profile, PathBuf::from("/nix/var/nix/profiles/system"));
     }
 }
