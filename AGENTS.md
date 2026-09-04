@@ -73,7 +73,7 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 ### CLI Structure
 
-- New apps should use `bpaf` CLI parser, `clap` is legacy and is gradually being replaced.
+- New apps should use the `bpaf` CLI parser.
 - For experience and gotchas on using bpaf, see [`.ai/bpaf.md`](./.ai/bpaf.md).
 
 ### Dependency Management

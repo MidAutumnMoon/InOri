@@ -479,8 +479,9 @@ impl<'env> Command<'env> {
         elevation: &'env Elevation,
         env: &'env Env,
     ) -> Result<std::process::Command> {
-        let builder = Self::new(env.executable(), env, elevation)
-            .elevate(true);
+        // `parts` borrows the builder, so it must stay bound.
+        let builder =
+            Self::new(env.executable(), env, elevation).elevate(true);
         let parts = builder.elevation_parts()?;
         let mut command = std::process::Command::new(parts.program);
         command

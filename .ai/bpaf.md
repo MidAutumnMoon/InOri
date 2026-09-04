@@ -14,12 +14,13 @@ Gotchas and non-obvious behaviors from using [bpaf](https://crates.io/crates/bpa
 - Array alternatives must all be `Parser<T>` for one `T`; map command outputs into the dispatch enum or build the variant directly (`construct!(CliOpts::Avif { transcoder, shared })`).
 - Each branch runs on a cloned state (full backtracking). The more-consuming / left-most success wins; ties go to the first alternative. Because a failed alternative falls through to the next, a required argument inside a subcommand alternative can end up matching a later positional alternative — enforce such rules in a `.parse()` *after* the alternatives.
 - Parser output values must be `Debug + Clone + 'static` throughout.
+- `display_fallback()` renders the default via `Display`; `PathBuf` has none, so path fallbacks can't show their default.
 
 ### `positional` must be last in `construct!`
 
 Order decides who consumes what, not just how usage renders. A positional declared before a `--flag value` parser steals that pair's value. A named item after a positional- or command-bearing field compiles and parses fine but panics when usage is rendered: `bpaf usage BUG: all positional and command items must be placed in the right most position`. Call `.check_invariants(false)` in parser tests to catch it without rendering `--help`.
 
-## Global flags (clap's `global = true`)
+## Global flags
 
 A named parser declared **before** a command in `construct!` evaluates first and scans the whole current scope, including past the command word. One declaration therefore accepts the flag before the subcommand, after it, and after nested subcommands — no per-subcommand copies.
 
@@ -28,7 +29,7 @@ A named parser declared **before** a command in `construct!` evaluates first and
 
 ## `env` + `switch` is presence-only
 
-`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. Real boolean env fallbacks need a `pure(()).parse(...)` step merged with the CLI switch (`cli || env`); noah used to do this for `NH_ASK` & co. and dropped it on purpose — boolean switches are CLI-only now, so don't reintroduce the pattern. On `argument`, `.env()` parses via `FromStr` as expected.
+`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. On `argument`, `.env()` parses via `FromStr` as expected.
 
 ## Aliases
 
@@ -37,16 +38,19 @@ No alias API; chaining works: `long("no-gc").long("nogc")` — first name visibl
 ## `--` and passthrough
 
 - Everything after `--` becomes strict positional words; flag/argument parsers never match them, so passthrough content can't be consumed as flags.
-- `positional("EXTRA").strict().many()` ≈ clap's `last = true`. A positional that must not steal from the passthrough zone gets `.non_strict()`.
+- `positional("EXTRA").strict().many()` matches only post-`--` words. A positional that must not steal from the passthrough zone gets `.non_strict()`.
 
 ## Multi-value flags (`--flag NAME VALUE`)
 
 `req_flag(())` anchor + `positional` items in a `construct!(a, b, c).adjacent()` group, repeated with `.many()`. An incomplete group fails with "expected `VALUE` ...".
 
+`req_flag()` returns a plain `impl Parser<T>` — `.help()` and other `NamedArg` methods must come before it. `.switch()`/`.argument()` keep their own `.help()`.
+
 ## Subcommands
 
 - The free `command(name, subparser)` fn is deprecated (0.9.27); use `subparser.command(name)`.
 - The command's help line inherits the inner parser's `.descr()` — set it there once.
+- `--version` is set with `.version(env!("CARGO_PKG_VERSION"))` on the top-level `to_options()` only; subcommands get no `--version`.
 
 ## `run_inner` vs `run`
 
@@ -64,14 +68,3 @@ pub enum ParseFailure {
 `failure.print_message(max_width)` prints to the right stream; `failure.exit_code()` gives the exit code.
 
 ## Testing parsers
-
-Use `run_inner` (never `run`, which exits). `options.check_invariants(false)` panics on ordering violations. `ParseFailure::unwrap_stderr()` returns the rendered error text for assertions. Unwraps in tests need `#[allow(clippy::unwrap_used)]` — workspace clippy flags them.
-
-## Migrating from clap
-
-- Doc comments become explicit calls: field docs → `.help("...")`; struct/enum doc → `.descr("...")` on `to_options()`. Short flags are written out; `--version` needs `.version(env!("CARGO_PKG_VERSION"))` (top-level only ≈ `propagate_version = false`).
-- `#[arg(long, short, value_name = "PATH")]` → `long("name").short('n').argument::<T>("PATH").help("...").optional()`.
-- `req_flag()` returns a plain `impl Parser<T>` — `.help()` and other `NamedArg` calls must come before it. `.switch()`/`.argument()` keep their own `.help()`.
-- `ValueEnum` → `FromStr` with `type Err = String`, plus `Display` if you use `display_fallback` (which `PathBuf` isn't, so path fallbacks can't show their default).
-- `last = true` → `positional().strict().many()`; `number_of_values = 2` → adjacent groups; `global = true` → single declaration before the command (all above).
-- Parse failures exit 1 (clap used 2).

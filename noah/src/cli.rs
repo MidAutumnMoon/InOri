@@ -52,7 +52,7 @@ pub enum CliCommand {
 ///
 /// Declared once at the top level: bpaf named parsers consume their items
 /// before a command narrows the argument scope, so the flag is accepted
-/// before and after the subcommand word, like clap's `global = true`.
+/// before and after the subcommand word.
 #[must_use]
 fn elevation_cli() -> impl Parser<Option<ElevationStrategy>> {
     long("elevation-strategy")

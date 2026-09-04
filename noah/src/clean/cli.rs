@@ -30,10 +30,7 @@ fn clean_options_cli() -> impl Parser<Options> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = long("ask")
-        .short('a')
-        .help("Ask for confirmation")
-        .switch();
+    let ask = long("ask").short('a').help("Ask for confirmation").switch();
     let no_gc = long("no-gc")
         .long("nogc")
         .switch()

@@ -144,10 +144,7 @@ fn activation_flags_cli() -> impl Parser<ActivationFlags> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = long("ask")
-        .short('a')
-        .help("Ask for confirmation")
-        .switch();
+    let ask = long("ask").short('a').help("Ask for confirmation").switch();
     let no_validate = long("no-validate")
         .help("Skip pre-activation system validation checks")
         .switch();
@@ -249,10 +246,7 @@ pub fn rollback_cli() -> impl Parser<RollbackRequest> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = long("ask")
-        .short('a')
-        .help("Ask for confirmation")
-        .switch();
+    let ask = long("ask").short('a').help("Ask for confirmation").switch();
     let specialisation = specialisation_cli();
     let to = long("to")
         .short('t')
