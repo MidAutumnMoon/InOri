@@ -63,7 +63,6 @@ fn search_flags() -> impl Parser<SearchFlags> {
         .help("Show supported platforms for each package")
         .switch();
     let backend_version = long("backend-version")
-        .env("NH_SEARCH_BACKEND_VERSION")
         .argument::<u32>("VERSION")
         .help(
             "Backend index version to query on search.nixos.org. Defaults \
@@ -71,7 +70,6 @@ fn search_flags() -> impl Parser<SearchFlags> {
         )
         .optional();
     let backend_fallbacks = long("backend-version-fallbacks")
-        .env("NH_SEARCH_BACKEND_FALLBACKS")
         .argument::<u32>("COUNT")
         .help(
             "Number of newer index versions to try when the requested \
@@ -84,7 +82,6 @@ fn search_flags() -> impl Parser<SearchFlags> {
         .help("Output results as JSON")
         .switch();
     let default_search = long("default-search")
-        .env("NH_DEFAULT_SEARCH")
         .argument::<SearchKind>("MODE")
         .help(
             "Default search mode used when no subcommand is given. Accepts \

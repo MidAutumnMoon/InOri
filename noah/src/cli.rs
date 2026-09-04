@@ -1,9 +1,6 @@
-use std::ffi::OsStr;
-
 use bpaf::Parser;
 use bpaf::construct;
 use bpaf::long;
-use bpaf::parsers::ParseFlag;
 
 use crate::clean::Request as CleanRequest;
 use crate::clean::clean_cli;
@@ -17,44 +14,6 @@ use crate::search::Request as SearchRequest;
 use crate::search::search_cli;
 use crate::weather::WeatherRequest;
 use crate::weather::weather_cli;
-
-/// Environment fallback accepting only literal `true` and `false`, matching
-/// clap's default bool value parser.
-#[must_use]
-pub fn env_bool_strict(name: &'static str) -> impl Parser<bool> {
-    bpaf::pure(()).parse(move |()| -> std::result::Result<bool, String> {
-        match std::env::var_os(name) {
-            None => Ok(false),
-            Some(value) if value.as_os_str() == OsStr::new("true") => {
-                Ok(true)
-            }
-            Some(value) if value.as_os_str() == OsStr::new("false") => {
-                Ok(false)
-            }
-            Some(value) => Err(format!(
-                "{name} is set to `{}`, which is not `true` or `false`",
-                value.to_string_lossy()
-            )),
-        }
-    })
-}
-
-struct CliAndEnvBool {
-    cli: bool,
-    from_env: bool,
-}
-
-/// Combine a CLI switch with a boolean environment fallback; the CLI switch
-/// wins.
-#[must_use]
-pub fn switch_or_env(
-    flag: ParseFlag<bool>,
-    from_env: impl Parser<bool>,
-) -> impl Parser<bool> {
-    let cli = flag;
-    construct!(CliAndEnvBool { cli, from_env })
-        .map(|parsed| parsed.cli || parsed.from_env)
-}
 
 /// Yet another nix helper.
 #[derive(Debug)]
@@ -99,7 +58,6 @@ fn elevation_cli() -> impl Parser<Option<ElevationStrategy>> {
     long("elevation-strategy")
         .short('e')
         .long("elevation-program")
-        .env("NH_ELEVATION_STRATEGY")
         .argument::<ElevationStrategy>("STRATEGY")
         .help(
             "Choose the privilege elevation strategy.\n\nCan be a path to an \
@@ -259,25 +217,6 @@ mod tests {
         assert!(matches!(
             args.elevation_strategy,
             Some(ElevationStrategy::Auto)
-        ));
-    }
-
-    #[test]
-    fn elevation_strategy_env_fallback() {
-        // SAFETY: single-threaded env manipulation with a name no other test
-        // reads; the variable is removed again immediately after parsing.
-        unsafe {
-            std::env::set_var("NH_ELEVATION_STRATEGY", "none");
-        }
-        let args = parse(&["info"]).unwrap();
-        // SAFETY: see above.
-        unsafe {
-            std::env::remove_var("NH_ELEVATION_STRATEGY");
-        }
-
-        assert!(matches!(
-            args.elevation_strategy,
-            Some(ElevationStrategy::None)
         ));
     }
 }

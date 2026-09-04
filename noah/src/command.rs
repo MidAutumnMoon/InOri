@@ -111,11 +111,8 @@ impl Elevation {
             askpass: env
                 .non_empty_var("NH_SUDO_ASKPASS")
                 .map(str::to_owned),
-            // TODO: NH_PRESERVE_ENV keeps upstream's legacy semantics where any
-            // value except "0" enables it, so `false` enables it too; the
-            // env_bool_* helpers in cli.rs parse `false` as disabled. Pick one
-            // policy for all NH_* environment booleans — migrating here
-            // changes behavior for `NH_PRESERVE_ENV=false`.
+            // NH_PRESERVE_ENV keeps upstream's legacy semantics where any
+            // value except "0" enables it, so `false` enables it too.
             preserve_env: env
                 .var("NH_PRESERVE_ENV")
                 .is_none_or(|value| value != "0"),
@@ -139,7 +136,7 @@ impl Elevation {
                 // TODO: Remove this fallback in a future version
                 warn!(
                     "NH_ELEVATION_PROGRAM is deprecated, use \
-                     NH_ELEVATION_STRATEGY instead. Falling back to \
+                     --elevation-strategy instead. Falling back to \
                      NH_ELEVATION_PROGRAM for backward compatibility. \
                      Accepted values: none, passwordless, program:<path>"
                 );

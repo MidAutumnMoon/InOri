@@ -7,8 +7,6 @@ use super::request::{
 };
 use bpaf::{Parser, construct, long, positional};
 
-use crate::cli::env_bool_strict;
-use crate::cli::switch_or_env;
 use crate::diff::Mode as DiffMode;
 use crate::nix_options::NixCliOptions;
 use crate::nix_options::nix_build_options_cli;
@@ -95,13 +93,10 @@ fn rebuild_cli() -> impl Parser<RebuildRequest> {
         )
         .optional();
     let specialisation = specialisation_cli();
-    let bypass_root_check = switch_or_env(
-        long("bypass-root-check")
-            .short('R')
-            .help("Don't panic if calling nh as root")
-            .switch(),
-        env_bool_strict("NH_BYPASS_ROOT_CHECK"),
-    );
+    let bypass_root_check = long("bypass-root-check")
+        .short('R')
+        .help("Don't panic if calling nh as root")
+        .switch();
     let parsed_build = build_options_cli();
     let extra_args = positional::<String>("EXTRA")
         .strict()
@@ -153,12 +148,9 @@ fn activation_flags_cli() -> impl Parser<ActivationFlags> {
         .short('a')
         .help("Ask for confirmation")
         .switch();
-    let no_validate = switch_or_env(
-        long("no-validate")
-            .help("Skip pre-activation system validation checks")
-            .switch(),
-        env_bool_strict("NH_NO_VALIDATE"),
-    );
+    let no_validate = long("no-validate")
+        .help("Skip pre-activation system validation checks")
+        .switch();
 
     construct!(ActivationFlags {
         dry,
@@ -270,13 +262,10 @@ pub fn rollback_cli() -> impl Parser<RollbackRequest> {
              generation)",
         )
         .optional();
-    let bypass_root_check = switch_or_env(
-        long("bypass-root-check")
-            .short('R')
-            .help("Don't panic if calling nh as root")
-            .switch(),
-        env_bool_strict("NH_BYPASS_ROOT_CHECK"),
-    );
+    let bypass_root_check = long("bypass-root-check")
+        .short('R')
+        .help("Don't panic if calling nh as root")
+        .switch();
     let diff = long("diff")
         .short('d')
         .argument::<DiffMode>("DIFF")

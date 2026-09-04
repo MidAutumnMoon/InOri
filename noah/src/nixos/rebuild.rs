@@ -208,8 +208,7 @@ impl ActivationRequest {
     fn resolve_closure(&self, profile: &Path) -> Result<PathBuf> {
         if self.activation.no_validate {
             warn!(
-                "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
-         set)"
+                "Skipping pre-activation validation (--no-validate set)"
             );
             warn!(
                 "This may result in activation failures if the system closure is \
