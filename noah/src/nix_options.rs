@@ -334,7 +334,6 @@ mod tests {
     use super::NixBuildOptions;
     use super::NixCliOptions;
     use super::nix_build_options_cli;
-    use crate::cli::parse_boolish;
 
     fn rendered(options: &NixBuildOptions) -> Vec<String> {
         let mut args = Vec::<OsString>::new();
@@ -432,21 +431,5 @@ mod tests {
         assert!(options.build.no_registries);
         assert!(!options.build.no_use_registries);
         assert_eq!(rendered(&options.build), ["--no-use-registries"]);
-    }
-
-    #[test]
-    fn boolish_env_table_matches_clap() {
-        for value in ["y", "yes", "t", "true", "on", "1", "TRUE", "Yes"] {
-            assert_eq!(parse_boolish(value), Some(true), "value: {value}");
-        }
-        for value in ["n", "no", "f", "false", "off", "0", "OFF"] {
-            assert_eq!(
-                parse_boolish(value),
-                Some(false),
-                "value: {value}"
-            );
-        }
-        assert_eq!(parse_boolish("maybe"), None);
-        assert_eq!(parse_boolish(""), None);
     }
 }

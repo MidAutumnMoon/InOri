@@ -8,7 +8,6 @@ use super::request::{
 use bpaf::{Parser, construct, long, positional};
 
 use crate::cli::env_bool_strict;
-use crate::cli::env_boolish;
 use crate::cli::switch_or_env;
 use crate::diff::Mode as DiffMode;
 use crate::nix_options::NixCliOptions;
@@ -150,10 +149,10 @@ fn activation_flags_cli() -> impl Parser<ActivationFlags> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = switch_or_env(
-        long("ask").short('a').help("Ask for confirmation").switch(),
-        env_boolish("NH_ASK"),
-    );
+    let ask = long("ask")
+        .short('a')
+        .help("Ask for confirmation")
+        .switch();
     let no_validate = switch_or_env(
         long("no-validate")
             .help("Skip pre-activation system validation checks")
@@ -193,12 +192,9 @@ pub fn build_cli() -> impl Parser<RebuildCommand> {
 pub fn test_cli() -> impl Parser<RebuildCommand> {
     let rebuild = rebuild_cli();
     let flags = activation_flags_cli();
-    let show_logs = switch_or_env(
-        long("show-activation-logs")
-            .help("Show activation logs")
-            .switch(),
-        env_boolish("NH_SHOW_ACTIVATION_LOGS"),
-    );
+    let show_logs = long("show-activation-logs")
+        .help("Show activation logs")
+        .switch();
 
     construct!(flags, show_logs, rebuild).map(
         |(flags, show_logs, rebuild)| {
@@ -234,12 +230,9 @@ pub fn boot_cli() -> impl Parser<RebuildCommand> {
 pub fn switch_cli() -> impl Parser<RebuildCommand> {
     let rebuild = rebuild_cli();
     let flags = activation_flags_cli();
-    let show_logs = switch_or_env(
-        long("show-activation-logs")
-            .help("Show activation logs")
-            .switch(),
-        env_boolish("NH_SHOW_ACTIVATION_LOGS"),
-    );
+    let show_logs = long("show-activation-logs")
+        .help("Show activation logs")
+        .switch();
     let install_bootloader = long("install-bootloader")
         .switch()
         .help("Install the bootloader");
@@ -264,10 +257,10 @@ pub fn rollback_cli() -> impl Parser<RollbackRequest> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = switch_or_env(
-        long("ask").short('a').help("Ask for confirmation").switch(),
-        env_boolish("NH_ASK"),
-    );
+    let ask = long("ask")
+        .short('a')
+        .help("Ask for confirmation")
+        .switch();
     let specialisation = specialisation_cli();
     let to = long("to")
         .short('t')

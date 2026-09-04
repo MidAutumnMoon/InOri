@@ -17,38 +17,6 @@ use crate::search::Request as SearchRequest;
 use crate::search::search_cli;
 use crate::weather::WeatherRequest;
 use crate::weather::weather_cli;
-/// clap's boolish value table: `y`, `yes`, `t`, `true`, `on`, `1`
-/// (case-insensitive) are true, their counterparts are false, anything else
-/// fails.
-pub fn parse_boolish(value: &str) -> Option<bool> {
-    match value.to_lowercase().as_str() {
-        "y" | "yes" | "t" | "true" | "on" | "1" => Some(true),
-        "n" | "no" | "f" | "false" | "off" | "0" => Some(false),
-        _ => None,
-    }
-}
-
-/// Environment fallback that mirrors clap's boolish value parsing.
-///
-/// Deliberately not bpaf's `switch().env(...)`: that treats any variable value
-/// as present, so `NH_ASK=false` would mean "ask".
-#[must_use]
-pub fn env_boolish(name: &'static str) -> impl Parser<bool> {
-    bpaf::pure(()).parse(move |()| -> std::result::Result<bool, String> {
-        std::env::var_os(name).map_or(Ok(false), |value| {
-            let value = value.to_string_lossy();
-            parse_boolish(&value).map_or_else(
-                || {
-                    Err(format!(
-                        "{name} is set to `{value}`, which is not a \
-                         boolean-like value"
-                    ))
-                },
-                Ok,
-            )
-        })
-    })
-}
 
 /// Environment fallback accepting only literal `true` and `false`, matching
 /// clap's default bool value parser.

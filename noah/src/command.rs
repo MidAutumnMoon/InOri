@@ -483,10 +483,7 @@ impl<'env> Command<'env> {
         env: &'env Env,
     ) -> Result<std::process::Command> {
         let builder = Self::new(env.executable(), env, elevation)
-            .elevate(true)
-            // `clean all` is the only self-elevating path and NH_ASK is its only
-            // environment-backed option not already represented in argv.
-            .preserve_envs(["NH_ASK"]);
+            .elevate(true);
         let parts = builder.elevation_parts()?;
         let mut command = std::process::Command::new(parts.program);
         command

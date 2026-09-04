@@ -6,8 +6,6 @@ use bpaf::{Parser, construct, long, positional};
 use super::Options;
 use super::Request;
 use super::Scope;
-use crate::cli::env_boolish;
-use crate::cli::switch_or_env;
 
 /// Options shared by every cleanup scope.
 #[must_use]
@@ -32,10 +30,10 @@ fn clean_options_cli() -> impl Parser<Options> {
         .short('n')
         .switch()
         .help("Only print actions, without performing them");
-    let ask = switch_or_env(
-        long("ask").short('a').help("Ask for confirmation").switch(),
-        env_boolish("NH_ASK"),
-    );
+    let ask = long("ask")
+        .short('a')
+        .help("Ask for confirmation")
+        .switch();
     let no_gc = long("no-gc")
         .long("nogc")
         .switch()

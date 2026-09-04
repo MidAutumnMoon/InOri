@@ -28,7 +28,7 @@ A named parser declared **before** a command in `construct!` evaluates first and
 
 ## `env` + `switch` is presence-only
 
-`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. For boolean env fallbacks with real semantics (`NH_ASK=false` must mean false), read the var in a `pure(()).parse(...)` step and merge with the CLI switch (`cli || env`). On `argument`, `.env()` parses via `FromStr` as expected.
+`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. Real boolean env fallbacks need a `pure(()).parse(...)` step merged with the CLI switch (`cli || env`); noah used to do this for `NH_ASK` & co. and dropped it on purpose — boolean switches are CLI-only now, so don't reintroduce the pattern. On `argument`, `.env()` parses via `FromStr` as expected.
 
 ## Aliases
 

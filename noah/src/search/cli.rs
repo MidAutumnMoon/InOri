@@ -5,8 +5,6 @@ use bpaf::{Parser, construct, long, positional};
 use super::Request;
 use super::Target;
 use super::backend::BackendConfig;
-use crate::cli::env_boolish;
-use crate::cli::switch_or_env;
 
 const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
@@ -60,13 +58,10 @@ fn search_flags() -> impl Parser<SearchFlags> {
         .help("Number of search results to display")
         .fallback(DEFAULT_LIMIT)
         .display_fallback();
-    let platforms = switch_or_env(
-        long("platforms")
-            .short('P')
-            .help("Show supported platforms for each package")
-            .switch(),
-        env_boolish("NH_SEARCH_PLATFORM"),
-    );
+    let platforms = long("platforms")
+        .short('P')
+        .help("Show supported platforms for each package")
+        .switch();
     let backend_version = long("backend-version")
         .env("NH_SEARCH_BACKEND_VERSION")
         .argument::<u32>("VERSION")
@@ -84,13 +79,10 @@ fn search_flags() -> impl Parser<SearchFlags> {
         )
         .fallback(DEFAULT_BACKEND_FALLBACKS)
         .display_fallback();
-    let json = switch_or_env(
-        long("json")
-            .short('j')
-            .help("Output results as JSON")
-            .switch(),
-        env_boolish("NH_SEARCH_JSON"),
-    );
+    let json = long("json")
+        .short('j')
+        .help("Output results as JSON")
+        .switch();
     let default_search = long("default-search")
         .env("NH_DEFAULT_SEARCH")
         .argument::<SearchKind>("MODE")
