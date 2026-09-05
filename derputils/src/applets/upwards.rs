@@ -18,16 +18,18 @@ use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 
-use crate::applet::RunFailure;
+use super::Applet;
+use super::RunFailure;
 
-pub const NAME: &str = "upwards";
-pub const DESCR: &str = "Find upward boundaries that `feel` right";
+const NAME: &str = "upwards";
+const SUMMARY: &str = "Find upward boundaries that `feel` right";
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
 const NIX_STORE: &str = "/nix/store";
 
-pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
+fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     bpaf::pure(())
         .to_options()
-        .descr(DESCR)
+        .descr(SUMMARY)
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
     run().map_err(RunFailure::Applet)

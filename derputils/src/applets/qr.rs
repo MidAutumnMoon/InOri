@@ -1,4 +1,4 @@
-//! `qr` — generate a QR code from stdin or the clipboard.
+//! `qr` — generate and open a QR code from stdin or the clipboard.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -15,13 +15,17 @@ use ino_shell::cmd;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-use crate::applet::RunFailure;
+use super::Applet;
+use super::RunFailure;
 
-pub const NAME: &str = "qr";
+const NAME: &str = "qr";
+const SUMMARY: &str =
+    "Generate a QR code from stdin or the clipboard and open it";
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
 
 /// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]
-pub enum Source {
+enum Source {
     /// Text from the clipboard.
     Clipboard,
     /// Standard input, read to EOF.
@@ -29,7 +33,7 @@ pub enum Source {
 }
 
 #[must_use]
-pub fn cli() -> OptionParser<Source> {
+fn cli() -> OptionParser<Source> {
     let clipboard = short('c')
         .long("clipboard")
         .help("Use the content of the clipboard as the QR code")
@@ -39,14 +43,10 @@ pub fn cli() -> OptionParser<Source> {
         .help("Read standard input as the QR code")
         .req_flag(Source::Stdin);
     // Exactly one source — bpaf itself rejects both or neither.
-    construct!([clipboard, stdin])
-        .to_options()
-        .descr(
-            "Generate a QR code from stdin or the clipboard and open it",
-        )
+    construct!([clipboard, stdin]).to_options().descr(SUMMARY)
 }
 
-pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
+fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     let source = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;

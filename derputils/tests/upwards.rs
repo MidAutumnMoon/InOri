@@ -16,6 +16,8 @@ use std::process::Command;
 fn upwards() -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_derputils"))
         .arg("upwards")
+        // Keep the shell contract free of ambient tracing filter noise.
+        .env_remove("RUST_LOG")
         .output()
         .unwrap()
 }

@@ -20,8 +20,8 @@ use bpaf::positional;
 use ino_color::cprint;
 use ino_color::fg;
 use ino_color::style;
-use ino_path::is_executable::IsExecutable as _;
 use ino_path::PathExt as _;
+use ino_path::is_executable::IsExecutable as _;
 use rootcause::bail;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
@@ -29,15 +29,17 @@ use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 
-use crate::applet::RunFailure;
+use super::Applet;
+use super::RunFailure;
 
-pub const NAME: &str = "hops";
-pub const DESCR: &str = "Trace a symlink to its origin";
+const NAME: &str = "hops";
+const SUMMARY: &str = "Trace a symlink to its origin";
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
 
 /// The most symlink hops allowed before assuming an unbroken loop.
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
-pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
+fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     let program = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
@@ -46,14 +48,14 @@ pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
 }
 
 #[must_use]
-pub fn cli() -> OptionParser<String> {
+fn cli() -> OptionParser<String> {
     positional::<String>("PROGRAM")
         .help(
             "Executable name to find in $PATH; a path containing '/' \
              starts the walk directly instead",
         )
         .to_options()
-        .descr(DESCR)
+        .descr(SUMMARY)
 }
 
 #[instrument]
@@ -343,7 +345,10 @@ mod test {
         file.write_str("x").unwrap();
 
         let chain = walk(file.path()).unwrap();
-        assert_eq!(chain, vec![AbsolutePath::resolve(file.path()).unwrap()]);
+        assert_eq!(
+            chain,
+            vec![AbsolutePath::resolve(file.path()).unwrap()]
+        );
     }
 
     #[test]
@@ -408,7 +413,9 @@ mod test {
         // nonexistent `deep/er/side`.
         let expected = vec![
             AbsolutePath::resolve(starter.path()).unwrap(),
-            AbsolutePath(std::fs::canonicalize(tmp.child("side").path()).unwrap()),
+            AbsolutePath(
+                std::fs::canonicalize(tmp.child("side").path()).unwrap(),
+            ),
         ];
         assert_eq!(chain, expected);
     }
@@ -442,7 +449,9 @@ mod test {
 
         // SAFETY: no other test in this binary reads `$PATH`; the only
         // reader, `find_in_path`, is driven by this test exclusively.
-        unsafe { std::env::set_var("PATH", fakebin.path()); }
+        unsafe {
+            std::env::set_var("PATH", fakebin.path());
+        }
         assert_eq!(find_in_path("prog"), None);
 
         let both = format!(
@@ -451,8 +460,13 @@ mod test {
             realbin.path().display()
         );
         // SAFETY: see above.
-        unsafe { std::env::set_var("PATH", both); }
-        assert_eq!(find_in_path("prog"), Some(real_prog.path().to_path_buf()));
+        unsafe {
+            std::env::set_var("PATH", both);
+        }
+        assert_eq!(
+            find_in_path("prog"),
+            Some(real_prog.path().to_path_buf())
+        );
     }
 
     #[test]
@@ -488,16 +502,14 @@ mod test {
         let result = walk(links.first().unwrap().path());
         assert_matches!(result, Err(_));
         let message = result.unwrap_err().to_string();
-        assert!(
-            message.contains("maximum symlink follows"),
-            "{message}"
-        );
+        assert!(message.contains("maximum symlink follows"), "{message}");
     }
 
     #[test]
     fn classifies_well_known_prefixes() {
         let kind_of = |path: &str| {
-            Subject::new(AbsolutePath::resolve(Path::new(path)).unwrap()).kind
+            Subject::new(AbsolutePath::resolve(Path::new(path)).unwrap())
+                .kind
         };
 
         assert_eq!(
@@ -525,7 +537,8 @@ mod test {
     #[test]
     fn describes_nix_store() {
         let subject = Subject::new(
-            AbsolutePath::resolve(Path::new("/nix/store/abc-hello")).unwrap(),
+            AbsolutePath::resolve(Path::new("/nix/store/abc-hello"))
+                .unwrap(),
         );
         assert_eq!(subject.describe(), "Path in nix store");
     }

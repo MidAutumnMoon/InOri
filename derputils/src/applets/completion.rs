@@ -21,14 +21,18 @@ use bpaf::positional;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-use crate::applet::APPLETS;
-use crate::applet::RunFailure;
+use super::Applet;
+use super::RunFailure;
+use super::all_applets;
+use super::find_applet;
 
-pub const NAME: &str = "completion";
+const NAME: &str = "completion";
+const SUMMARY: &str = "Generate shell completion scripts for applets";
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
 
 /// Target shell for completion script generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Shell {
+enum Shell {
     Bash,
     Zsh,
     Fish,
@@ -70,14 +74,13 @@ impl FromStr for Shell {
 
 /// Parsed arguments for the `completion` applet.
 #[derive(Debug, Clone)]
-#[expect(clippy::module_name_repetitions, reason = "It's clear")]
-pub struct CompletionArgs {
-    pub shell: Shell,
-    pub applet: Option<String>,
+struct CompletionArgs {
+    shell: Shell,
+    applet: Option<String>,
 }
 
 #[must_use]
-pub fn cli() -> OptionParser<CompletionArgs> {
+fn cli() -> OptionParser<CompletionArgs> {
     let shell = positional::<Shell>("SHELL")
         .help("Target shell: bash, zsh, fish, elvish");
     let applet = positional::<String>("APPLET")
@@ -85,10 +88,10 @@ pub fn cli() -> OptionParser<CompletionArgs> {
         .optional();
     construct!(CompletionArgs { shell, applet })
         .to_options()
-        .descr("Generate shell completion scripts for applets")
+        .descr(SUMMARY)
 }
 
-pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
+fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     let args = cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;
@@ -101,24 +104,21 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
         .context("Unable to resolve current executable")?;
 
     // Resolve up front so an unknown applet fails before any script is printed.
-    let targets: Vec<&'static str> = match args.applet.as_deref() {
+    let targets: &[Applet] = match args.applet.as_deref() {
         Some(name) => {
-            let applet = APPLETS
-                .iter()
-                .find(|entry| entry.name == name)
-                .ok_or_else(|| {
+            std::slice::from_ref(find_applet(name).ok_or_else(|| {
                 rootcause::report!("unknown applet '{name}'")
-            })?;
-            vec![applet.name]
+            })?)
         }
-        None => APPLETS.iter().map(|applet| applet.name).collect(),
+        None => all_applets(),
     };
 
     // Depends only on the shell, not the applet — build once.
     let flag = format!("--bpaf-complete-style-{}", args.shell.as_str());
     let multi = targets.len() > 1;
 
-    for (i, &name) in targets.iter().enumerate() {
+    for (i, applet) in targets.iter().enumerate() {
+        let name = applet.name();
         if multi && i > 0 {
             println!();
         }

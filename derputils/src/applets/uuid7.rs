@@ -7,18 +7,19 @@ use bpaf::Args;
 use bpaf::OptionParser;
 use bpaf::Parser as _;
 
-use crate::applet::RunFailure;
+use super::Applet;
+use super::RunFailure;
 
-pub const NAME: &str = "uuid7";
+const NAME: &str = "uuid7";
+const SUMMARY: &str = "Print a freshly generated UUIDv7";
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
 
 #[must_use]
-pub fn cli() -> OptionParser<()> {
-    bpaf::pure(())
-        .to_options()
-        .descr("Print a freshly generated UUIDv7")
+fn cli() -> OptionParser<()> {
+    bpaf::pure(()).to_options().descr(SUMMARY)
 }
 
-pub fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
+fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
     cli()
         .run_inner(Args::from(args).set_name(NAME))
         .map_err(RunFailure::Cli)?;

@@ -10,5 +10,5 @@ applet it runs that applet directly.
     ln -s derputils qr
     ln -s derputils uuid7
 
-Applets: `qr` (QR code from stdin/clipboard), `uuid7` (print a UUIDv7).
+Run `derputils --help` for the applets available in this build.
 
