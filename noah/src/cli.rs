@@ -2,7 +2,7 @@ use bpaf::Parser;
 use bpaf::construct;
 use bpaf::long;
 
-use crate::clean::Request as CleanRequest;
+use crate::clean;
 use crate::clean::clean_cli;
 use crate::elevation::ElevationStrategy;
 use crate::os::cli::{boot_cli, build_cli, switch_cli, test_cli};
@@ -10,7 +10,7 @@ use crate::os::info;
 use crate::os::rebuild::RebuildCommand;
 use crate::os::repl;
 use crate::os::rollback;
-use crate::search::Request as SearchRequest;
+use crate::search;
 use crate::search::search_cli;
 
 /// Yet another nix helper.
@@ -33,15 +33,15 @@ pub enum CliCommand {
     /// Build or activate a NixOS configuration.
     Rebuild(Box<RebuildCommand>),
     /// Load system in a repl.
-    Repl(repl::Request),
+    Repl(repl::CliOpts),
     /// List available generations from profile path.
-    Info(info::Request),
+    Info(info::CliOpts),
     /// Rollback to a previous generation.
-    Rollback(rollback::Request),
+    Rollback(rollback::CliOpts),
     /// Searches packages or NixOS options via search.nixos.org.
-    Search(SearchRequest),
+    Search(search::CliOpts),
     /// Enhanced nix cleanup.
-    Clean(CleanRequest),
+    Clean(clean::CliOpts),
 }
 
 /// CLI parser for the global `--elevation-strategy` flag.

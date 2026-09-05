@@ -12,14 +12,14 @@ use crate::runtime::Env;
 use crate::target::{self, BuildTarget};
 
 #[derive(Clone, Debug)]
-pub struct Request {
+pub struct CliOpts {
     pub target: Option<BuildTarget>,
     pub hostname: Option<String>,
 }
 
 /// Parse the `repl` command.
 #[must_use]
-pub fn cli() -> impl Parser<Request> {
+pub fn cli() -> impl Parser<CliOpts> {
     let hostname = long("hostname")
         .short('H')
         .argument::<String>("HOSTNAME")
@@ -30,22 +30,22 @@ pub fn cli() -> impl Parser<Request> {
         .optional();
     let target = target::parser();
 
-    construct!(Request { hostname, target })
+    construct!(CliOpts { hostname, target })
 }
 
-/// Run a repl request.
+/// Run the `repl` command.
 ///
 /// # Errors
 ///
 /// Returns an error if target resolution or the repl invocation fails.
-pub fn run(request: Request, env: &Env) -> Result<()> {
-    let mut target = target::resolve(request.target, env)?;
+pub fn run(opts: CliOpts, env: &Env) -> Result<()> {
+    let mut target = target::resolve(opts.target, env)?;
 
     if matches!(target, BuildTarget::StorePath(_)) {
         bail!("Nix doesn't support store path targets.");
     }
 
-    let hostname = request
+    let hostname = opts
         .hostname
         .as_ref()
         .map_or_else(|| env.hostname().to_owned(), String::clone);

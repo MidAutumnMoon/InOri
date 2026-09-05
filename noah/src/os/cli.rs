@@ -2,8 +2,8 @@
 //! and `build`.
 //!
 //! The four commands differ only in what happens after the build, so they
-//! share one request parser ([`rebuild_cli`]) and wrap it with
-//! command-specific activation flags.
+//! share one parser ([`rebuild_cli`]) for the build options and wrap it
+//! with command-specific activation flags.
 #![expect(
     clippy::module_name_repetitions,
     reason = "the *_cli parser names mirror the subcommand names"
@@ -20,10 +20,9 @@ use super::SpecialisationSelection;
 use super::diff::DiffMode;
 use super::rebuild::Activation;
 use super::rebuild::ActivationAction;
-use super::rebuild::ActivationRequest;
 use super::rebuild::BuildOptions;
+use super::rebuild::CliOpts;
 use super::rebuild::RebuildCommand;
-use super::rebuild::Request;
 use super::update::update_cli;
 use crate::nix::options::NixCliOptions;
 use crate::nix::options::nix_build_options_cli;
@@ -99,7 +98,7 @@ pub(super) fn specialisation_cli() -> impl Parser<SpecialisationSelection>
 }
 
 #[must_use]
-fn rebuild_cli() -> impl Parser<Request> {
+fn rebuild_cli() -> impl Parser<CliOpts> {
     let update = update_cli();
     let hostname = long("hostname")
         .short('H')
@@ -137,7 +136,7 @@ fn rebuild_cli() -> impl Parser<Request> {
             bypass_root_check,
             parsed_build,
             extra_args,
-        )| Request {
+        )| CliOpts {
             build: parsed_build.options,
             update,
             hostname,
@@ -175,11 +174,11 @@ fn activation_flags_cli() -> impl Parser<ActivationFlags> {
 }
 
 fn activation_request(
-    rebuild: Request,
+    rebuild: CliOpts,
     flags: ActivationFlags,
     action: ActivationAction,
 ) -> RebuildCommand {
-    RebuildCommand::Activate(ActivationRequest {
+    RebuildCommand::Activate {
         rebuild,
         activation: Activation {
             action,
@@ -187,7 +186,7 @@ fn activation_request(
             ask: flags.ask,
             no_validate: flags.no_validate,
         },
-    })
+    }
 }
 
 /// Parse the `build` command: build without activating.
@@ -269,8 +268,8 @@ mod tests {
     use bpaf::{Args, ParseFailure, Parser as _};
 
     use super::ActivationAction;
+    use super::CliOpts;
     use super::RebuildCommand;
-    use super::Request;
     use super::SpecialisationSelection;
     use super::boot_cli;
     use super::build_cli;
@@ -278,30 +277,30 @@ mod tests {
     use super::test_cli;
     use crate::target::BuildTarget;
 
-    fn parse_build(args: &[&str]) -> std::result::Result<Request, String> {
+    fn parse_build(args: &[&str]) -> std::result::Result<CliOpts, String> {
         let options = build_cli().to_options();
         options.check_invariants(false);
         let command = options
             .run_inner(Args::from(args).set_name("test"))
             .map_err(ParseFailure::unwrap_stderr)?;
         match command {
-            RebuildCommand::Build(request) => Ok(request),
-            RebuildCommand::Activate(_) => Err(String::from(
-                "build parser produced activation request",
+            RebuildCommand::Build(opts) => Ok(opts),
+            RebuildCommand::Activate { .. } => Err(String::from(
+                "build parser produced activation command",
             )),
         }
     }
 
     #[test]
     fn extra_args_come_after_double_dash() {
-        let request =
+        let opts =
             parse_build(&[".", "--", "--option", "a", "b", "-j", "1"])
                 .unwrap();
 
-        assert_eq!(request.extra_args, ["--option", "a", "b", "-j", "1"]);
-        assert!(request.build.nix.option.is_empty());
-        assert!(request.build.nix.max_jobs.is_none());
-        match request.build.target {
+        assert_eq!(opts.extra_args, ["--option", "a", "b", "-j", "1"]);
+        assert!(opts.build.nix.option.is_empty());
+        assert!(opts.build.nix.max_jobs.is_none());
+        match opts.build.target {
             Some(BuildTarget::Flake { reference, .. }) => {
                 assert_eq!(reference, ".");
             }
@@ -311,17 +310,17 @@ mod tests {
 
     #[test]
     fn named_flags_parse_around_positional_target() {
-        let request = parse_build(&["-j", "2", "."]).unwrap();
+        let opts = parse_build(&["-j", "2", "."]).unwrap();
 
-        assert_eq!(request.build.nix.max_jobs, Some(2));
-        assert!(request.build.target.is_some());
+        assert_eq!(opts.build.nix.max_jobs, Some(2));
+        assert!(opts.build.target.is_some());
     }
 
     #[test]
     fn file_and_positional_target_combine() {
-        let request = parse_build(&["-f", "file.nix", "attr"]).unwrap();
+        let opts = parse_build(&["-f", "file.nix", "attr"]).unwrap();
 
-        match request.build.target {
+        match opts.build.target {
             Some(BuildTarget::File { attribute, .. }) => {
                 assert_eq!(attribute.to_vec(), ["attr"]);
             }
@@ -331,10 +330,9 @@ mod tests {
 
     #[test]
     fn hidden_file_expr_args_parse() {
-        let request =
-            parse_build(&["-E", "{ pkgs }: pkgs.hello"]).unwrap();
+        let opts = parse_build(&["-E", "{ pkgs }: pkgs.hello"]).unwrap();
 
-        match request.build.target {
+        match opts.build.target {
             Some(BuildTarget::Expression { .. }) => {}
             other => {
                 panic!("Expected an expression target, got {other:?}")
@@ -370,11 +368,11 @@ mod tests {
                     .set_name("test"),
                 )
                 .unwrap();
-        let RebuildCommand::Activate(switch) = switch else {
-            panic!("expected activation request");
+        let RebuildCommand::Activate { activation, .. } = switch else {
+            panic!("expected activation command");
         };
         assert!(matches!(
-            switch.activation.action,
+            activation.action,
             ActivationAction::Switch {
                 show_logs: true,
                 install_bootloader: true
@@ -396,9 +394,9 @@ mod tests {
     fn contradictory_specialisation_flags_are_rejected() {
         parse_build(&["--specialisation", "foo", "--no-specialisation"])
             .unwrap_err();
-        let request = parse_build(&["--no-specialisation"]).unwrap();
+        let opts = parse_build(&["--no-specialisation"]).unwrap();
         assert!(matches!(
-            request.specialisation,
+            opts.specialisation,
             SpecialisationSelection::Base
         ));
     }

@@ -34,12 +34,10 @@ fn main() -> rootcause::Result<()> {
 fn run(command: CliCommand, config: &Config) -> rootcause::Result<()> {
     match command {
         CliCommand::Rebuild(command) => os::rebuild::run(*command, config),
-        CliCommand::Repl(request) => os::repl::run(request, &config.env),
-        CliCommand::Info(request) => os::info::run(&request),
-        CliCommand::Rollback(request) => {
-            os::rollback::run(&request, config)
-        }
-        CliCommand::Search(request) => search::run(&request),
-        CliCommand::Clean(request) => clean::run(&request, config),
+        CliCommand::Repl(opts) => os::repl::run(opts, &config.env),
+        CliCommand::Info(opts) => os::info::run(&opts),
+        CliCommand::Rollback(opts) => os::rollback::run(&opts, config),
+        CliCommand::Search(opts) => search::run(&opts),
+        CliCommand::Clean(opts) => clean::run(&opts, config),
     }
 }

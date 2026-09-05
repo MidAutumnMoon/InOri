@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use bpaf::{Parser, construct, long, positional};
 
+use super::CliOpts;
 use super::Options;
-use super::Request;
 use super::Scope;
 
 /// Options shared by every cleanup scope.
@@ -73,20 +73,15 @@ fn clean_options_cli() -> impl Parser<Options> {
     })
 }
 
-#[derive(Debug, Clone)]
-struct ProfileRequest {
-    options: Options,
-    profile: PathBuf,
-}
-
-/// Parse the `all`, `user`, and `profile` cleanup scopes into one request.
+/// Parse the `all`, `user`, and `profile` cleanup scopes into one
+/// [`CliOpts`].
 #[must_use]
-pub fn clean_cli() -> impl Parser<Request> {
+pub fn clean_cli() -> impl Parser<CliOpts> {
     let all = clean_options_cli()
         .to_options()
         .descr("Clean all profiles.")
         .command("all")
-        .map(|options| Request {
+        .map(|options| CliOpts {
             scope: Scope::All,
             options,
         });
@@ -94,7 +89,7 @@ pub fn clean_cli() -> impl Parser<Request> {
         .to_options()
         .descr("Clean the current user's profiles.")
         .command("user")
-        .map(|options| Request {
+        .map(|options| CliOpts {
             scope: Scope::User,
             options,
         });
@@ -102,13 +97,13 @@ pub fn clean_cli() -> impl Parser<Request> {
         let options = clean_options_cli();
         let profile = positional::<PathBuf>("PROFILE")
             .help("Which profile to clean");
-        construct!(ProfileRequest { options, profile })
+        construct!(options, profile)
             .to_options()
             .descr("Clean a specific profile.")
             .command("profile")
-            .map(|request| Request {
-                scope: Scope::Profile(request.profile),
-                options: request.options,
+            .map(|(options, profile)| CliOpts {
+                scope: Scope::Profile(profile),
+                options,
             })
     };
 

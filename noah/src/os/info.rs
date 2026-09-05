@@ -24,14 +24,14 @@ use crate::nix::command::Kind;
 use crate::nix::command::NixCommand;
 
 #[derive(Clone, Debug)]
-pub struct Request {
+pub struct CliOpts {
     pub profile: PathBuf,
     pub fields: Option<Vec<Field>>,
 }
 
 /// Parse the `info` command.
 #[must_use]
-pub fn cli() -> impl Parser<Request> {
+pub fn cli() -> impl Parser<CliOpts> {
     let profile = long("profile")
         .short('P')
         .argument::<String>("PROFILE")
@@ -50,7 +50,7 @@ pub fn cli() -> impl Parser<Request> {
             parse_field_selection(&values).map(Some)
         });
 
-    construct!(Request { profile, fields })
+    construct!(CliOpts { profile, fields })
 }
 
 fn parse_field_selection(
@@ -65,13 +65,13 @@ fn parse_field_selection(
     Ok(fields)
 }
 
-/// Run an info request.
+/// Run the `info` command.
 ///
 /// # Errors
 ///
 /// Returns an error if the profile cannot be read or output fails.
-pub fn run(request: &Request) -> Result<()> {
-    let profile = &request.profile;
+pub fn run(opts: &CliOpts) -> Result<()> {
+    let profile = &opts.profile;
 
     if !profile.is_symlink() {
         return Err(report!(
@@ -107,7 +107,7 @@ pub fn run(request: &Request) -> Result<()> {
             describe(gen_dir, size)
         })
         .collect();
-    print_info(descriptions, request.fields.as_deref());
+    print_info(descriptions, opts.fields.as_deref());
 
     Ok(())
 }
@@ -596,22 +596,22 @@ mod tests {
 
     use bpaf::{Args, Parser as _};
 
+    use super::CliOpts;
     use super::Field;
-    use super::Request;
     use super::cli;
 
     #[test]
     fn fields_split_on_commas() {
         let options = cli().to_options();
         options.check_invariants(false);
-        let request = options
+        let opts = options
             .run_inner(
                 Args::from(&["--fields", "id,confRev,date"][..])
                     .set_name("test"),
             )
             .unwrap();
 
-        let Some(fields) = request.fields else {
+        let Some(fields) = opts.fields else {
             panic!("fields must be present");
         };
         assert!(matches!(
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn fields_have_canonical_default_profile() {
         let options = cli().to_options();
-        let Request { profile, fields } = options
+        let CliOpts { profile, fields } = options
             .run_inner(Args::from(&[] as &[&str]).set_name("test"))
             .unwrap();
 

@@ -38,22 +38,25 @@ use crate::target::{self, BuildTarget};
     reason = "rebuild::Command would read as the generic runner Command"
 )]
 pub enum RebuildCommand {
-    Build(Request),
-    Activate(ActivationRequest),
+    Build(CliOpts),
+    Activate {
+        rebuild: CliOpts,
+        activation: Activation,
+    },
 }
 
 impl RebuildCommand {
-    /// Whether the request opted out of the root guard.
+    /// Whether the command opted out of the root guard.
     fn bypass_root_check(&self) -> bool {
         match self {
-            Self::Build(request) => request.bypass_root_check,
-            Self::Activate(request) => request.rebuild.bypass_root_check,
+            Self::Build(opts) => opts.bypass_root_check,
+            Self::Activate { rebuild, .. } => rebuild.bypass_root_check,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Request {
+pub struct CliOpts {
     pub build: BuildOptions,
     pub update: Option<update::Selection>,
     pub hostname: Option<String>,
@@ -70,12 +73,6 @@ pub struct BuildOptions {
     pub out_link: Option<PathBuf>,
     pub diff: DiffMode,
     pub nix: NixBuildOptions,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActivationRequest {
-    pub rebuild: Request,
-    pub activation: Activation,
 }
 
 #[derive(Clone, Debug)]
@@ -134,14 +131,17 @@ impl ActivationAction {
 /// Returns an error if the root check fails, or if building or activating
 /// the configuration fails.
 pub fn run(command: RebuildCommand, config: &Config) -> Result<()> {
-    let elevate =
-        requires_elevation(command.bypass_root_check(), &config.elevation)?;
+    let elevate = requires_elevation(
+        command.bypass_root_check(),
+        &config.elevation,
+    )?;
 
     match command {
-        RebuildCommand::Build(request) => request.build_only(config),
-        RebuildCommand::Activate(request) => {
-            request.build_and_activate(config, elevate)
-        }
+        RebuildCommand::Build(opts) => build_only(&opts, config),
+        RebuildCommand::Activate {
+            rebuild,
+            activation,
+        } => build_and_activate(&rebuild, &activation, config, elevate),
     }
 }
 
@@ -244,78 +244,74 @@ impl BuiltSystem {
     }
 }
 
-impl Request {
-    /// Builds the toplevel configuration without activating (`nh build`).
-    fn build_only(&self, config: &Config) -> Result<()> {
-        let out_link = OutLink::for_build(self.build.out_link.as_deref());
+/// Builds the toplevel configuration without activating (`nh build`).
+fn build_only(opts: &CliOpts, config: &Config) -> Result<()> {
+    let out_link = OutLink::for_build(opts.build.out_link.as_deref());
 
-        let toplevel = self.prepare_toplevel(&config.env)?;
-        self.build_and_diff(toplevel, &out_link)?;
+    let toplevel = prepare_toplevel(opts, &config.env)?;
+    build_and_diff(opts, toplevel, &out_link)?;
 
-        Ok(())
+    Ok(())
+}
+
+/// Resolves what to build and completes it to select the NixOS
+/// `toplevel` derivation, optionally refreshing inputs first.
+fn prepare_toplevel(opts: &CliOpts, env: &Env) -> Result<BuildTarget> {
+    let mut target = target::resolve(opts.build.target.clone(), env)?;
+    let hostname =
+        opts.hostname.as_deref().unwrap_or_else(|| env.hostname());
+    select_toplevel(&mut target, hostname)?;
+
+    if let Some(selection) = &opts.update {
+        update::run(&target, selection, opts.commit_lock_file)?;
     }
 
-    /// Resolves what to build and completes it to select the NixOS
-    /// `toplevel` derivation, optionally refreshing inputs first.
-    fn prepare_toplevel(&self, env: &Env) -> Result<BuildTarget> {
-        let mut target = target::resolve(self.build.target.clone(), env)?;
-        let hostname = self
-            .hostname
-            .as_deref()
-            .unwrap_or_else(|| env.hostname());
-        select_toplevel(&mut target, hostname)?;
+    Ok(target)
+}
 
-        if let Some(selection) = &self.update {
-            update::run(&target, selection, self.commit_lock_file)?;
-        }
+/// Builds the toplevel, resolves the built system from the out-link and
+/// shows the configured diff.
+fn build_and_diff(
+    opts: &CliOpts,
+    toplevel: BuildTarget,
+    out_link: &OutLink,
+) -> Result<BuiltSystem> {
+    execute_build(opts, toplevel, &out_link.path)?;
 
-        Ok(target)
-    }
+    let target_specialisation =
+        resolve_specialisation(&opts.specialisation);
+    debug!("Target specialisation: {target_specialisation:?}");
 
-    /// Builds the toplevel, resolves the built system from the out-link and
-    /// shows the configured diff.
-    fn build_and_diff(
-        &self,
-        toplevel: BuildTarget,
-        out_link: &OutLink,
-    ) -> Result<BuiltSystem> {
-        self.execute_build(toplevel, &out_link.path)?;
+    let built = BuiltSystem::resolve(
+        &out_link.path,
+        target_specialisation.as_deref(),
+    )?;
+    debug!("Built toplevel: {}", built.toplevel.display());
+    debug!("Selected closure: {}", built.selected.display());
 
-        let target_specialisation =
-            resolve_specialisation(&self.specialisation);
-        debug!("Target specialisation: {target_specialisation:?}");
+    super::diff::run(&opts.build.diff, &built.selected)?;
 
-        let built = BuiltSystem::resolve(
-            &out_link.path,
-            target_specialisation.as_deref(),
-        )?;
-        debug!("Built toplevel: {}", built.toplevel.display());
-        debug!("Selected closure: {}", built.selected.display());
+    Ok(built)
+}
 
-        super::diff::run(&self.build.diff, &built.selected)?;
+fn execute_build(
+    opts: &CliOpts,
+    toplevel: BuildTarget,
+    out_path: &Path,
+) -> Result<()> {
+    const MESSAGE: &str = "Building NixOS configuration";
 
-        Ok(built)
-    }
+    Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(out_path)
+        .extra_args(&opts.extra_args)
+        .nix_options(&opts.build.nix)
+        .message(MESSAGE)
+        .nom(!opts.build.no_nom)
+        .run()
+        .context("Failed to build configuration")?;
 
-    fn execute_build(
-        &self,
-        toplevel: BuildTarget,
-        out_path: &Path,
-    ) -> Result<()> {
-        const MESSAGE: &str = "Building NixOS configuration";
-
-        Build::new(toplevel)
-            .extra_arg("--out-link")
-            .extra_arg(out_path)
-            .extra_args(&self.extra_args)
-            .nix_options(&self.build.nix)
-            .message(MESSAGE)
-            .nom(!self.build.no_nom)
-            .run()
-            .context("Failed to build configuration")?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Completes a resolved target so the build produces the NixOS `toplevel`
@@ -333,7 +329,10 @@ impl Request {
 ///
 /// Returns an error for a flake attribute path too specific to infer a
 /// configuration from.
-fn select_toplevel(target: &mut BuildTarget, hostname: &str) -> Result<()> {
+fn select_toplevel(
+    target: &mut BuildTarget,
+    hostname: &str,
+) -> Result<()> {
     const TOPLEVEL_ATTRS: [&str; 4] =
         ["config", "system", "build", "toplevel"];
 
@@ -377,175 +376,174 @@ fn select_toplevel(target: &mut BuildTarget, hostname: &str) -> Result<()> {
     Ok(())
 }
 
-impl ActivationRequest {
-    fn build_and_activate(
-        &self,
-        config: &Config,
-        elevate: bool,
-    ) -> Result<()> {
-        let out_link = OutLink::for_activation(
-            self.rebuild.build.out_link.as_deref(),
-        )?;
+fn build_and_activate(
+    rebuild: &CliOpts,
+    activation: &Activation,
+    config: &Config,
+    elevate: bool,
+) -> Result<()> {
+    let out_link =
+        OutLink::for_activation(rebuild.build.out_link.as_deref())?;
 
-        let toplevel = self.rebuild.prepare_toplevel(&config.env)?;
-        let built = self.rebuild.build_and_diff(toplevel, &out_link)?;
+    let toplevel = prepare_toplevel(rebuild, &config.env)?;
+    let built = build_and_diff(rebuild, toplevel, &out_link)?;
 
-        if self.activation.dry {
-            if self.activation.ask {
-                warn!("--ask has no effect as dry run was requested");
-            }
-
-            return Ok(());
+    if activation.dry {
+        if activation.ask {
+            warn!("--ask has no effect as dry run was requested");
         }
 
-        self.activate_rebuilt_config(&built, config, elevate)?;
-
-        Ok(())
+        return Ok(());
     }
 
-    fn activate_rebuilt_config(
-        &self,
-        built: &BuiltSystem,
-        config: &Config,
-        elevate: bool,
-    ) -> Result<()> {
-        let action = self.activation.action;
+    activate_rebuilt_config(activation, &built, config, elevate)?;
 
-        if self.activation.ask {
-            let confirmation = inquire::Confirm::new("Apply the config?")
-                .with_default(false)
-                .prompt()?;
+    Ok(())
+}
 
-            if !confirmation {
-                bail!("User rejected the new config");
-            }
+fn activate_rebuilt_config(
+    activation: &Activation,
+    built: &BuiltSystem,
+    config: &Config,
+    elevate: bool,
+) -> Result<()> {
+    let action = activation.action;
+
+    if activation.ask {
+        let confirmation = inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?;
+
+        if !confirmation {
+            bail!("User rejected the new config");
         }
-
-        let switch_to_configuration =
-            self.resolve_closure(&built.selected)?;
-
-        match action {
-            ActivationAction::Test { .. } => {
-                self.activate_test_phase(
-                    &switch_to_configuration,
-                    config,
-                    elevate,
-                )?;
-            }
-            ActivationAction::Boot { .. } => {
-                self.activate_boot_phase(
-                    built,
-                    &switch_to_configuration,
-                    config,
-                    elevate,
-                )?;
-            }
-            ActivationAction::Switch { .. } => {
-                self.activate_test_phase(
-                    &switch_to_configuration,
-                    config,
-                    elevate,
-                )?;
-                self.activate_boot_phase(
-                    built,
-                    &switch_to_configuration,
-                    config,
-                    elevate,
-                )?;
-            }
-        }
-
-        debug!(
-            "Completed {action:?} operation with store path: {}",
-            built.selected.display()
-        );
-
-        Ok(())
     }
 
-    /// Validates the closure to activate and resolves the path to its
-    /// `switch-to-configuration` binary.
-    fn resolve_closure(&self, selected: &Path) -> Result<PathBuf> {
-        if self.activation.no_validate {
-            warn!(
-                "Skipping pre-activation validation (--no-validate set)"
-            );
-            warn!(
-                "This may result in activation failures if the system closure is \
+    let switch_to_configuration =
+        resolve_closure(activation, &built.selected)?;
+
+    match action {
+        ActivationAction::Test { .. } => {
+            activate_test_phase(
+                activation,
+                &switch_to_configuration,
+                config,
+                elevate,
+            )?;
+        }
+        ActivationAction::Boot { .. } => {
+            activate_boot_phase(
+                activation,
+                built,
+                &switch_to_configuration,
+                config,
+                elevate,
+            )?;
+        }
+        ActivationAction::Switch { .. } => {
+            activate_test_phase(
+                activation,
+                &switch_to_configuration,
+                config,
+                elevate,
+            )?;
+            activate_boot_phase(
+                activation,
+                built,
+                &switch_to_configuration,
+                config,
+                elevate,
+            )?;
+        }
+    }
+
+    debug!(
+        "Completed {action:?} operation with store path: {}",
+        built.selected.display()
+    );
+
+    Ok(())
+}
+
+/// Validates the closure to activate and resolves the path to its
+/// `switch-to-configuration` binary.
+fn resolve_closure(
+    activation: &Activation,
+    selected: &Path,
+) -> Result<PathBuf> {
+    if activation.no_validate {
+        warn!("Skipping pre-activation validation (--no-validate set)");
+        warn!(
+            "This may result in activation failures if the system closure is \
          incomplete"
-            );
-        } else {
-            validate_system_closure(selected)?;
-        }
-
-        let switch_to_configuration = selected
-            .join("bin")
-            .join("switch-to-configuration")
-            .canonicalize()
-            .context("Failed to resolve switch-to-configuration path")?;
-
-        Ok(switch_to_configuration)
+        );
+    } else {
+        validate_system_closure(selected)?;
     }
 
-    /// Runs the test phase of activation.
-    fn activate_test_phase(
-        &self,
-        switch_to_configuration: &Path,
-        config: &Config,
-        elevate: bool,
-    ) -> Result<()> {
-        Command::new(
-            switch_to_configuration,
-            &config.env,
-            &config.elevation,
-        )
+    let switch_to_configuration = selected
+        .join("bin")
+        .join("switch-to-configuration")
+        .canonicalize()
+        .context("Failed to resolve switch-to-configuration path")?;
+
+    Ok(switch_to_configuration)
+}
+
+/// Runs the test phase of activation.
+fn activate_test_phase(
+    activation: &Activation,
+    switch_to_configuration: &Path,
+    config: &Config,
+    elevate: bool,
+) -> Result<()> {
+    Command::new(switch_to_configuration, &config.env, &config.elevation)
         .arg("test")
         .message("Activating configuration")
         .elevate(elevate)
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-        .show_output(self.activation.action.show_logs())
+        .show_output(activation.action.show_logs())
         .run()
         .context("Activation (test) failed")?;
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    /// Sets the system profile and installs the bootloader entry.
-    fn activate_boot_phase(
-        &self,
-        built: &BuiltSystem,
-        switch_to_configuration: &Path,
-        config: &Config,
-        elevate: bool,
-    ) -> Result<()> {
-        // Use the base system closure instead of the specialisation one.
-        // This is what makes all specialisations visible in the bootloader
-        // instead of only the generation with the specialisation.
-        Command::new("nix", &config.env, &config.elevation)
-            .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-            .arg(&built.toplevel)
-            .elevate(elevate)
-            .run()
-            .context("Failed to set system profile")?;
-
-        let mut cmd = Command::new(
-            switch_to_configuration,
-            &config.env,
-            &config.elevation,
-        )
-        .arg("boot")
+/// Sets the system profile and installs the bootloader entry.
+fn activate_boot_phase(
+    activation: &Activation,
+    built: &BuiltSystem,
+    switch_to_configuration: &Path,
+    config: &Config,
+    elevate: bool,
+) -> Result<()> {
+    // Use the base system closure instead of the specialisation one.
+    // This is what makes all specialisations visible in the bootloader
+    // instead of only the generation with the specialisation.
+    Command::new("nix", &config.env, &config.elevation)
+        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+        .arg(&built.toplevel)
         .elevate(elevate)
-        .message("Adding configuration to bootloader")
-        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+        .run()
+        .context("Failed to set system profile")?;
 
-        if self.activation.action.install_bootloader() {
-            cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
-        }
+    let mut cmd = Command::new(
+        switch_to_configuration,
+        &config.env,
+        &config.elevation,
+    )
+    .arg("boot")
+    .elevate(elevate)
+    .message("Adding configuration to bootloader")
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
-        cmd.run().context("Bootloader activation failed")?;
-
-        Ok(())
+    if activation.action.install_bootloader() {
+        cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
     }
+
+    cmd.run().context("Bootloader activation failed")?;
+
+    Ok(())
 }
 
 /// Essential files that must exist in a valid NixOS system closure. Each tuple

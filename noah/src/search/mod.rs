@@ -18,7 +18,7 @@ use tracing::{debug, trace};
 const CHANNEL: &str = "nixos-unstable";
 
 #[derive(Clone, Debug)]
-pub struct Request {
+pub struct CliOpts {
     pub target: Target,
     pub query: Vec<String>,
     pub limit: u64,
@@ -32,28 +32,25 @@ pub enum Target {
     Options,
 }
 
-/// Execute a canonical search request.
+/// Run the `search` command.
 ///
 /// # Errors
 ///
-/// Returns an error if the search request fails.
-pub fn run(request: &Request) -> Result<()> {
-    trace!(?request);
+/// Returns an error if the search fails.
+pub fn run(opts: &CliOpts) -> Result<()> {
+    trace!(?opts);
 
-    match request.target {
+    match opts.target {
         Target::Packages { platforms } => run_packages(
-            request.limit,
+            opts.limit,
             platforms,
-            request.json,
-            request.backend,
-            &request.query,
+            opts.json,
+            opts.backend,
+            &opts.query,
         ),
-        Target::Options => run_options(
-            request.limit,
-            request.json,
-            request.backend,
-            &request.query,
-        ),
+        Target::Options => {
+            run_options(opts.limit, opts.json, opts.backend, &opts.query)
+        }
     }
 }
 

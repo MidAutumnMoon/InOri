@@ -21,7 +21,7 @@ use tracing::warn;
 
 use crate::runtime::Config;
 #[derive(Debug, Clone)]
-pub struct Request {
+pub struct CliOpts {
     pub scope: Scope,
     pub options: Options,
 }
@@ -118,13 +118,13 @@ where
     })
 }
 
-/// Run a clean request.
+/// Run the `clean` command.
 ///
 /// # Errors
 ///
 /// Returns an error if any IO, Nix, or environment operation fails.
-pub fn run(request: &Request, config: &Config) -> Result<()> {
-    plan::run(request, config)
+pub fn run(opts: &CliOpts, config: &Config) -> Result<()> {
+    plan::run(opts, config)
 }
 
 #[instrument(ret, level = "debug")]

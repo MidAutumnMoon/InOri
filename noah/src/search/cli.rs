@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use bpaf::{Parser, construct, long, positional};
 
-use super::Request;
+use super::CliOpts;
 use super::Target;
 use super::backend::BackendConfig;
 
@@ -146,7 +146,7 @@ enum RawSearch {
     Shorthand(SearchWithoutMode),
 }
 
-fn normalize(raw: RawSearch) -> std::result::Result<Request, String> {
+fn normalize(raw: RawSearch) -> std::result::Result<CliOpts, String> {
     let (flags, kind, query) = match raw {
         RawSearch::Explicit(SearchWithMode { flags, mode }) => {
             match mode {
@@ -182,7 +182,7 @@ fn normalize(raw: RawSearch) -> std::result::Result<Request, String> {
         SearchKind::Options => Target::Options,
     };
 
-    Ok(Request {
+    Ok(CliOpts {
         target,
         query,
         limit: flags.limit,
@@ -194,9 +194,9 @@ fn normalize(raw: RawSearch) -> std::result::Result<Request, String> {
     })
 }
 
-/// Parse explicit `packages`/`options` subcommands or shorthand search into one
-/// canonical request.
-pub fn search_cli() -> impl Parser<Request> {
+/// Parse explicit `packages`/`options` subcommands or shorthand search into
+/// one canonical [`CliOpts`].
+pub fn search_cli() -> impl Parser<CliOpts> {
     let with_mode = {
         let flags = search_flags();
         let mode = construct!([packages_cli(), options_cli()]);
@@ -222,13 +222,13 @@ pub fn search_cli() -> impl Parser<Request> {
 mod tests {
     use bpaf::{Args, ParseFailure, Parser as _};
 
-    use super::Request;
+    use super::CliOpts;
     use super::Target;
     use super::search_cli;
 
     fn parse_search(
         args: &[&str],
-    ) -> std::result::Result<Request, String> {
+    ) -> std::result::Result<CliOpts, String> {
         let options = search_cli().to_options();
         options.check_invariants(false);
         options
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn global_flags_work_on_both_sides_of_subcommand() {
-        let request = parse_search(&[
+        let opts = parse_search(&[
             "--limit",
             "5",
             "--backend-version",
@@ -252,20 +252,20 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(request.limit, 5);
-        assert!(request.json);
-        assert_eq!(request.backend.version, Some(51));
-        assert_eq!(request.backend.fallbacks, 3);
-        assert_eq!(request.query, ["hello"]);
+        assert_eq!(opts.limit, 5);
+        assert!(opts.json);
+        assert_eq!(opts.backend.version, Some(51));
+        assert_eq!(opts.backend.fallbacks, 3);
+        assert_eq!(opts.query, ["hello"]);
         assert!(matches!(
-            request.target,
+            opts.target,
             Target::Packages { platforms: true }
         ));
     }
 
     #[test]
     fn shorthand_flags_parse_after_query() {
-        let request = parse_search(&[
+        let opts = parse_search(&[
             "hello",
             "--limit",
             "5",
@@ -275,29 +275,28 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(request.limit, 5);
-        assert_eq!(request.query, ["hello"]);
+        assert_eq!(opts.limit, 5);
+        assert_eq!(opts.query, ["hello"]);
         assert!(matches!(
-            request.target,
+            opts.target,
             Target::Packages { platforms: true }
         ));
     }
 
     #[test]
     fn default_search_selects_shorthand_target() {
-        let request =
-            parse_search(&["hello", "--default-search", "options"])
-                .unwrap();
+        let opts = parse_search(&["hello", "--default-search", "options"])
+            .unwrap();
 
-        assert_eq!(request.query, ["hello"]);
-        assert!(matches!(request.target, Target::Options));
+        assert_eq!(opts.query, ["hello"]);
+        assert!(matches!(opts.target, Target::Options));
     }
 
     #[test]
     fn backend_flags_have_shared_defaults() {
-        let request = parse_search(&["options", "hello"]).unwrap();
-        assert_eq!(request.backend.version, None);
-        assert_eq!(request.backend.fallbacks, 1);
+        let opts = parse_search(&["options", "hello"]).unwrap();
+        assert_eq!(opts.backend.version, None);
+        assert_eq!(opts.backend.fallbacks, 1);
     }
 
     #[test]
@@ -319,10 +318,10 @@ mod tests {
 
     #[test]
     fn shorthand_query_searches_verbatim_words() {
-        let request = parse_search(&["hello", "packages"]).unwrap();
-        assert_eq!(request.query, ["hello", "packages"]);
+        let opts = parse_search(&["hello", "packages"]).unwrap();
+        assert_eq!(opts.query, ["hello", "packages"]);
         assert!(matches!(
-            request.target,
+            opts.target,
             Target::Packages { platforms: false }
         ));
     }
