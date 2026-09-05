@@ -4,7 +4,10 @@ use std::collections::HashSet;
 use std::io;
 use std::io::Write as _;
 use std::str;
+use std::sync::LazyLock;
 
+use regex::Captures;
+use regex::Regex;
 use rootcause::Result;
 use rootcause::bail;
 use serde_json::Map;
@@ -18,7 +21,39 @@ use super::command::NixCommand;
 const DERIVATION_BATCH_SIZE: usize = 256;
 const BIG_PARALLEL: &str = "big-parallel";
 const DERIVATION_JSON_VERSION: u64 = 4;
-const UNKNOWN_PATHS_HEADER: &str = "don't know how to build these paths:";
+// Nix appends a read-only-mode note to this header, so match by prefix.
+const UNKNOWN_PATHS_HEADER: &str = "don't know how to build these paths";
+
+static BUILDS_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
+    Regex::new(
+        r"^(?:this derivation|these (?<count>\d+) derivations) will be built:$",
+    )
+    .expect("Failed to compile builds-header regex")
+});
+
+static FETCHES_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
+    Regex::new(
+        r"^(?:this path|these (?<count>\d+) paths) will be fetched \((?<download>.+?) download, (?<unpacked>.+?) unpacked\):$",
+    )
+    .expect("Failed to compile fetches-header regex")
+});
+
+static PLAN_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(
+        clippy::expect_used,
+        reason = "static regex literal; compilation failure is a programmer error"
+    )]
+    Regex::new("^  (?<path>/nix/store/[^/]+)$")
+        .expect("Failed to compile plan-path regex")
+});
 
 /// Presentation options for a build forecast.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,49 +206,30 @@ fn parse_plan(
 fn parse_header(
     line: &str,
 ) -> std::result::Result<Option<Header<'_>>, String> {
-    if line == UNKNOWN_PATHS_HEADER {
+    if line.starts_with(UNKNOWN_PATHS_HEADER) {
         return Err(String::from(
             "Nix reported unknown paths; the forecast would be incomplete",
         ));
     }
 
-    if line == "this derivation will be built:" {
-        return Ok(Some(Header::Builds(1)));
-    }
-    if let Some(count) = line
-        .strip_prefix("these ")
-        .and_then(|line| line.strip_suffix(" derivations will be built:"))
-    {
-        return parse_count(count)
+    if let Some(captures) = BUILDS_HEADER_REGEX.captures(line) {
+        return header_count(&captures)
             .map(|count| Some(Header::Builds(count)));
     }
 
-    let fetch = if let Some(sizes) =
-        line.strip_prefix("this path will be fetched (")
-    {
-        Some((1, sizes))
-    } else if let Some(rest) = line.strip_prefix("these ") {
-        rest.split_once(" paths will be fetched (")
-            .map(|(count, sizes)| {
-                parse_count(count).map(|count| (count, sizes))
-            })
-            .transpose()?
-    } else {
-        None
-    };
-
-    if let Some((count, sizes)) = fetch {
-        let sizes =
-            sizes.strip_suffix(" unpacked):").ok_or_else(|| {
-                format!("unrecognized Nix fetch-plan header: {line}")
-            })?;
-        let (download_size, unpacked_size) =
-            sizes.split_once(" download, ").ok_or_else(|| {
-                format!("unrecognized Nix fetch-plan sizes: {line}")
-            })?;
-        if download_size.is_empty() || unpacked_size.is_empty() {
-            return Err(format!("empty Nix fetch-plan size: {line}"));
-        }
+    if let Some(captures) = FETCHES_HEADER_REGEX.captures(line) {
+        let count = header_count(&captures)?;
+        let sizes = captures
+            .name("download")
+            .zip(captures.name("unpacked"))
+            .map(|(download, unpacked)| {
+                (download.as_str(), unpacked.as_str())
+            });
+        let Some((download_size, unpacked_size)) = sizes else {
+            return Err(format!(
+                "unrecognized Nix fetch-plan header: {line}"
+            ));
+        };
         return Ok(Some(Header::Fetches {
             count,
             download_size,
@@ -227,6 +243,14 @@ fn parse_header(
     }
 
     Ok(None)
+}
+
+fn header_count(
+    captures: &Captures<'_>,
+) -> std::result::Result<usize, String> {
+    captures
+        .name("count")
+        .map_or(Ok(1), |count| parse_count(count.as_str()))
 }
 
 fn parse_count(count: &str) -> std::result::Result<usize, String> {
@@ -254,17 +278,15 @@ fn take_paths<'input>(
                 "Nix plan declared {count} paths but printed only {printed}"
             )
         })?;
-        let Some(path) = line.strip_prefix("  ") else {
+        let Some(path) = PLAN_PATH_REGEX
+            .captures(line)
+            .and_then(|captures| captures.name("path"))
+            .map(|path| path.as_str())
+        else {
             return Err(format!("unrecognized Nix plan path: {line}"));
         };
-        let Some(name) = path.strip_prefix("/nix/store/") else {
-            return Err(format!("unrecognized Nix plan path: {line}"));
-        };
-        if name.is_empty() || name.contains('/') {
-            return Err(format!("unrecognized Nix plan path: {line}"));
-        }
         if matches!(kind, PathKind::Derivation)
-            && name.strip_suffix(".drv").is_none()
+            && path.strip_suffix(".drv").is_none()
         {
             return Err(format!(
                 "build-plan path is not a derivation: {line}"
@@ -626,12 +648,18 @@ this path will be fetched (0.01 MiB download, 0.02 MiB unpacked):\n  {FETCHED_DO
 
     #[test]
     fn unknown_paths_make_the_forecast_incomplete() {
-        let error = parse_plan(
-            "don't know how to build these paths:\n  \
-/nix/store/00000000000000000000000000000000-missing.drv\n",
-        )
-        .unwrap_err();
+        for header in [
+            "don't know how to build these paths:",
+            "don't know how to build these paths (may be caused by \
+             read-only store access):",
+        ] {
+            let error = parse_plan(&format!(
+                "{header}\n  \
+/nix/store/00000000000000000000000000000000-missing.drv\n"
+            ))
+            .unwrap_err();
 
-        assert!(error.contains("unknown"));
+            assert!(error.contains("unknown"));
+        }
     }
 }
