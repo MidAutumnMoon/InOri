@@ -21,36 +21,28 @@ use super::command::NixCommand;
 const DERIVATION_BATCH_SIZE: usize = 256;
 const BIG_PARALLEL: &str = "big-parallel";
 const DERIVATION_JSON_VERSION: u64 = 4;
+
 // Nix appends a read-only-mode note to this header, so match by prefix.
 const UNKNOWN_PATHS_HEADER: &str = "don't know how to build these paths";
 
-static BUILDS_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
+#[expect(clippy::expect_used, reason = "static regex literal")]
+static BUILDS_HEADER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"^(?:this derivation|these (?<count>\d+) derivations) will be built:$",
     )
     .expect("Failed to compile builds-header regex")
 });
 
-static FETCHES_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
+#[expect(clippy::expect_used, reason = "static regex literal")]
+static FETCHES_HEADER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"^(?:this path|these (?<count>\d+) paths) will be fetched \((?<download>.+?) download, (?<unpacked>.+?) unpacked\):$",
     )
     .expect("Failed to compile fetches-header regex")
 });
 
-static PLAN_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
+#[expect(clippy::expect_used, reason = "static regex literal")]
+static PLAN_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new("^  (?<path>/nix/store/[^/]+)$")
         .expect("Failed to compile plan-path regex")
 });
@@ -83,7 +75,6 @@ pub(super) fn run(
     options: ForecastOptions,
 ) -> Result<ExitStatus> {
     let capture = command.output()?;
-    io::stdout().lock().write_all(&capture.stdout)?;
 
     if !capture.success() {
         io::stderr().lock().write_all(&capture.stderr)?;
@@ -98,6 +89,7 @@ pub(super) fn run(
             return Ok(capture.exit_status);
         }
     };
+
     let parsed = match parse_plan(stderr_text) {
         Ok(parsed) => parsed,
         Err(error) => {
@@ -212,12 +204,12 @@ fn parse_header(
         ));
     }
 
-    if let Some(captures) = BUILDS_HEADER_REGEX.captures(line) {
+    if let Some(captures) = BUILDS_HEADER.captures(line) {
         return header_count(&captures)
             .map(|count| Some(Header::Builds(count)));
     }
 
-    if let Some(captures) = FETCHES_HEADER_REGEX.captures(line) {
+    if let Some(captures) = FETCHES_HEADER.captures(line) {
         let count = header_count(&captures)?;
         let sizes = captures
             .name("download")
@@ -278,7 +270,7 @@ fn take_paths<'input>(
                 "Nix plan declared {count} paths but printed only {printed}"
             )
         })?;
-        let Some(path) = PLAN_PATH_REGEX
+        let Some(path) = PLAN_PATH
             .captures(line)
             .and_then(|captures| captures.name("path"))
             .map(|path| path.as_str())

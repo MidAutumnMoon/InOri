@@ -101,6 +101,7 @@ impl Build {
                 .args(self.target.to_args())
                 .args(&self.extra_args)
                 .args(["--log-format", "raw"]),
+            
             BuildMode::Direct | BuildMode::Nom => {
                 NixCommand::new(Kind::Build)
                     .args(self.target.to_args())
