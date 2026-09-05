@@ -24,6 +24,7 @@ use super::rebuild::BuildOptions;
 use super::rebuild::CliOpts;
 use super::rebuild::RebuildCommand;
 use super::update::update_cli;
+use crate::nix::forecast::ForecastOptions;
 use crate::nix::options::NixCliOptions;
 use crate::nix::options::nix_build_options_cli;
 use crate::target::BuildTarget;
@@ -194,13 +195,22 @@ fn activation_request(
 pub fn build_cli() -> impl Parser<RebuildCommand> {
     let dry = long("dry")
         .short('n')
-        .help("Show what would be built, without building it")
+        .help("Show a build forecast, without building")
         .switch();
+    let show_fetches = long("show-fetches")
+        .help("List paths in the dry-run fetch plan (requires --dry)")
+        .switch();
+    let forecast =
+        construct!(dry, show_fetches).parse(|(dry, show_fetches)| {
+            if show_fetches && !dry {
+                return Err("--show-fetches requires --dry");
+            }
+            Ok(dry.then(|| ForecastOptions::new(show_fetches)))
+        });
     let rebuild = rebuild_cli();
 
-    construct!(dry, rebuild).map(|(dry, rebuild)| RebuildCommand::Build {
-        rebuild,
-        dry,
+    construct!(forecast, rebuild).map(|(forecast, rebuild)| {
+        RebuildCommand::Build { rebuild, forecast }
     })
 }
 
@@ -284,6 +294,7 @@ mod tests {
     use super::build_cli;
     use super::switch_cli;
     use super::test_cli;
+    use crate::nix::forecast::ForecastOptions;
     use crate::target::BuildTarget;
 
     fn parse_build(args: &[&str]) -> std::result::Result<CliOpts, String> {
@@ -368,11 +379,43 @@ mod tests {
                 .to_options()
                 .run_inner(Args::from(&[flag, "."][..]).set_name("test"))
                 .unwrap();
-            let RebuildCommand::Build { dry, .. } = command else {
+            let RebuildCommand::Build { forecast, .. } = command else {
                 panic!("expected build command");
             };
-            assert!(dry, "expected dry to be set for {flag}");
+            assert!(
+                forecast.is_some(),
+                "expected dry to be set for {flag}"
+            );
         }
+    }
+
+    #[test]
+    fn build_fetch_details_require_dry_run() {
+        let error = build_cli()
+            .to_options()
+            .run_inner(
+                Args::from(&["--show-fetches", "."][..]).set_name("test"),
+            )
+            .map_err(ParseFailure::unwrap_stderr)
+            .unwrap_err();
+
+        assert!(error.contains("--show-fetches requires --dry"));
+    }
+
+    #[test]
+    fn build_parses_fetch_details_for_dry_run() {
+        let command = build_cli()
+            .to_options()
+            .run_inner(
+                Args::from(&["--dry", "--show-fetches", "."][..])
+                    .set_name("test"),
+            )
+            .unwrap();
+        let RebuildCommand::Build { forecast, .. } = command else {
+            panic!("expected build command");
+        };
+
+        assert_eq!(forecast, Some(ForecastOptions::new(true)));
     }
 
     #[test]

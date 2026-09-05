@@ -1,3 +1,8 @@
+#![expect(
+    clippy::pub_use,
+    reason = "canonical parser for the clean command"
+)]
+
 mod cli;
 mod plan;
 pub use cli::clean_cli;

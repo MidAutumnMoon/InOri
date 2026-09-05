@@ -1,4 +1,4 @@
-//! Running `nix build`, optionally piped through `nom`.
+//! Running `nix build` directly, through `nom`, or as a forecast.
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -14,16 +14,28 @@ use tracing::info;
 
 use crate::nix::command::Kind;
 use crate::nix::command::NixCommand;
+use crate::nix::forecast;
+use crate::nix::forecast::ForecastOptions;
 use crate::nix::options::NixBuildOptions;
 use crate::target::BuildTarget;
 
+/// How a Nix build is executed and presented.
+#[derive(Clone, Copy, Debug)]
+pub enum BuildMode {
+    /// Run Nix directly.
+    Direct,
+    /// Render Nix's internal JSON event stream with `nom`.
+    Nom,
+    /// Run a dry build and render its forecast.
+    Forecast(ForecastOptions),
+}
+
 #[derive(Debug)]
 pub struct Build {
-    message: Option<String>,
+    message: Option<&'static str>,
     target: BuildTarget,
     extra_args: Vec<OsString>,
-    nom: bool,
-    dry_run: bool,
+    mode: BuildMode,
 }
 
 impl Build {
@@ -33,14 +45,13 @@ impl Build {
             message: None,
             target,
             extra_args: vec![],
-            nom: false,
-            dry_run: false,
+            mode: BuildMode::Direct,
         }
     }
 
     #[must_use]
-    pub fn message(mut self, message: impl AsRef<str>) -> Self {
-        self.message = Some(message.as_ref().to_owned());
+    pub const fn message(mut self, message: &'static str) -> Self {
+        self.message = Some(message);
         self
     }
 
@@ -51,14 +62,8 @@ impl Build {
     }
 
     #[must_use]
-    pub const fn nom(mut self, yes: bool) -> Self {
-        self.nom = yes;
-        self
-    }
-
-    #[must_use]
-    pub const fn dry_run(mut self, yes: bool) -> Self {
-        self.dry_run = yes;
+    pub const fn mode(mut self, mode: BuildMode) -> Self {
+        self.mode = mode;
         self
     }
 
@@ -90,62 +95,82 @@ impl Build {
             info!("{message}");
         }
 
-        let target_args = self.target.to_args();
-
-        let base_command = NixCommand::new(Kind::Build)
-            .args(self.dry_run.then_some("--dry-run"))
-            .args(&target_args)
-            .args(&self.extra_args)
-            .into_exec();
-
-        if self.nom {
-            let pipeline = {
-                base_command
-                    .args(["--log-format", "internal-json", "--verbose"])
-                    .stderr(Redirection::Merge)
-                    .stdout(Redirection::Pipe)
-                    | Exec::cmd("nom").args(["--json"])
+        let command = match self.mode {
+            BuildMode::Forecast(_) => NixCommand::new(Kind::Build)
+                .arg("--dry-run")
+                .args(self.target.to_args())
+                .args(&self.extra_args)
+                .args(["--log-format", "raw"]),
+            BuildMode::Direct | BuildMode::Nom => {
+                NixCommand::new(Kind::Build)
+                    .args(self.target.to_args())
+                    .args(&self.extra_args)
             }
-            .stdout(Redirection::None);
-            debug!(?pipeline);
-
-            // Use `popen()` to get access to individual processes so we can check
-            // Nix's exit status, not nom's. The pipeline's `join()` only returns
-            // the exit status of the last command (nom), which always succeeds
-            // even when Nix fails.
-            let job = pipeline.start()?;
-
-            // Wait for all processes to finish
-            for proc in &job.processes {
-                proc.wait()?;
-            }
-
-            // Check the exit status of the FIRST process (nix build)
-            // This is the one that matters. If Nix fails, we should fail as well
-            if let Some(nix_proc) = job.processes.first() {
-                let exit_status = nix_proc.wait()?;
-                if !exit_status.success() {
-                    bail!(ExitError(exit_status));
-                }
-            }
-        } else {
-            let cmd = base_command
-                .stderr(Redirection::Merge)
-                .stdout(Redirection::None);
-
-            debug!(?cmd);
-            let exit = cmd.join();
-
-            let exit_status = exit?;
-            if !exit_status.success() {
-                bail!(ExitError(exit_status));
-            }
+        };
+        match self.mode {
+            BuildMode::Direct => run_direct(command.into_exec()),
+            BuildMode::Nom => run_with_nom(command.into_exec()),
+            BuildMode::Forecast(options) => ensure_success(
+                "nix build",
+                forecast::run(command, options)?,
+            ),
         }
-
-        Ok(())
     }
 }
 
+fn run_direct(command: Exec) -> Result<()> {
+    let command =
+        command.stderr(Redirection::Merge).stdout(Redirection::None);
+    debug!(?command);
+
+    ensure_success("nix build", command.join()?)
+}
+
+fn run_with_nom(command: Exec) -> Result<()> {
+    let pipeline = {
+        command
+            .args(["--log-format", "internal-json", "--verbose"])
+            .stderr(Redirection::Merge)
+            .stdout(Redirection::Pipe)
+            | Exec::cmd("nom").args(["--json"])
+    }
+    .stdout(Redirection::None);
+    debug!(?pipeline);
+
+    let job = pipeline.start()?;
+    let mut processes = job.processes.iter();
+    let Some(nix) = processes.next() else {
+        bail!("Nix pipeline started without a nix process");
+    };
+    let Some(nom) = processes.next() else {
+        bail!("Nix pipeline started without a nom process");
+    };
+    if processes.next().is_some() {
+        bail!("Nix pipeline started with unexpected extra processes");
+    }
+
+    let nix_status = nix.wait()?;
+    let nom_status = nom.wait()?;
+    ensure_success("nix build", nix_status)?;
+    ensure_success("nom", nom_status)
+}
+
+fn ensure_success(
+    command: &'static str,
+    exit_status: ExitStatus,
+) -> Result<()> {
+    if !exit_status.success() {
+        bail!(ExitError {
+            command,
+            status: exit_status,
+        });
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error)]
-#[error("Command exited with status {0:?}")]
-pub struct ExitError(ExitStatus);
+#[error("{command} exited with status {status:?}")]
+struct ExitError {
+    command: &'static str,
+    status: ExitStatus,
+}

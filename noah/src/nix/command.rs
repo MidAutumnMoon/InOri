@@ -21,6 +21,7 @@ use subprocess::Redirection;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Build,
+    Derivation,
     Flake,
     PathInfo,
     Repl,
@@ -31,6 +32,7 @@ impl Kind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Build => "build",
+            Self::Derivation => "derivation",
             Self::Flake => "flake",
             Self::PathInfo => "path-info",
             Self::Repl => "repl",

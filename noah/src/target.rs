@@ -200,13 +200,11 @@ impl BuildTarget {
                  the environment.",
                 path.display()
             )),
-            Err(FallbackError::PermissionDenied(path)) => {
-                Err(report!(
-                    "Permission denied accessing {} while checking flake reference \
+            Err(FallbackError::PermissionDenied(path)) => Err(report!(
+                "Permission denied accessing {} while checking flake reference \
                      `{reference}`.",
-                    path.display()
-                ))
-            }
+                path.display()
+            )),
             Err(FallbackError::Io(source)) => Err(report!(
                 "I/O error checking flake reference `{reference}` at {}: {source}",
                 path.display()
@@ -270,21 +268,16 @@ pub fn parser() -> impl Parser<Option<BuildTarget>> {
         .help(TARGET_HELP)
         .non_strict()
         .optional();
-    construct!(CliTarget {
-        source,
-        positional,
-    })
-    .parse(resolve_cli)
+    construct!(CliTarget { source, positional }).parse(resolve_cli)
 }
 
 /// Resolve the raw CLI surface into an optional [`BuildTarget`], applying the
 /// same precedence as Nix: store path, then `--file`/`--expr`, then flake
 /// reference.
-fn resolve_cli(raw: CliTarget) -> std::result::Result<Option<BuildTarget>, String> {
-    let CliTarget {
-        source,
-        positional,
-    } = raw;
+fn resolve_cli(
+    raw: CliTarget,
+) -> std::result::Result<Option<BuildTarget>, String> {
+    let CliTarget { source, positional } = raw;
 
     if let Some(value) = &positional
         && let Ok(path) = fs::canonicalize(value)
@@ -337,7 +330,10 @@ fn resolve_cli(raw: CliTarget) -> std::result::Result<Option<BuildTarget>, Strin
 /// Returns an error when a configured environment variable is malformed,
 /// when a local flake reference does not point at a flake directory, or when
 /// no default flake can be found.
-pub fn resolve(target: Option<BuildTarget>, env: &Env) -> Result<BuildTarget> {
+pub fn resolve(
+    target: Option<BuildTarget>,
+    env: &Env,
+) -> Result<BuildTarget> {
     let resolved = match target {
         Some(explicit) => explicit,
         None => match env_target(env)? {
@@ -363,8 +359,9 @@ fn env_target(env: &Env) -> Result<Option<BuildTarget>> {
                 "NH_FILE is empty. Set it to a Nix file path or remove it."
             ));
         }
-        let attribute = AttrPath::parse(env.var("NH_ATTRP").unwrap_or_default())
-            .map_err(|err| report!("NH_ATTRP {err}"))?;
+        let attribute =
+            AttrPath::parse(env.var("NH_ATTRP").unwrap_or_default())
+                .map_err(|err| report!("NH_ATTRP {err}"))?;
         debug!("Using NH_FILE: {file}");
         return Ok(Some(BuildTarget::File {
             path: PathBuf::from(file),
@@ -421,7 +418,9 @@ enum FallbackError {
 /// `flake.nix` may be a symlink into another directory (a common setup with
 /// dotfiles checkouts), so the flake directory is the parent of the
 /// canonical `flake.nix` path.
-fn resolve_flake_dir(dir: &Path) -> std::result::Result<PathBuf, FallbackError> {
+fn resolve_flake_dir(
+    dir: &Path,
+) -> std::result::Result<PathBuf, FallbackError> {
     let flake_nix = dir.join("flake.nix");
     let resolved = fs::canonicalize(&flake_nix)
         .map_err(|err| fallback_io_error(err, &flake_nix))?;
@@ -430,10 +429,11 @@ fn resolve_flake_dir(dir: &Path) -> std::result::Result<PathBuf, FallbackError> 
         return Err(FallbackError::NotFound);
     }
 
-    resolved.parent().map_or(
-        Err(FallbackError::NotFound),
-        |parent| Ok(parent.to_path_buf()),
-    )
+    resolved
+        .parent()
+        .map_or(Err(FallbackError::NotFound), |parent| {
+            Ok(parent.to_path_buf())
+        })
 }
 
 fn fallback_io_error(err: std::io::Error, path: &Path) -> FallbackError {
@@ -477,8 +477,7 @@ fn local_flake_path(reference: &str) -> Option<PathBuf> {
     None
 }
 
-const DEFAULT_HELP_HINT: &str =
-    "See 'man nh' or https://github.com/nix-community/nh for more details.";
+const DEFAULT_HELP_HINT: &str = "See 'man nh' or https://github.com/nix-community/nh for more details.";
 
 /// Default to the system configuration flake when nothing else selects a
 /// target.
@@ -510,14 +509,12 @@ fn os_default_target() -> Result<BuildTarget> {
                 attribute: AttrPath::default(),
             })
         }
-        Err(FallbackError::PermissionDenied(path)) => {
-            Err(report!(
-                "Permission denied accessing {}.\nPlease either:\n- Pass a flake \
+        Err(FallbackError::PermissionDenied(path)) => Err(report!(
+            "Permission denied accessing {}.\nPlease either:\n- Pass a flake \
                  path as an argument (e.g., 'nh os switch .')\n- Set the NH_FLAKE \
                  environment variable\n{DEFAULT_HELP_HINT}",
-                path.display()
-            ))
-        }
+            path.display()
+        )),
         Err(FallbackError::Io(source)) => Err(report!(
             "I/O error accessing {}: {source}\n\n{DEFAULT_HELP_HINT}",
             default_dir.display()
@@ -532,11 +529,7 @@ fn os_default_target() -> Result<BuildTarget> {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::unwrap_used,
-    clippy::panic,
-    reason = "Test assertions"
-)]
+#[expect(clippy::unwrap_used, clippy::panic, reason = "Test assertions")]
 mod tests {
     use std::ffi::OsString;
     use std::fs;
@@ -552,7 +545,12 @@ mod tests {
 
     /// Build an `AttrPath` from unquoted segments.
     fn path(segments: &[&str]) -> AttrPath {
-        AttrPath(segments.iter().map(|segment| (*segment).to_owned()).collect())
+        AttrPath(
+            segments
+                .iter()
+                .map(|segment| (*segment).to_owned())
+                .collect(),
+        )
     }
 
     /// An environment snapshot without any target variables set.
@@ -617,7 +615,8 @@ mod tests {
             ["--expr", "{ pkgs }: pkgs.hello", ""]
         );
 
-        let store = BuildTarget::StorePath(PathBuf::from("/nix/store/abc"));
+        let store =
+            BuildTarget::StorePath(PathBuf::from("/nix/store/abc"));
         assert_eq!(store.to_args(), ["/nix/store/abc"]);
     }
 
@@ -635,15 +634,17 @@ mod tests {
 
     #[test]
     fn cli_file_rejects_malformed_attribute() {
-        let err =
-            parse_target(&["--file", "file.nix", r#"foo."bar"#]).unwrap_err();
-        assert!(err.contains("attribute path contains an unclosed quoted attribute"));
+        let err = parse_target(&["--file", "file.nix", r#"foo."bar"#])
+            .unwrap_err();
+        assert!(err.contains(
+            "attribute path contains an unclosed quoted attribute"
+        ));
     }
 
     #[test]
     fn cli_file_and_expr_conflict() {
-        let err =
-            parse_target(&["--file", "file.nix", "--expr", "{}"]).unwrap_err();
+        let err = parse_target(&["--file", "file.nix", "--expr", "{}"])
+            .unwrap_err();
         assert!(err.contains("--expr"));
     }
 
@@ -683,7 +684,9 @@ mod tests {
     fn resolve_rejects_env_flake_without_reference_before_attribute() {
         let env = Env::from_pairs([("NH_FLAKE", "#fallback")]);
         let err = resolve(None, &env).unwrap_err().to_string();
-        assert!(err.contains("NH_FLAKE missing reference part before `#`"));
+        assert!(
+            err.contains("NH_FLAKE missing reference part before `#`")
+        );
     }
 
     #[test]
@@ -693,7 +696,9 @@ mod tests {
             ("NH_ATTRP", r#"foo."bar"#),
         ]);
         let err = resolve(None, &env).unwrap_err().to_string();
-        assert!(err.contains("NH_ATTRP contains an unclosed quoted attribute"));
+        assert!(
+            err.contains("NH_ATTRP contains an unclosed quoted attribute")
+        );
     }
 
     #[test]
@@ -702,7 +707,9 @@ mod tests {
             ("NH_FILE", "/path/to/file.nix"),
             ("NH_FLAKE", "github:user/repo"),
         ]);
-        let BuildTarget::File { path, attribute } = resolve(None, &env).unwrap() else {
+        let BuildTarget::File { path, attribute } =
+            resolve(None, &env).unwrap()
+        else {
             panic!("Expected a file target");
         };
         assert_eq!(path, PathBuf::from("/path/to/file.nix"));
@@ -739,10 +746,7 @@ mod tests {
         let resolved = resolve(Some(target), &empty_env()).unwrap();
         assert_eq!(
             resolved.to_args(),
-            [OsString::from(format!(
-                "{}#",
-                flake_dir.path().display()
-            ))]
+            [OsString::from(format!("{}#", flake_dir.path().display()))]
         );
     }
 
@@ -757,11 +761,12 @@ mod tests {
             attribute: AttrPath::default(),
         };
 
-        let err = resolve(Some(target), &empty_env())
-            .unwrap_err()
-            .to_string();
+        let err =
+            resolve(Some(target), &empty_env()).unwrap_err().to_string();
         assert!(err.contains("Flake reference"));
-        assert!(err.contains("does not exist or does not contain a flake.nix"));
+        assert!(
+            err.contains("does not exist or does not contain a flake.nix")
+        );
         assert!(err.contains("NH_FLAKE"));
     }
 
@@ -774,10 +779,11 @@ mod tests {
             attribute: AttrPath::default(),
         };
 
-        let err = resolve(Some(target), &empty_env())
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("does not exist or does not contain a flake.nix"));
+        let err =
+            resolve(Some(target), &empty_env()).unwrap_err().to_string();
+        assert!(
+            err.contains("does not exist or does not contain a flake.nix")
+        );
     }
 
     #[test]
@@ -792,10 +798,11 @@ mod tests {
             attribute: AttrPath::default(),
         };
 
-        let err = resolve(Some(target), &empty_env())
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("does not exist or does not contain a flake.nix"));
+        let err =
+            resolve(Some(target), &empty_env()).unwrap_err().to_string();
+        assert!(
+            err.contains("does not exist or does not contain a flake.nix")
+        );
     }
 
     #[test]
@@ -809,9 +816,8 @@ mod tests {
             attribute: AttrPath::default(),
         };
 
-        let err = resolve(Some(target), &empty_env())
-            .unwrap_err()
-            .to_string();
+        let err =
+            resolve(Some(target), &empty_env()).unwrap_err().to_string();
         assert!(err.contains("NH_FLAKE"));
     }
 

@@ -1,3 +1,8 @@
+#![expect(
+    clippy::pub_use,
+    reason = "canonical parser for the search command"
+)]
+
 mod backend;
 mod cli;
 mod query;

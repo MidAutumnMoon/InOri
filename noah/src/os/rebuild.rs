@@ -26,6 +26,8 @@ use super::specialisation_in;
 use super::update;
 use crate::command::Command;
 use crate::nix::build::Build;
+use crate::nix::build::BuildMode;
+use crate::nix::forecast::ForecastOptions;
 use crate::nix::options::NixBuildOptions;
 use crate::runtime::Config;
 use crate::runtime::Env;
@@ -40,7 +42,7 @@ use crate::target::{self, BuildTarget};
 pub enum RebuildCommand {
     Build {
         rebuild: CliOpts,
-        dry: bool,
+        forecast: Option<ForecastOptions>,
     },
     Activate {
         rebuild: CliOpts,
@@ -52,9 +54,8 @@ impl RebuildCommand {
     /// Whether the command opted out of the root guard.
     fn bypass_root_check(&self) -> bool {
         match self {
-            Self::Build { rebuild, .. } | Self::Activate { rebuild, .. } => {
-                rebuild.bypass_root_check
-            }
+            Self::Build { rebuild, .. }
+            | Self::Activate { rebuild, .. } => rebuild.bypass_root_check,
         }
     }
 }
@@ -141,8 +142,8 @@ pub fn run(command: RebuildCommand, config: &Config) -> Result<()> {
     )?;
 
     match command {
-        RebuildCommand::Build { rebuild, dry } => {
-            build_only(&rebuild, dry, config)
+        RebuildCommand::Build { rebuild, forecast } => {
+            build_only(&rebuild, forecast, config)
         }
         RebuildCommand::Activate {
             rebuild,
@@ -251,18 +252,19 @@ impl BuiltSystem {
 }
 
 /// Builds the toplevel configuration without activating (`nh build`).
-fn build_only(opts: &CliOpts, dry: bool, config: &Config) -> Result<()> {
-    let out_link = OutLink::for_build(opts.build.out_link.as_deref());
-
+fn build_only(
+    opts: &CliOpts,
+    forecast: Option<ForecastOptions>,
+    config: &Config,
+) -> Result<()> {
     let toplevel = prepare_toplevel(opts, &config.env)?;
 
-    if dry {
-        // A dry run builds nothing and leaves no out-link, so there is
-        // nothing to resolve or diff afterwards.
-        execute_build(opts, toplevel, &out_link.path, true)?;
-        return Ok(());
+    if let Some(options) = forecast {
+        // Forecasting creates neither a result link nor a closure to diff.
+        return execute_forecast(opts, toplevel, options);
     }
 
+    let out_link = OutLink::for_build(opts.build.out_link.as_deref());
     build_and_diff(opts, toplevel, &out_link)?;
 
     Ok(())
@@ -290,7 +292,7 @@ fn build_and_diff(
     toplevel: BuildTarget,
     out_link: &OutLink,
 ) -> Result<BuiltSystem> {
-    execute_build(opts, toplevel, &out_link.path, false)?;
+    execute_build(opts, toplevel, &out_link.path)?;
 
     let target_specialisation =
         resolve_specialisation(&opts.specialisation);
@@ -308,22 +310,43 @@ fn build_and_diff(
     Ok(built)
 }
 
+fn configure_build(build: Build, opts: &CliOpts) -> Build {
+    build
+        .extra_args(&opts.extra_args)
+        .nix_options(&opts.build.nix)
+}
+
+fn execute_forecast(
+    opts: &CliOpts,
+    toplevel: BuildTarget,
+    options: ForecastOptions,
+) -> Result<()> {
+    configure_build(Build::new(toplevel), opts)
+        .message("Planning NixOS configuration build")
+        .mode(BuildMode::Forecast(options))
+        .run()
+        .context("Failed to forecast configuration build")?;
+
+    Ok(())
+}
+
 fn execute_build(
     opts: &CliOpts,
     toplevel: BuildTarget,
     out_path: &Path,
-    dry: bool,
 ) -> Result<()> {
-    const MESSAGE: &str = "Building NixOS configuration";
-
-    Build::new(toplevel)
+    let mode = if opts.build.no_nom {
+        BuildMode::Direct
+    } else {
+        BuildMode::Nom
+    };
+    let build = Build::new(toplevel)
         .extra_arg("--out-link")
-        .extra_arg(out_path)
-        .extra_args(&opts.extra_args)
-        .nix_options(&opts.build.nix)
-        .message(MESSAGE)
-        .nom(!opts.build.no_nom)
-        .dry_run(dry)
+        .extra_arg(out_path);
+
+    configure_build(build, opts)
+        .message("Building NixOS configuration")
+        .mode(mode)
         .run()
         .context("Failed to build configuration")?;
 
