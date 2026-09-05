@@ -23,6 +23,7 @@ pub struct Build {
     target: BuildTarget,
     extra_args: Vec<OsString>,
     nom: bool,
+    dry_run: bool,
 }
 
 impl Build {
@@ -33,6 +34,7 @@ impl Build {
             target,
             extra_args: vec![],
             nom: false,
+            dry_run: false,
         }
     }
 
@@ -51,6 +53,12 @@ impl Build {
     #[must_use]
     pub const fn nom(mut self, yes: bool) -> Self {
         self.nom = yes;
+        self
+    }
+
+    #[must_use]
+    pub const fn dry_run(mut self, yes: bool) -> Self {
+        self.dry_run = yes;
         self
     }
 
@@ -85,6 +93,7 @@ impl Build {
         let target_args = self.target.to_args();
 
         let base_command = NixCommand::new(Kind::Build)
+            .args(self.dry_run.then_some("--dry-run"))
             .args(&target_args)
             .args(&self.extra_args)
             .into_exec();

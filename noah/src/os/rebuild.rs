@@ -38,7 +38,10 @@ use crate::target::{self, BuildTarget};
     reason = "rebuild::Command would read as the generic runner Command"
 )]
 pub enum RebuildCommand {
-    Build(CliOpts),
+    Build {
+        rebuild: CliOpts,
+        dry: bool,
+    },
     Activate {
         rebuild: CliOpts,
         activation: Activation,
@@ -49,8 +52,9 @@ impl RebuildCommand {
     /// Whether the command opted out of the root guard.
     fn bypass_root_check(&self) -> bool {
         match self {
-            Self::Build(opts) => opts.bypass_root_check,
-            Self::Activate { rebuild, .. } => rebuild.bypass_root_check,
+            Self::Build { rebuild, .. } | Self::Activate { rebuild, .. } => {
+                rebuild.bypass_root_check
+            }
         }
     }
 }
@@ -137,7 +141,9 @@ pub fn run(command: RebuildCommand, config: &Config) -> Result<()> {
     )?;
 
     match command {
-        RebuildCommand::Build(opts) => build_only(&opts, config),
+        RebuildCommand::Build { rebuild, dry } => {
+            build_only(&rebuild, dry, config)
+        }
         RebuildCommand::Activate {
             rebuild,
             activation,
@@ -245,10 +251,18 @@ impl BuiltSystem {
 }
 
 /// Builds the toplevel configuration without activating (`nh build`).
-fn build_only(opts: &CliOpts, config: &Config) -> Result<()> {
+fn build_only(opts: &CliOpts, dry: bool, config: &Config) -> Result<()> {
     let out_link = OutLink::for_build(opts.build.out_link.as_deref());
 
     let toplevel = prepare_toplevel(opts, &config.env)?;
+
+    if dry {
+        // A dry run builds nothing and leaves no out-link, so there is
+        // nothing to resolve or diff afterwards.
+        execute_build(opts, toplevel, &out_link.path, true)?;
+        return Ok(());
+    }
+
     build_and_diff(opts, toplevel, &out_link)?;
 
     Ok(())
@@ -276,7 +290,7 @@ fn build_and_diff(
     toplevel: BuildTarget,
     out_link: &OutLink,
 ) -> Result<BuiltSystem> {
-    execute_build(opts, toplevel, &out_link.path)?;
+    execute_build(opts, toplevel, &out_link.path, false)?;
 
     let target_specialisation =
         resolve_specialisation(&opts.specialisation);
@@ -298,6 +312,7 @@ fn execute_build(
     opts: &CliOpts,
     toplevel: BuildTarget,
     out_path: &Path,
+    dry: bool,
 ) -> Result<()> {
     const MESSAGE: &str = "Building NixOS configuration";
 
@@ -308,6 +323,7 @@ fn execute_build(
         .nix_options(&opts.build.nix)
         .message(MESSAGE)
         .nom(!opts.build.no_nom)
+        .dry_run(dry)
         .run()
         .context("Failed to build configuration")?;
 

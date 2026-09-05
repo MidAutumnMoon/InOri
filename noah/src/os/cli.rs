@@ -192,7 +192,16 @@ fn activation_request(
 /// Parse the `build` command: build without activating.
 #[must_use]
 pub fn build_cli() -> impl Parser<RebuildCommand> {
-    rebuild_cli().map(RebuildCommand::Build)
+    let dry = long("dry")
+        .short('n')
+        .help("Show what would be built, without building it")
+        .switch();
+    let rebuild = rebuild_cli();
+
+    construct!(dry, rebuild).map(|(dry, rebuild)| RebuildCommand::Build {
+        rebuild,
+        dry,
+    })
 }
 
 /// Parse the `test` command: build and activate the running system.
@@ -284,7 +293,7 @@ mod tests {
             .run_inner(Args::from(args).set_name("test"))
             .map_err(ParseFailure::unwrap_stderr)?;
         match command {
-            RebuildCommand::Build(opts) => Ok(opts),
+            RebuildCommand::Build { rebuild, .. } => Ok(rebuild),
             RebuildCommand::Activate { .. } => Err(String::from(
                 "build parser produced activation command",
             )),
@@ -343,13 +352,26 @@ mod tests {
     #[test]
     fn build_rejects_activation_only_flags() {
         for flag in [
-            "--dry",
             "--ask",
             "--no-validate",
             "--show-activation-logs",
             "--install-bootloader",
         ] {
             parse_build(&[flag]).unwrap_err();
+        }
+    }
+
+    #[test]
+    fn build_parses_dry_flag() {
+        for flag in ["--dry", "-n"] {
+            let command = build_cli()
+                .to_options()
+                .run_inner(Args::from(&[flag, "."][..]).set_name("test"))
+                .unwrap();
+            let RebuildCommand::Build { dry, .. } = command else {
+                panic!("expected build command");
+            };
+            assert!(dry, "expected dry to be set for {flag}");
         }
     }
 
