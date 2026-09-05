@@ -61,42 +61,66 @@ impl Applet {
     }
 }
 
-/// All applets, in listing order.
-const APPLETS: &[Applet] = &[
-    qr::APPLET,
-    uuid7::APPLET,
-    completion::APPLET,
-    upwards::APPLET,
-    hops::APPLET,
+/// A titled applet group in dispatcher help.
+#[derive(Debug)]
+struct AppletCategory {
+    heading: &'static str,
+    applets: &'static [Applet],
+}
+
+/// The complete applet registry, grouped in help order.
+const APPLET_WITH_CATEGORIES: &[AppletCategory] = &[
+    AppletCategory {
+        heading: "Generators",
+        applets: &[qr::APPLET, uuid7::APPLET],
+    },
+    AppletCategory {
+        heading: "Paths",
+        applets: &[upwards::APPLET, hops::APPLET],
+    },
+    AppletCategory {
+        heading: "Shell integration",
+        applets: &[completion::APPLET],
+    },
 ];
 
-const fn all_applets() -> &'static [Applet] {
-    APPLETS
+fn all_applets() -> impl Iterator<Item = &'static Applet> {
+    APPLET_WITH_CATEGORIES
+        .iter()
+        .flat_map(|category| category.applets.iter())
 }
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
-    APPLETS.iter().find(|applet| applet.name() == name)
+    all_applets().find(|applet| applet.name() == name)
 }
 
 /// Usage text listing all applets.
 #[must_use]
 fn usage() -> String {
     use std::fmt::Write as _;
-    let mut out =
-        format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\nApplets:\n");
-    let width = APPLETS
-        .iter()
+
+    let width = all_applets()
         .map(|applet| applet.name.len())
         .max()
         .unwrap_or(0);
-    for applet in APPLETS {
-        _ = writeln!(
-            out,
-            "  {:<width$}  {}",
-            applet.name(),
-            applet.summary()
-        );
+    let mut out =
+        format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\n\nApplets:\n");
+
+    for (index, category) in APPLET_WITH_CATEGORIES.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        _ = writeln!(out, "  {}:", category.heading);
+        for applet in category.applets {
+            _ = writeln!(
+                out,
+                "    {:<width$}  {}",
+                applet.name(),
+                applet.summary()
+            );
+        }
     }
+
     out
 }
 

@@ -9,6 +9,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::path::Path;
 use std::process::Command;
 use std::process::ExitCode;
 use std::str::FromStr;
@@ -103,46 +104,52 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
     let exe = std::env::current_exe()
         .context("Unable to resolve current executable")?;
 
-    // Resolve up front so an unknown applet fails before any script is printed.
-    let targets: &[Applet] = match args.applet.as_deref() {
-        Some(name) => {
-            std::slice::from_ref(find_applet(name).ok_or_else(|| {
-                rootcause::report!("unknown applet '{name}'")
-            })?)
-        }
-        None => all_applets(),
-    };
-
     // Depends only on the shell, not the applet — build once.
     let flag = format!("--bpaf-complete-style-{}", args.shell.as_str());
-    let multi = targets.len() > 1;
 
-    for (i, applet) in targets.iter().enumerate() {
-        let name = applet.name();
-        if multi && i > 0 {
+    if let Some(name) = args.applet.as_deref() {
+        // Resolve before printing anything.
+        let applet = find_applet(name).ok_or_else(|| {
+            rootcause::report!("unknown applet '{name}'")
+        })?;
+        return generate_completion(&exe, &flag, args.shell, applet);
+    }
+
+    for (index, applet) in all_applets().enumerate() {
+        if index > 0 {
             println!();
         }
-        if multi {
-            println!("# completion for: {name}");
-        }
-        debug!(applet = name, shell = %args.shell, "generating completion");
-        let output =
-            Command::new(&exe).arg(name).arg(&flag).output().context(
-                "Unable to execute self for completion generation",
-            )?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            rootcause::bail!(
-                "completion generation failed for '{name}' with status {}\n{}",
-                output.status,
-                stderr.trim()
-            );
-        }
-        let script = String::from_utf8(output.stdout)
-            .context("Completion output was not valid UTF-8")?;
-        // bpaf scripts are already newline-terminated; `println!` would double them.
-        print!("{script}");
+        println!("# completion for: {}", applet.name());
+        generate_completion(&exe, &flag, args.shell, applet)?;
     }
+    Ok(())
+}
+
+fn generate_completion(
+    exe: &Path,
+    flag: &str,
+    shell: Shell,
+    applet: &Applet,
+) -> rootcause::Result<()> {
+    let name = applet.name();
+    debug!(applet = name, shell = %shell, "generating completion");
+    let output = Command::new(exe)
+        .arg(name)
+        .arg(flag)
+        .output()
+        .context("Unable to execute self for completion generation")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        rootcause::bail!(
+            "completion generation failed for '{name}' with status {}\n{}",
+            output.status,
+            stderr.trim()
+        );
+    }
+    let script = String::from_utf8(output.stdout)
+        .context("Completion output was not valid UTF-8")?;
+    // bpaf scripts are already newline-terminated; `println!` would double them.
+    print!("{script}");
     Ok(())
 }
 
