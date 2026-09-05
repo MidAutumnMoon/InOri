@@ -186,7 +186,7 @@ impl fmt::Debug for Env {
     }
 }
 
-/// Hostname of the local machine, read once from the kernel.
+/// Hostname of the local machine.
 ///
 /// # Errors
 ///

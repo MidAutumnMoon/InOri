@@ -46,7 +46,6 @@ pub struct NixCommand {
     kind: Kind,
     args: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
-    interactive: bool,
 }
 
 impl NixCommand {
@@ -56,7 +55,6 @@ impl NixCommand {
             kind,
             args: Vec::new(),
             env: Vec::new(),
-            interactive: kind.interactive(),
         }
     }
 
@@ -91,19 +89,25 @@ impl NixCommand {
         self
     }
 
-    pub fn into_exec(self) -> Exec {
-        let Self {
-            kind, args, env, ..
-        } = self;
-        let mut argv = Vec::with_capacity(2 + args.len());
+    /// Full argv of the invocation, program name included.
+    fn argv(&self) -> Vec<OsString> {
+        let mut argv = Vec::with_capacity(2 + self.args.len());
         argv.push(OsString::from("nix"));
-        argv.push(OsString::from(kind.as_str()));
-        argv.extend(args);
-        let command = Exec::cmd("nix").args(argv);
-        if env.is_empty() {
+        argv.push(OsString::from(self.kind.as_str()));
+        argv.extend(self.args.iter().cloned());
+        argv
+    }
+
+    pub fn into_exec(self) -> Exec {
+        let mut argv = self.argv();
+        let program = argv.remove(0);
+        let command = Exec::cmd(program).args(argv);
+        // An empty env list would replace the child environment with an
+        // empty one; nothing set means inherit the ambient environment.
+        if self.env.is_empty() {
             command
         } else {
-            command.env_extend(env)
+            command.env_extend(self.env)
         }
     }
 
@@ -117,13 +121,13 @@ impl NixCommand {
     /// Returns an error if the command cannot start, stream communication
     /// or waiting fails.
     pub fn run_with_logs(self) -> Result<ExitStatus> {
-        if self.interactive {
+        if self.kind.interactive() {
             return self.run_interactive();
         }
 
         let mut stdout = io::stdout();
         let mut stderr = io::stderr();
-        self.communicate_to(&mut stdout, &mut stderr)
+        communicate_exec(self.into_exec(), &mut stdout, &mut stderr)
     }
 
     /// Run the command and collect stdout and stderr.
@@ -139,34 +143,6 @@ impl NixCommand {
     fn run_interactive(self) -> Result<ExitStatus> {
         let job =
             self.into_exec().start().context("Failed to start nix")?;
-        job.wait()
-            .context("Failed to wait for nix")
-            .map_err(Into::into)
-    }
-
-    fn communicate_to(
-        self,
-        stdout: &mut dyn Write,
-        stderr: &mut dyn Write,
-    ) -> Result<ExitStatus> {
-        let mut job = self
-            .into_exec()
-            .stdout(Redirection::Pipe)
-            .stderr(Redirection::Pipe)
-            .start()
-            .context("Failed to start nix")?;
-        let communication = job
-            .communicate()
-            .context("Failed to open nix output pipes")?
-            .read_to(stdout, stderr);
-
-        if let Err(error) = communication {
-            kill_and_wait(&job)?;
-            return Err(error)
-                .context("Failed to stream nix output")
-                .map_err(Into::into);
-        }
-
         job.wait()
             .context("Failed to wait for nix")
             .map_err(Into::into)
@@ -222,9 +198,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn interactive_defaults_are_schema_owned() {
-        assert!(NixCommand::new(Kind::Repl).interactive);
-        assert!(!NixCommand::new(Kind::Build).interactive);
+    fn argv_is_program_then_kind_then_args() {
+        let argv = NixCommand::new(Kind::Build)
+            .arg("--no-link")
+            .args([".#nixosConfigurations", "--print-build-logs"])
+            .argv();
+        assert_eq!(
+            argv,
+            [
+                "nix",
+                "build",
+                "--no-link",
+                ".#nixosConfigurations",
+                "--print-build-logs",
+            ]
+        );
     }
 
     #[cfg(unix)]
