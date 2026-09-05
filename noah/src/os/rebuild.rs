@@ -2,7 +2,9 @@
 //!
 //! One flow serves four commands: `build` stops after building; `switch`,
 //! `boot`, and `test` continue with the corresponding activation. The
-//! command line produces a [`RebuildCommand`], and [`run`] executes it.
+//! command line produces a [`RebuildCommand`], and [`run`] executes it: it
+//! applies the family-wide root guard, then builds the configuration and,
+//! for activation commands, activates it.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -18,12 +20,11 @@ use tracing::warn;
 use super::SYSTEM_PROFILE;
 use super::SpecialisationSelection;
 use super::diff::DiffMode;
-use super::has_elevation_status;
+use super::requires_elevation;
 use super::resolve_specialisation;
 use super::specialisation_in;
 use super::update;
 use crate::command::Command;
-use crate::elevation::Elevation;
 use crate::nix::build::Build;
 use crate::nix::options::NixBuildOptions;
 use crate::runtime::Config;
@@ -39,6 +40,16 @@ use crate::target::{self, BuildTarget};
 pub enum RebuildCommand {
     Build(Request),
     Activate(ActivationRequest),
+}
+
+impl RebuildCommand {
+    /// Whether the request opted out of the root guard.
+    fn bypass_root_check(&self) -> bool {
+        match self {
+            Self::Build(request) => request.bypass_root_check,
+            Self::Activate(request) => request.rebuild.bypass_root_check,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -114,32 +125,74 @@ impl ActivationAction {
 
 /// Execute a rebuild command.
 ///
+/// The root guard is family-wide: even a plain `build` must not run as
+/// root. The elevation decision is made once here; activation flows carry
+/// it down to the commands that actually escalate.
+///
 /// # Errors
 ///
-/// Returns an error if building or activating the configuration fails.
+/// Returns an error if the root check fails, or if building or activating
+/// the configuration fails.
 pub fn run(command: RebuildCommand, config: &Config) -> Result<()> {
+    let elevate =
+        requires_elevation(command.bypass_root_check(), &config.elevation)?;
+
     match command {
         RebuildCommand::Build(request) => request.build_only(config),
         RebuildCommand::Activate(request) => {
-            request.build_and_activate(config)
+            request.build_and_activate(config, elevate)
         }
     }
 }
 
-/// Essential files that must exist in a valid NixOS system closure. Each tuple
-/// contains the file path relative to the system profile and its description.
-/// The descriptions are used on log messages or errors.
-const ESSENTIAL_FILES: &[(&str, &str)] = &[
-    ("bin/switch-to-configuration", "activation script"),
-    ("nixos-version", "system version identifier"),
-    ("init", "system init script"),
-    ("sw/bin", "system path"),
-];
+/// The out-link a build leaves behind, plus the temporary directory backing
+/// it when one was allocated.
+///
+/// A temporary out-link is only meaningful while its directory exists, so
+/// the directory lives in this value: keeping the [`OutLink`] alive keeps
+/// the link resolvable.
+#[derive(Debug)]
+struct OutLink {
+    path: PathBuf,
+    /// Never read; held so the directory outlives every use of `path`.
+    _temp_dir: Option<tempfile::TempDir>,
+}
+
+impl OutLink {
+    /// The out-link for a plain `build`: `--out-link`, defaulting to
+    /// `result` in the working directory so the user can collect the built
+    /// system.
+    fn for_build(explicit: Option<&Path>) -> Self {
+        Self::at(explicit.unwrap_or_else(|| Path::new("result")))
+    }
+
+    /// The out-link for an activation flow: `--out-link`, else a throwaway
+    /// temporary directory, since only the resolved store paths are used
+    /// after the build.
+    fn for_activation(explicit: Option<&Path>) -> Result<Self> {
+        if let Some(path) = explicit {
+            return Ok(Self::at(path));
+        }
+
+        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+        Ok(Self {
+            path: dir.path().join("result"),
+            _temp_dir: Some(dir),
+        })
+    }
+
+    fn at(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            _temp_dir: None,
+        }
+    }
+}
 
 /// A successfully built system closure.
 ///
 /// The build leaves an out-link pointing at the toplevel; the selected
-/// profile is either the toplevel itself or one of its specialisations.
+/// closure is either the toplevel itself or one of its specialisations.
 /// Both paths are canonical store paths, so diffing, validation, and
 /// activation never have to re-resolve them.
 #[derive(Debug)]
@@ -147,9 +200,9 @@ struct BuiltSystem {
     /// Store path of the built toplevel (the out-link's target).
     toplevel: PathBuf,
 
-    /// Store path of the selected profile: the toplevel, or a
+    /// Store path of the selected closure: the toplevel, or a
     /// specialisation of it.
-    profile: PathBuf,
+    selected: PathBuf,
 }
 
 impl BuiltSystem {
@@ -168,135 +221,80 @@ impl BuiltSystem {
             "Failed to resolve output path to actual store path",
         )?;
 
-        let profile = match specialisation {
+        let selected = match specialisation {
             None => toplevel.clone(),
             Some(spec) => {
                 let spec_link = specialisation_in(out_link, spec)
                     .ok_or_else(|| {
                         report!(
-                            "Specialisation '{spec}' does not exist in the built \
-                             configuration"
+                            "Specialisation '{spec}' does not exist in the \
+                             built configuration"
                         )
                     })?;
                 spec_link.canonicalize().context_with(|| {
                     format!(
-                        "Failed to resolve specialisation '{spec}' to a store path"
+                        "Failed to resolve specialisation '{spec}' to a store \
+                         path"
                     )
                 })?
             }
         };
 
-        Ok(Self { toplevel, profile })
+        Ok(Self { toplevel, selected })
     }
 }
 
 impl Request {
-    /// Performs initial setup for an OS rebuild operation:
-    ///
-    /// - Determining whether activation needs elevation (and enforcing the
-    ///   root guard unless bypassed).
-    /// - Resolving the target hostname for the build.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of:
-    ///
-    /// - `bool`: `true` if activation requires elevation.
-    /// - `String`: The resolved target hostname.
-    fn setup_build_context(
-        &self,
-        elevation: &Elevation,
-        env: &Env,
-    ) -> Result<(bool, String)> {
-        let elevate =
-            has_elevation_status(self.bypass_root_check, elevation)?;
+    /// Builds the toplevel configuration without activating (`nh build`).
+    fn build_only(&self, config: &Config) -> Result<()> {
+        let out_link = OutLink::for_build(self.build.out_link.as_deref());
 
-        let target_hostname = self
+        let toplevel = self.prepare_toplevel(&config.env)?;
+        self.build_and_diff(toplevel, &out_link)?;
+
+        Ok(())
+    }
+
+    /// Resolves what to build and completes it to select the NixOS
+    /// `toplevel` derivation, optionally refreshing inputs first.
+    fn prepare_toplevel(&self, env: &Env) -> Result<BuildTarget> {
+        let mut target = target::resolve(self.build.target.clone(), env)?;
+        let hostname = self
             .hostname
-            .clone()
-            .unwrap_or_else(|| env.hostname().to_owned());
-
-        Ok((elevate, target_hostname))
-    }
-
-    fn determine_output_path(
-        &self,
-        temporary: bool,
-    ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
-        if let Some(path) = self.build.out_link.clone() {
-            return Ok((path, None));
-        }
-
-        if temporary {
-            let dir =
-                tempfile::Builder::new().prefix("nh-os").tempdir()?;
-            Ok((dir.as_ref().join("result"), Some(dir)))
-        } else {
-            Ok((PathBuf::from("result"), None))
-        }
-    }
-
-    fn prepare_toplevel(
-        &self,
-        target_hostname: &str,
-        env: &Env,
-    ) -> Result<BuildTarget> {
-        const TOPLEVEL_ATTRS: [&str; 4] =
-            ["config", "system", "build", "toplevel"];
-
-        let mut toplevel =
-            target::resolve(self.build.target.clone(), env)?;
-
-        match &mut toplevel {
-            BuildTarget::Flake { attribute, .. } => {
-                let second = attribute
-                    .get(1)
-                    .map_or_else(String::new, String::clone);
-                match attribute.first().map(String::as_str) {
-                    None => {
-                        attribute
-                            .push(String::from("nixosConfigurations"));
-                        attribute.push(target_hostname.to_owned());
-                    }
-                    Some("nixosConfigurations") => match attribute.len() {
-                        1 => {
-                            info!(
-                                "Inferring hostname '{target_hostname}' for \
-                                 nixosConfigurations"
-                            );
-                            attribute.push(target_hostname.to_owned());
-                        }
-                        2 => {}
-                        _ => {
-                            bail!(
-                                "Attribute path is too specific: {attribute}. Please \
-                                 either:\n  1. Use the flake reference without \
-                                 attributes (e.g., '.')\n  2. Specify only the \
-                                 configuration name (e.g., '.#{second}')"
-                            );
-                        }
-                    },
-                    Some(_) => {
-                        attribute.insert(
-                            0,
-                            String::from("nixosConfigurations"),
-                        );
-                    }
-                }
-                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
-            }
-            BuildTarget::File { attribute, .. }
-            | BuildTarget::Expression { attribute, .. } => {
-                attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
-            }
-            BuildTarget::StorePath(_) => {}
-        }
+            .as_deref()
+            .unwrap_or_else(|| env.hostname());
+        select_toplevel(&mut target, hostname)?;
 
         if let Some(selection) = &self.update {
-            update::run(&toplevel, selection, self.commit_lock_file)?;
+            update::run(&target, selection, self.commit_lock_file)?;
         }
 
-        Ok(toplevel)
+        Ok(target)
+    }
+
+    /// Builds the toplevel, resolves the built system from the out-link and
+    /// shows the configured diff.
+    fn build_and_diff(
+        &self,
+        toplevel: BuildTarget,
+        out_link: &OutLink,
+    ) -> Result<BuiltSystem> {
+        self.execute_build(toplevel, &out_link.path)?;
+
+        let target_specialisation =
+            resolve_specialisation(&self.specialisation);
+        debug!("Target specialisation: {target_specialisation:?}");
+
+        let built = BuiltSystem::resolve(
+            &out_link.path,
+            target_specialisation.as_deref(),
+        )?;
+        debug!("Built toplevel: {}", built.toplevel.display());
+        debug!("Selected closure: {}", built.selected.display());
+
+        super::diff::run(&self.build.diff, &built.selected)?;
+
+        Ok(built)
     }
 
     fn execute_build(
@@ -318,60 +316,79 @@ impl Request {
 
         Ok(())
     }
+}
 
-    fn build_and_diff(
-        &self,
-        toplevel: BuildTarget,
-        out_path: &Path,
-    ) -> Result<BuiltSystem> {
-        self.execute_build(toplevel, out_path)?;
+/// Completes a resolved target so the build produces the NixOS `toplevel`
+/// derivation.
+///
+/// Flake targets get their attribute path completed to
+/// `nixosConfigurations.<hostname>.config.system.build.toplevel`: a bare
+/// reference or a bare `nixosConfigurations` infers the hostname, a bare
+/// configuration name gets `nixosConfigurations` prepended, and anything
+/// deeper is rejected as too specific. File and expression targets only
+/// gain the `config.system.build.toplevel` suffix; a store path already is
+/// the built output.
+///
+/// # Errors
+///
+/// Returns an error for a flake attribute path too specific to infer a
+/// configuration from.
+fn select_toplevel(target: &mut BuildTarget, hostname: &str) -> Result<()> {
+    const TOPLEVEL_ATTRS: [&str; 4] =
+        ["config", "system", "build", "toplevel"];
 
-        let target_specialisation =
-            resolve_specialisation(&self.specialisation);
-        debug!("Target specialisation: {target_specialisation:?}");
-
-        let built = BuiltSystem::resolve(
-            out_path,
-            target_specialisation.as_deref(),
-        )?;
-        debug!("Built toplevel: {}", built.toplevel.display());
-        debug!("Selected profile: {}", built.profile.display());
-
-        super::diff::run(&self.build.diff, &built.profile)?;
-
-        Ok(built)
+    match target {
+        BuildTarget::Flake { attribute, .. } => {
+            match attribute.as_slice() {
+                [] => {
+                    attribute.push(String::from("nixosConfigurations"));
+                    attribute.push(hostname.to_owned());
+                }
+                [head] if head == "nixosConfigurations" => {
+                    info!(
+                        "Inferring hostname '{hostname}' for \
+                         nixosConfigurations"
+                    );
+                    attribute.push(hostname.to_owned());
+                }
+                [head, _] if head == "nixosConfigurations" => {}
+                [head, second, ..] if head == "nixosConfigurations" => {
+                    bail!(
+                        "Attribute path is too specific: {attribute}. Please \
+                         either:\n  1. Use the flake reference without \
+                         attributes (e.g., '.')\n  2. Specify only the \
+                         configuration name (e.g., '.#{second}')"
+                    );
+                }
+                _ => {
+                    attribute
+                        .insert(0, String::from("nixosConfigurations"));
+                }
+            }
+            attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
+        }
+        BuildTarget::File { attribute, .. }
+        | BuildTarget::Expression { attribute, .. } => {
+            attribute.extend(TOPLEVEL_ATTRS.map(str::to_owned));
+        }
+        BuildTarget::StorePath(_) => {}
     }
 
-    /// Builds the toplevel configuration without activating (`nh build`).
-    fn build_only(&self, config: &Config) -> Result<()> {
-        let (_, target_hostname) =
-            self.setup_build_context(&config.elevation, &config.env)?;
-
-        let (out_path, _tempdir_guard) =
-            self.determine_output_path(false)?;
-
-        let toplevel =
-            self.prepare_toplevel(&target_hostname, &config.env)?;
-        self.build_and_diff(toplevel, &out_path)?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 impl ActivationRequest {
-    fn build_and_activate(&self, config: &Config) -> Result<()> {
-        let (elevate, target_hostname) = self
-            .rebuild
-            .setup_build_context(&config.elevation, &config.env)?;
+    fn build_and_activate(
+        &self,
+        config: &Config,
+        elevate: bool,
+    ) -> Result<()> {
+        let out_link = OutLink::for_activation(
+            self.rebuild.build.out_link.as_deref(),
+        )?;
 
-        let (out_path, _tempdir_guard) =
-            self.rebuild.determine_output_path(true)?;
-
-        let toplevel = self
-            .rebuild
-            .prepare_toplevel(&target_hostname, &config.env)?;
-
-        let built = self.rebuild.build_and_diff(toplevel, &out_path)?;
+        let toplevel = self.rebuild.prepare_toplevel(&config.env)?;
+        let built = self.rebuild.build_and_diff(toplevel, &out_link)?;
 
         if self.activation.dry {
             if self.activation.ask {
@@ -381,7 +398,7 @@ impl ActivationRequest {
             return Ok(());
         }
 
-        self.activate_rebuilt_config(&built, elevate, config)?;
+        self.activate_rebuilt_config(&built, config, elevate)?;
 
         Ok(())
     }
@@ -389,8 +406,8 @@ impl ActivationRequest {
     fn activate_rebuilt_config(
         &self,
         built: &BuiltSystem,
-        elevate: bool,
         config: &Config,
+        elevate: bool,
     ) -> Result<()> {
         let action = self.activation.action;
 
@@ -405,42 +422,42 @@ impl ActivationRequest {
         }
 
         let switch_to_configuration =
-            self.resolve_closure(&built.profile)?;
+            self.resolve_closure(&built.selected)?;
 
         match action {
             ActivationAction::Test { .. } => {
                 self.activate_test_phase(
                     &switch_to_configuration,
-                    elevate,
                     config,
+                    elevate,
                 )?;
             }
             ActivationAction::Boot { .. } => {
                 self.activate_boot_phase(
                     built,
                     &switch_to_configuration,
-                    elevate,
                     config,
+                    elevate,
                 )?;
             }
             ActivationAction::Switch { .. } => {
                 self.activate_test_phase(
                     &switch_to_configuration,
-                    elevate,
                     config,
+                    elevate,
                 )?;
                 self.activate_boot_phase(
                     built,
                     &switch_to_configuration,
-                    elevate,
                     config,
+                    elevate,
                 )?;
             }
         }
 
         debug!(
             "Completed {action:?} operation with store path: {}",
-            built.profile.display()
+            built.selected.display()
         );
 
         Ok(())
@@ -448,7 +465,7 @@ impl ActivationRequest {
 
     /// Validates the closure to activate and resolves the path to its
     /// `switch-to-configuration` binary.
-    fn resolve_closure(&self, profile: &Path) -> Result<PathBuf> {
+    fn resolve_closure(&self, selected: &Path) -> Result<PathBuf> {
         if self.activation.no_validate {
             warn!(
                 "Skipping pre-activation validation (--no-validate set)"
@@ -458,10 +475,10 @@ impl ActivationRequest {
          incomplete"
             );
         } else {
-            validate_system_closure(profile)?;
+            validate_system_closure(selected)?;
         }
 
-        let switch_to_configuration = profile
+        let switch_to_configuration = selected
             .join("bin")
             .join("switch-to-configuration")
             .canonicalize()
@@ -474,8 +491,8 @@ impl ActivationRequest {
     fn activate_test_phase(
         &self,
         switch_to_configuration: &Path,
-        elevate: bool,
         config: &Config,
+        elevate: bool,
     ) -> Result<()> {
         Command::new(
             switch_to_configuration,
@@ -498,8 +515,8 @@ impl ActivationRequest {
         &self,
         built: &BuiltSystem,
         switch_to_configuration: &Path,
-        elevate: bool,
         config: &Config,
+        elevate: bool,
     ) -> Result<()> {
         // Use the base system closure instead of the specialisation one.
         // This is what makes all specialisations visible in the bootloader
@@ -531,19 +548,25 @@ impl ActivationRequest {
     }
 }
 
+/// Essential files that must exist in a valid NixOS system closure. Each tuple
+/// contains the file path relative to the system profile and its description.
+/// The descriptions are used on log messages or errors.
+const ESSENTIAL_FILES: &[(&str, &str)] = &[
+    ("bin/switch-to-configuration", "activation script"),
+    ("nixos-version", "system version identifier"),
+    ("init", "system init script"),
+    ("sw/bin", "system path"),
+];
+
 /// Validates that essential files exist in the system closure.
 ///
-/// Checks for a few critical files that must be present in a complete NixOS
-/// system. This is essentially in-line with what nixos-rebuild-ng checks for.
+/// Checks for the files in [`ESSENTIAL_FILES`], which must be present in a
+/// complete NixOS system. This is essentially in-line with what
+/// nixos-rebuild-ng checks for.
 ///
-/// - bin/switch-to-configuration: activation script
-/// - nixos-version: system version identifier
-/// - init: system init script
-/// - sw/bin: system path binaries
+/// # Errors
 ///
-/// # Returns
-///
-/// `Ok(())` if all files exist, or an error listing missing files.
+/// Returns an error listing the missing files, with common causes and fixes.
 fn validate_system_closure(system_path: &Path) -> Result<()> {
     let mut missing = Vec::new();
     for (file, description) in ESSENTIAL_FILES {
@@ -572,9 +595,15 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Test assertions")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::used_underscore_binding,
+    reason = "Test assertions"
+)]
 mod tests {
     use super::*;
+    use crate::target::AttrPath;
     use std::fs;
 
     /// Lay out a fake built system: an out-link to a toplevel containing one
@@ -602,7 +631,7 @@ mod tests {
         let built = BuiltSystem::resolve(&out_link, None).unwrap();
 
         assert_eq!(built.toplevel, base.join("store-toplevel"));
-        assert_eq!(built.profile, built.toplevel);
+        assert_eq!(built.selected, built.toplevel);
     }
 
     #[test]
@@ -614,7 +643,7 @@ mod tests {
         let built = BuiltSystem::resolve(&out_link, Some("foo")).unwrap();
 
         assert_eq!(built.toplevel, base.join("store-toplevel"));
-        assert_eq!(built.profile, base.join("store-spec"));
+        assert_eq!(built.selected, base.join("store-spec"));
     }
 
     #[test]
@@ -630,5 +659,152 @@ mod tests {
                 .to_string()
                 .contains("does not exist in the built configuration")
         );
+    }
+
+    /// A flake target carrying the given attribute segments.
+    fn flake_target(segments: &[&str]) -> BuildTarget {
+        let mut attribute = AttrPath::default();
+        attribute
+            .extend(segments.iter().map(|segment| String::from(*segment)));
+        BuildTarget::Flake {
+            reference: String::from("."),
+            attribute,
+        }
+    }
+
+    fn flake_attribute(target: &BuildTarget) -> &AttrPath {
+        let BuildTarget::Flake { attribute, .. } = target else {
+            panic!("expected flake target")
+        };
+        attribute
+    }
+
+    #[test]
+    fn bare_flake_reference_infers_hostname() {
+        let mut target = flake_target(&[]);
+
+        select_toplevel(&mut target, "host").unwrap();
+
+        assert_eq!(
+            flake_attribute(&target).to_vec(),
+            [
+                "nixosConfigurations",
+                "host",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+    }
+
+    #[test]
+    fn bare_nixos_configurations_infers_hostname() {
+        let mut target = flake_target(&["nixosConfigurations"]);
+
+        select_toplevel(&mut target, "host").unwrap();
+
+        assert_eq!(
+            flake_attribute(&target).to_vec(),
+            [
+                "nixosConfigurations",
+                "host",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+    }
+
+    #[test]
+    fn complete_configuration_path_only_gains_toplevel() {
+        let mut target = flake_target(&["nixosConfigurations", "host"]);
+
+        select_toplevel(&mut target, "other").unwrap();
+
+        assert_eq!(
+            flake_attribute(&target).to_vec(),
+            [
+                "nixosConfigurations",
+                "host",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+    }
+
+    #[test]
+    fn bare_configuration_name_is_qualified() {
+        let mut target = flake_target(&["myhost"]);
+
+        select_toplevel(&mut target, "host").unwrap();
+
+        assert_eq!(
+            flake_attribute(&target).to_vec(),
+            [
+                "nixosConfigurations",
+                "myhost",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+    }
+
+    #[test]
+    fn too_specific_path_is_rejected() {
+        let mut target =
+            flake_target(&["nixosConfigurations", "host", "extra"]);
+
+        let error = select_toplevel(&mut target, "host").unwrap_err();
+
+        assert!(error.to_string().contains("too specific"));
+    }
+
+    #[test]
+    fn file_target_gains_toplevel_attribute() {
+        let mut target = BuildTarget::File {
+            path: PathBuf::from("/etc/nixos/configuration.nix"),
+            attribute: AttrPath::default(),
+        };
+
+        select_toplevel(&mut target, "host").unwrap();
+
+        let BuildTarget::File { attribute, .. } = &target else {
+            panic!("expected file target")
+        };
+        assert_eq!(
+            attribute.to_vec(),
+            ["config", "system", "build", "toplevel"]
+        );
+    }
+
+    #[test]
+    fn build_out_link_defaults_to_result() {
+        let link = OutLink::for_build(None);
+
+        assert_eq!(link.path, PathBuf::from("result"));
+        assert!(link._temp_dir.is_none());
+
+        let explicit = OutLink::for_build(Some(Path::new("/tmp/out")));
+        assert_eq!(explicit.path, PathBuf::from("/tmp/out"));
+        assert!(explicit._temp_dir.is_none());
+    }
+
+    #[test]
+    fn activation_out_link_defaults_to_temporary() {
+        let link = OutLink::for_activation(None).unwrap();
+
+        assert!(link.path.ends_with("result"));
+        assert!(link._temp_dir.is_some());
+
+        let explicit =
+            OutLink::for_activation(Some(Path::new("/tmp/out"))).unwrap();
+        assert_eq!(explicit.path, PathBuf::from("/tmp/out"));
+        assert!(explicit._temp_dir.is_none());
     }
 }

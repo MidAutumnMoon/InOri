@@ -20,7 +20,7 @@ use super::SYSTEM_PROFILE;
 use super::SpecialisationSelection;
 use super::diff::DiffMode;
 use super::from_dir;
-use super::has_elevation_status;
+use super::requires_elevation;
 use super::is_current;
 use super::missing_switch_to_configuration_error;
 use super::resolve_specialisation;
@@ -110,7 +110,7 @@ impl Request {
         reason = "linear rollback flow whose errors carry their own context"
     )]
     fn rollback(&self, config: &Config) -> Result<()> {
-        let elevate = has_elevation_status(
+        let elevate = requires_elevation(
             self.bypass_root_check,
             &config.elevation,
         )?;

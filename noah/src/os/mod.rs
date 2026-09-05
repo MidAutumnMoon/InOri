@@ -77,22 +77,22 @@ fn missing_switch_to_configuration_error() -> rootcause::Report {
     )
 }
 
-/// Checks if the current user is root and returns whether elevation is needed.
+/// Decides whether privileged commands must run through elevation, and
+/// enforces the root guard on the way.
 ///
-/// Returns `true` if elevation is required (not root and `bypass_root_check` is
-/// false). Returns `false` if elevation is not required (root,
-/// `bypass_root_check` is true, or elevation is disabled).
+/// Returns `true` when the caller is not root and elevation is enabled, so
+/// child processes must escalate. Returns `false` when the process already
+/// runs as root or when elevation is disabled.
 ///
 /// # Arguments
 ///
-/// * `bypass_root_check` - If true, bypasses the root check and assumes no
-///   elevation is needed.
+/// * `bypass_root_check` - If true, running as root does not error.
 ///
 /// # Errors
 ///
 /// Returns an error if `bypass_root_check` is false and the user is root,
 /// as the os subcommands should not be run directly as root.
-fn has_elevation_status(
+fn requires_elevation(
     bypass_root_check: bool,
     elevation: &Elevation,
 ) -> Result<bool> {
