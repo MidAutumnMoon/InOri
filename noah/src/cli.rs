@@ -82,68 +82,73 @@ impl From<CliGroup> for bpaf::Doc {
 /// Assemble the full `nh` command line parser.
 #[must_use]
 pub fn cli() -> bpaf::OptionParser<Cli> {
-    let switch = switch_cli()
-        .to_options()
-        .descr(
-            "Build and activate the new configuration, and make it the boot \
-             default.",
-        )
-        .command("switch")
-        .map(|command| CliCommand::Rebuild(Box::new(command)));
+    let system = {
+        let switch = switch_cli()
+            .to_options()
+            .descr("Build, boot, and activate the new configuration.")
+            .command("switch")
+            .map(|command| CliCommand::Rebuild(Box::new(command)));
 
-    let boot = boot_cli()
-        .to_options()
-        .descr("Build the new configuration and make it the boot default.")
-        .command("boot")
-        .map(|command| CliCommand::Rebuild(Box::new(command)));
+        let boot = boot_cli()
+            .to_options()
+            .descr("Build and boot the new configuration.")
+            .command("boot")
+            .map(|command| CliCommand::Rebuild(Box::new(command)));
 
-    let test = test_cli()
-        .to_options()
-        .descr("Build and activate the new configuration.")
-        .command("test")
-        .map(|command| CliCommand::Rebuild(Box::new(command)));
-    let build = build_cli()
-        .to_options()
-        .descr("Build the new configuration.")
-        .command("build")
-        .map(|command| CliCommand::Rebuild(Box::new(command)));
-    let repl = repl::cli()
-        .to_options()
-        .descr("Load system in a repl.")
-        .command("repl")
-        .map(CliCommand::Repl);
-    let info = info::cli()
-        .to_options()
-        .descr("List available generations from profile path.")
-        .command("info")
-        .map(CliCommand::Info);
-    let rollback = rollback::cli()
-        .to_options()
-        .descr("Rollback to a previous generation.")
-        .command("rollback")
-        .map(CliCommand::Rollback);
-    let search = search_cli()
-        .to_options()
-        .descr("Searches packages or NixOS options via search.nixos.org.")
-        .command("search")
-        .map(CliCommand::Search);
-    let clean = clean_cli()
-        .to_options()
-        .descr("Enhanced nix cleanup.")
-        .command("clean")
-        .map(CliCommand::Clean);
+        let test = test_cli()
+            .to_options()
+            .descr("Build and activate the new configuration.")
+            .command("test")
+            .map(|command| CliCommand::Rebuild(Box::new(command)));
 
-    let command = {
-        let system = construct!([switch, boot, test, build, repl])
-            .group_help(CliGroup::NixOS);
+        let build = build_cli()
+            .to_options()
+            .descr("Build the new configuration.")
+            .command("build")
+            .map(|command| CliCommand::Rebuild(Box::new(command)));
 
-        let generations = construct!([info, clean, rollback])
-            .group_help(CliGroup::Profile);
+        let repl = repl::cli()
+            .to_options()
+            .descr("Load system in a repl.")
+            .command("repl")
+            .map(CliCommand::Repl);
 
-        let utilities = construct!([search]).group_help(CliGroup::Tools);
-
-        construct!([system, generations, utilities])
+        construct!([switch, boot, test, build, repl])
+            .group_help(CliGroup::NixOS)
     };
+
+    let profile = {
+        let info = info::cli()
+            .to_options()
+            .descr("List available generations from profile path.")
+            .command("info")
+            .map(CliCommand::Info);
+        let clean = clean_cli()
+            .to_options()
+            .descr("Enhanced nix cleanup.")
+            .command("clean")
+            .map(CliCommand::Clean);
+        let rollback = rollback::cli()
+            .to_options()
+            .descr("Rollback to a previous generation.")
+            .command("rollback")
+            .map(CliCommand::Rollback);
+        construct!([info, clean, rollback]).group_help(CliGroup::Profile)
+    };
+
+    let tools = {
+        let search = search_cli()
+            .to_options()
+            .descr(
+                "Search packages or NixOS options via search.nixos.org.",
+            )
+            .command("search")
+            .map(CliCommand::Search);
+
+        construct!([search]).group_help(CliGroup::Tools)
+    };
+
+    let command = construct!([system, profile, tools]);
 
     let elevation_strategy = elevation_cli();
 
