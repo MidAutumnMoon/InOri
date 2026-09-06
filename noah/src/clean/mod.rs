@@ -24,11 +24,20 @@ use tracing::info;
 use tracing::instrument;
 use tracing::warn;
 
+use crate::command::Command;
 use crate::runtime::Config;
+
+/// The parsed `clean` command: a scoped cleanup run, or the standalone
+/// gc-root query.
 #[derive(Debug, Clone)]
-pub struct CliOpts {
-    pub scope: Scope,
-    pub options: Options,
+pub enum CliOpts {
+    /// `nh clean -P`: print the gc roots and exit.
+    PrintGcRoots,
+    /// A scoped cleanup: `all`, `user`, or a specific profile.
+    Clean {
+        scope: Scope,
+        options: Options,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -120,7 +129,25 @@ where
 ///
 /// Returns an error if any IO, Nix, or environment operation fails.
 pub fn run(opts: &CliOpts, config: &Config) -> Result<()> {
-    plan::run(opts, config)
+    match opts {
+        CliOpts::PrintGcRoots => print_gc_roots(config),
+        CliOpts::Clean { scope, options } => plan::run(scope, options, config),
+    }
+}
+
+/// Print the garbage collector roots the way `nix-store --gc --print-roots`
+/// would, minus the `/proc` entries, and return without cleaning.
+fn print_gc_roots(config: &Config) -> Result<()> {
+    let capture = Command::new("nix-store", &config.env, &config.elevation)
+        .args(["--gc", "--print-roots"])
+        .message("Listing garbage collector roots")
+        .output()?;
+
+    for line in omit_proc_roots(&capture.stdout_str()) {
+        println!("{line}");
+    }
+
+    Ok(())
 }
 
 #[instrument(ret, level = "debug")]
@@ -278,6 +305,18 @@ fn gcroot_matches_filter(
 
 fn is_auto_gcroot_entry(path: &Path) -> bool {
     path.starts_with(AUTO_GCROOTS_DIR)
+}
+
+/// Drop `/proc` entries from `nix-store --gc --print-roots` output: those
+/// roots are kernel-managed fd/pid links, not cleanup decisions.
+///
+/// The prefix is matched per path component, so only the `/proc`
+/// pseudo-filesystem is excluded, not paths that merely start with `/proc`
+/// as a string.
+fn omit_proc_roots(output: &str) -> impl Iterator<Item = &str> {
+    output
+        .lines()
+        .filter(|line| !Path::new(line).starts_with("/proc"))
 }
 
 /// Whether `path`'s basename looks like an ephemeral `nix build` result
@@ -487,6 +526,34 @@ mod tests {
         let dst = Path::new("/home/user/some-random-link");
         let regexes = [&*DIRENV_REGEX];
         assert!(!gcroot_matches_filter(src, dst, &regexes));
+    }
+
+    #[test]
+    fn omit_proc_roots_drops_kernel_entries_only() {
+        let output = "/proc/123/fd/9 -> /nix/store/abc-kernel\n\
+                      /proc/self -> /nix/store/def-kernel\n\
+                      /nix/var/nix/profiles/system-754-link -> \
+                      /nix/store/ghi-system\n";
+        let kept: Vec<&str> = omit_proc_roots(output).collect();
+        assert_eq!(
+            kept,
+            ["/nix/var/nix/profiles/system-754-link -> \
+              /nix/store/ghi-system"]
+        );
+    }
+
+    #[test]
+    fn omit_proc_roots_keeps_proc_prefixed_names() {
+        let output = "/processes/foo -> /nix/store/abc-not-kernel\n";
+        assert_eq!(
+            omit_proc_roots(output).collect::<Vec<_>>(),
+            ["/processes/foo -> /nix/store/abc-not-kernel"]
+        );
+    }
+
+    #[test]
+    fn omit_proc_roots_of_empty_output_is_empty() {
+        assert_eq!(omit_proc_roots("").count(), 0);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 use yansi::{Color, Paint};
 
 use super::{
-    CliOpts, DIRENV_REGEX, GcRootTagged, Options, ProfilesTagged, Scope,
+    DIRENV_REGEX, GcRootTagged, Options, ProfilesTagged, Scope,
     cleanable_generations, filter_existing_dirs, gcroot_matches_filter,
     gcroot_path_to_remove, profiles_in_dir, remove_path_nofail,
 };
@@ -26,11 +26,15 @@ struct CleanPlan {
     orphan_gcroots: Vec<PathBuf>,
 }
 
-pub(super) fn run(opts: &CliOpts, config: &Config) -> Result<()> {
-    let plan = CleanPlan::build(opts, config)?;
-    plan.render(&opts.options);
+pub(super) fn run(
+    scope: &Scope,
+    options: &Options,
+    config: &Config,
+) -> Result<()> {
+    let plan = CleanPlan::build(scope, options, config)?;
+    plan.render(options);
 
-    if opts.options.ask
+    if options.ask
         && !Confirm::new("Confirm the cleanup plan?")
             .with_default(false)
             .prompt()?
@@ -38,12 +42,15 @@ pub(super) fn run(opts: &CliOpts, config: &Config) -> Result<()> {
         bail!("User rejected the cleanup plan");
     }
 
-    plan.apply(&opts.options, config)
+    plan.apply(options, config)
 }
 
 impl CleanPlan {
-    fn build(opts: &CliOpts, config: &Config) -> Result<Self> {
-        let options = &opts.options;
+    fn build(
+        scope: &Scope,
+        options: &Options,
+        config: &Config,
+    ) -> Result<Self> {
         let mut profiles = Vec::new();
         let mut gcroots = Vec::new();
         let mut orphan_gcroots = Vec::new();
@@ -51,7 +58,7 @@ impl CleanPlan {
         let mut profile_only = false;
 
         let uid = Uid::effective();
-        match &opts.scope {
+        match scope {
             Scope::Profile(profile) => {
                 profiles.push(profile.clone());
                 profile_only = true;

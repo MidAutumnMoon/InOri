@@ -13,8 +13,10 @@ use std::os::unix::process::CommandExt as _;
 use std::path::PathBuf;
 
 use rootcause::Result;
+use rootcause::bail;
 use rootcause::prelude::ResultExt as _;
 use rootcause::report;
+use subprocess::Capture;
 use subprocess::Exec;
 use subprocess::Redirection;
 use tracing::debug;
@@ -280,20 +282,46 @@ impl<'env> Command<'env> {
         panic!("{err}");
     }
 
-    /// Run the configured command.
+    fn base_exec(&self) -> Result<Exec> {
+        Ok(if self.elevate {
+            self.build_sudo_cmd()?.arg(&self.program).args(&self.args)
+        } else {
+            self.apply_env_to_exec(
+                Exec::cmd(&self.program).args(&self.args),
+            )
+        })
+    }
+
+    fn failure_message(&self) -> String {
+        self.message
+            .clone()
+            .unwrap_or_else(|| "Command failed".to_owned())
+    }
+
+    fn require_success(&self, capture: &Capture) -> Result<()> {
+        if capture.exit_status.success() {
+            return Ok(());
+        }
+
+        let msg = self.failure_message();
+        let stderr = capture.stderr_str();
+        if stderr.trim().is_empty() {
+            bail!(format!("{msg} (exit status {:?})", capture.exit_status));
+        }
+        bail!(format!(
+            "{msg} (exit status {:?})\nstderr:\n{stderr}",
+            capture.exit_status
+        ));
+    }
+
+    /// Run the configured command, forwarding its streams per `show_output`.
     ///
     /// # Errors
     ///
     /// Returns an error if the command fails to execute or returns a non-zero
     /// exit status.
     pub fn run(&self) -> Result<()> {
-        let cmd = if self.elevate {
-            self.build_sudo_cmd()?.arg(&self.program).args(&self.args)
-        } else {
-            self.apply_env_to_exec(
-                Exec::cmd(&self.program).args(&self.args),
-            )
-        };
+        let cmd = self.base_exec()?;
 
         let cmd = if self.show_output {
             cmd.stderr(Redirection::Merge)
@@ -311,43 +339,35 @@ impl<'env> Command<'env> {
             return Ok(());
         }
 
-        let msg = self
-            .message
-            .clone()
-            .unwrap_or_else(|| "Command failed".to_owned());
-
         if self.show_output {
+            let msg = self.failure_message();
             let exit_status = cmd.join().context(msg.clone())?;
             if !exit_status.success() {
-                rootcause::bail!(format!(
-                    "{} (exit status {:?})",
-                    msg, exit_status
-                ));
+                bail!(format!("{msg} (exit status {exit_status:?})"));
             }
-            Ok(())
-        } else {
-            let res = cmd.capture();
-            match res {
-                Ok(capture) => {
-                    let status = &capture.exit_status;
-                    if !status.success() {
-                        let stderr = capture.stderr_str();
-                        if stderr.trim().is_empty() {
-                            rootcause::bail!(format!(
-                                "{} (exit status {:?})",
-                                msg, status
-                            ));
-                        }
-                        rootcause::bail!(format!(
-                            "{} (exit status {:?})\nstderr:\n{}",
-                            msg, status, stderr
-                        ));
-                    }
-                    Ok(())
-                }
-                Err(err) => Err(err).context(msg).map_err(Into::into),
-            }
+            return Ok(());
         }
+
+        let capture = cmd.capture().context(self.failure_message())?;
+        self.require_success(&capture)
+    }
+
+    /// Run the configured command and capture its standard streams.
+    ///
+    /// Unlike [`Command::run`] this always executes the command: `dry` is
+    /// not consulted, and the output is not forwarded anywhere — the caller
+    /// decides what to do with it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails to execute or returns a non-zero
+    /// exit status.
+    pub fn output(&self) -> Result<Capture> {
+        let cmd = self.base_exec()?;
+        debug!(?cmd);
+        let capture = cmd.capture().context(self.failure_message())?;
+        self.require_success(&capture)?;
+        Ok(capture)
     }
 }
 
@@ -458,5 +478,33 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("failure"));
         assert!(message.contains("exit status"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_captures_stdout() {
+        let env = Env::from_pairs([("IGNORED", "")]);
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let capture = Command::new("/bin/sh", &env, &elevation)
+            .args(["-c", "printf hello; printf oops >&2"])
+            .output()
+            .unwrap();
+
+        assert_eq!(capture.stdout_str(), "hello");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_fails_on_nonzero_status() {
+        let env = Env::from_pairs([("IGNORED", "")]);
+        let elevation =
+            Elevation::new(Some(ElevationStrategy::Auto), &env).unwrap();
+        let error = Command::new("/bin/sh", &env, &elevation)
+            .args(["-c", "exit 3"])
+            .output()
+            .unwrap_err();
+
+        assert!(error.to_string().contains("exit status"));
     }
 }
