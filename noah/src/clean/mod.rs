@@ -56,29 +56,20 @@ pub struct Options {
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
+#[expect(clippy::expect_used, reason = "static regex literal")]
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
     Regex::new(r".*/(?:\.direnv|direnv/layouts)/.*")
         .expect("Failed to compile direnv regex")
 });
 
+#[expect(clippy::expect_used, reason = "static regex literal")]
 static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
     Regex::new(r"^(.*)-(\d+)-link$")
         .expect("Failed to compile generation regex")
 });
 
+#[expect(clippy::expect_used, reason = "static regex literal")]
 static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "static regex literal; compilation failure is a programmer error"
-    )]
     Regex::new("^result(-.*)?$")
         .expect("Failed to compile result link regex")
 });
