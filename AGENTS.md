@@ -28,23 +28,23 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 ### Binary Crates
 
-| Crate | Description |
-|---|---|
-| `derputils` | Miscellaneous utilities |
-| `imgo` | Image batch processing and transcoding |
-| `lny` | Symlink manager driven by JSON blueprints with templates |
-| `nh` (`noah/`) | Nix CLI helper/wrapper |
-| `rpgdemake` | Batch decryption of RPG Maker MV/MZ encrypted assets |
+| Crate          | Description                                              |
+| -------------- | -------------------------------------------------------- |
+| `derputils`    | Miscellaneous utilities                                  |
+| `imgo`         | Image batch processing and transcoding                   |
+| `lny`          | Symlink manager driven by JSON blueprints with templates |
+| `nh` (`noah/`) | Nix CLI helper/wrapper                                   |
+| `rpgdemake`    | Batch decryption of RPG Maker MV/MZ encrypted assets     |
 
 ### Shared Library Crates (`crates/`)
 
-| Crate | Description |
-|---|---|
-| `ino_color` | Terminal coloring with type-level color/style selection |
-| `ino_iter` | Iterator extension traits |
-| `ino_path` | Path utilities (executable detection, etc.) |
-| `ino_shell` | Shell-style command execution for scripting (macros in `ino_shell-macros`) |
-| `ino_tracing` | Opinionated `tracing-subscriber` initialization |
+| Crate         | Description                                                                |
+| ------------- | -------------------------------------------------------------------------- |
+| `ino_color`   | Terminal coloring with type-level color/style selection                    |
+| `ino_iter`    | Iterator extension traits                                                  |
+| `ino_path`    | Path utilities (executable detection, etc.)                                |
+| `ino_shell`   | Shell-style command execution for scripting (macros in `ino_shell-macros`) |
+| `ino_tracing` | Opinionated `tracing-subscriber` initialization                            |
 
 ## Fitting New Code
 
@@ -56,15 +56,16 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 ## Coding Conventions
 
-### Linting
-
-- Strict Clippy lints are configured in the workspace `Cargo.toml`. Run `cargo clippy --all-features` and address all warnings before committing.
-
 ### Error Handling
 
 - Use [`rootcause`](https://docs.rs/rootcause/) for application, and [`thiserror`](https://docs.rs/thiserror/) for library. For past experiences and gotchas, see [`.ai/rootcause.md`](./.ai/rootcause.md).
 - Prefer richer return types instead of convention.
 - Avoid `unwrap()` and `panic` in production code (Clippy will warn).
+
+### String
+
+- Use [`indoc`](https://docs.rs/indoc/) for multi-line strings.
+- Ignore `max_width` for long single-line strings. No need to workaround the limit by concatenating or splitting strings.
 
 ### Logging
 
@@ -78,7 +79,7 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 
 ### Dependency Management
 
-- Workspace-level dependencies are declared in the root `Cargo.toml` under `[workspace.dependencies]`.
+- Workspace-level dependencies are declared in the root `Cargo.toml`.
 - Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
 - Renovate bot is configured for automated dependency updates.
 
