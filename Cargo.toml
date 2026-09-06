@@ -33,7 +33,11 @@ ino_shell = { path = "./crates/ino_shell" }
 # Shared dependencies (InOri + Noah)
 assert_fs = "1"
 bpaf = { version = "0.9", features = [ "dull-color", "autocomplete" ] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+image = {
+    version = "0.25",
+    default-features = false,
+    features = [ "png", "jpeg", "webp", "gif", "bmp" ]
+}
 indicatif = "0.18"
 indoc = "2"
 itertools = "0"
@@ -47,7 +51,10 @@ strum = { version = "0", features = ["derive"] }
 tap = "1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = [ "env-filter", "registry", "std" ] }
+tracing-subscriber = {
+    version = "0.3",
+    features = [ "env-filter", "registry", "std" ]
+}
 
 #
 # Profiles
