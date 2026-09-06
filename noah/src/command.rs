@@ -306,7 +306,10 @@ impl<'env> Command<'env> {
         let msg = self.failure_message();
         let stderr = capture.stderr_str();
         if stderr.trim().is_empty() {
-            bail!(format!("{msg} (exit status {:?})", capture.exit_status));
+            bail!(format!(
+                "{msg} (exit status {:?})",
+                capture.exit_status
+            ));
         }
         bail!(format!(
             "{msg} (exit status {:?})\nstderr:\n{stderr}",

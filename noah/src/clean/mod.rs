@@ -34,10 +34,7 @@ pub enum CliOpts {
     /// `nh clean -P`: print the gc roots and exit.
     PrintGcRoots,
     /// A scoped cleanup: `all`, `user`, or a specific profile.
-    Clean {
-        scope: Scope,
-        options: Options,
-    },
+    Clean { scope: Scope, options: Options },
 }
 
 #[derive(Debug, Clone)]
@@ -131,17 +128,20 @@ where
 pub fn run(opts: &CliOpts, config: &Config) -> Result<()> {
     match opts {
         CliOpts::PrintGcRoots => print_gc_roots(config),
-        CliOpts::Clean { scope, options } => plan::run(scope, options, config),
+        CliOpts::Clean { scope, options } => {
+            plan::run(scope, options, config)
+        }
     }
 }
 
 /// Print the garbage collector roots the way `nix-store --gc --print-roots`
 /// would, minus the `/proc` entries, and return without cleaning.
 fn print_gc_roots(config: &Config) -> Result<()> {
-    let capture = Command::new("nix-store", &config.env, &config.elevation)
-        .args(["--gc", "--print-roots"])
-        .message("Listing garbage collector roots")
-        .output()?;
+    let capture =
+        Command::new("nix-store", &config.env, &config.elevation)
+            .args(["--gc", "--print-roots"])
+            .message("Listing garbage collector roots")
+            .output()?;
 
     for line in omit_proc_roots(&capture.stdout_str()) {
         println!("{line}");
@@ -345,6 +345,7 @@ fn remove_path_nofail(path: &Path) {
 #[expect(clippy::expect_used, reason = "Tests")]
 mod tests {
     use super::*;
+    use indoc::indoc;
 
     #[test]
     fn store_direct_child_accepts_top_level_entry() {
@@ -530,15 +531,17 @@ mod tests {
 
     #[test]
     fn omit_proc_roots_drops_kernel_entries_only() {
-        let output = "/proc/123/fd/9 -> /nix/store/abc-kernel\n\
-                      /proc/self -> /nix/store/def-kernel\n\
-                      /nix/var/nix/profiles/system-754-link -> \
-                      /nix/store/ghi-system\n";
+        let output = indoc! {"
+            /proc/123/fd/9 -> /nix/store/abc-kernel
+            /proc/self -> /nix/store/def-kernel
+            /nix/var/nix/profiles/system-754-link -> /nix/store/ghi-system
+        "};
         let kept: Vec<&str> = omit_proc_roots(output).collect();
         assert_eq!(
             kept,
-            ["/nix/var/nix/profiles/system-754-link -> \
-              /nix/store/ghi-system"]
+            [
+                "/nix/var/nix/profiles/system-754-link -> /nix/store/ghi-system"
+            ]
         );
     }
 

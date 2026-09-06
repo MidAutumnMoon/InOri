@@ -48,5 +48,8 @@ which = "8.0.0"
 yansi = "1.0.1"
 rustix.workspace = true
 
+[dev-dependencies]
+indoc.workspace = true
+
 [lints]
 workspace = true

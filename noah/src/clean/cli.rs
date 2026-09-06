@@ -145,28 +145,27 @@ mod tests {
 
     #[test]
     fn scoped_cleanups_still_parse() {
-        assert!(
-            matches!(
-                parse(&["all"]).unwrap(),
-                CliOpts::Clean { scope: Scope::All, .. }
-            )
-        );
-        assert!(
-            matches!(
-                parse(&["user", "--dry"]).unwrap(),
-                CliOpts::Clean { scope: Scope::User, .. }
-            )
-        );
-        assert!(
-            matches!(
-                parse(&["profile", "/nix/var/nix/profiles/system"])
-                    .unwrap(),
-                CliOpts::Clean {
-                    scope: Scope::Profile(_),
-                    ..
-                }
-            )
-        );
+        assert!(matches!(
+            parse(&["all"]).unwrap(),
+            CliOpts::Clean {
+                scope: Scope::All,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["user", "--dry"]).unwrap(),
+            CliOpts::Clean {
+                scope: Scope::User,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["profile", "/nix/var/nix/profiles/system"]).unwrap(),
+            CliOpts::Clean {
+                scope: Scope::Profile(_),
+                ..
+            }
+        ));
     }
 
     #[test]
