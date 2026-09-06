@@ -1485,6 +1485,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
+ "strum",
  "subprocess",
  "supports-hyperlinks",
  "tempfile",

@@ -66,6 +66,19 @@ fn elevation_cli() -> impl Parser<Option<ElevationStrategy>> {
         .optional()
 }
 
+#[derive(strum::Display)]
+enum CliGroup {
+    NixOS,
+    Profile,
+    Tools,
+}
+
+impl From<CliGroup> for bpaf::Doc {
+    fn from(group: CliGroup) -> Self {
+        group.to_string().as_str().into()
+    }
+}
+
 /// Assemble the full `nh` command line parser.
 #[must_use]
 pub fn cli() -> bpaf::OptionParser<Cli> {
@@ -77,11 +90,13 @@ pub fn cli() -> bpaf::OptionParser<Cli> {
         )
         .command("switch")
         .map(|command| CliCommand::Rebuild(Box::new(command)));
+
     let boot = boot_cli()
         .to_options()
         .descr("Build the new configuration and make it the boot default.")
         .command("boot")
         .map(|command| CliCommand::Rebuild(Box::new(command)));
+
     let test = test_cli()
         .to_options()
         .descr("Build and activate the new configuration.")
@@ -118,11 +133,20 @@ pub fn cli() -> bpaf::OptionParser<Cli> {
         .command("clean")
         .map(CliCommand::Clean);
 
-    let command = construct!([
-        switch, boot, test, build, repl, info, rollback, search, clean
-    ]);
+    let command = {
+        let system = construct!([switch, boot, test, build, repl])
+            .group_help(CliGroup::NixOS);
+
+        let generations = construct!([info, clean, rollback])
+            .group_help(CliGroup::Profile);
+
+        let utilities = construct!([search]).group_help(CliGroup::Tools);
+
+        construct!([system, generations, utilities])
+    };
 
     let elevation_strategy = elevation_cli();
+
     construct!(Cli {
         elevation_strategy,
         command,
