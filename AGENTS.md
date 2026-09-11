@@ -13,6 +13,12 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 - Don't pad with disclaimers, summaries, or "hope that helps" type closings.
 - If something is wrong, say what's wrong and how to fix it. Don't hedge.
 
+## Make changes
+
+- Make systematic changes. Don't be scoped to the spot you are looking at.
+- Make breaking changes. Trace, find, redesign, from top to bottom.
+- Challenge existing designs.
+
 ## Look Things Up
 
 - When unsure about a library, tool, or API, use web search or Context7 before guessing.
