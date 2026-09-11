@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use bpaf::Args;
 use bpaf::OptionParser;
 use bpaf::Parser;
-use bpaf::construct;
+use bpaf::choice;
 
 use crate::BIN_NAME;
 
@@ -82,44 +82,35 @@ impl Applet {
     }
 }
 
-/// Every applet, in dispatch and completion order.
-const APPLETS: &[Applet] = &[
-    qr::APPLET,
-    uuid7::APPLET,
-    upwards::APPLET,
-    hops::APPLET,
-    completion::APPLET,
+/// The complete applet registry, grouped as `--help` lists them.
+///
+/// This is the single source for the applet set: the dispatcher CLI is built
+/// from the groups, and `dispatch` and the `completion` applet iterate the
+/// applets inside them (bpaf exposes no way to enumerate a parser's commands).
+const APPLET_GROUPS: &[(&str, &[Applet])] = &[
+    ("Generators", &[qr::APPLET, uuid7::APPLET]),
+    ("Paths", &[upwards::APPLET, hops::APPLET]),
+    ("Shell integration", &[completion::APPLET]),
 ];
 
-fn all_applets() -> impl Iterator<Item = &'static Applet> {
-    APPLETS.iter()
+/// Every applet, in registry order.
+fn applets() -> impl Iterator<Item = &'static Applet> {
+    APPLET_GROUPS.iter().flat_map(|(_, applets)| *applets)
 }
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
-    all_applets().find(|applet| applet.name() == name)
+    applets().find(|applet| applet.name() == name)
 }
 
 /// The dispatcher CLI: one command per applet, grouped for `--help`.
 #[must_use]
 fn dispatcher_cli() -> OptionParser<Invocation> {
-    let generators = {
-        let qr = qr::APPLET.command();
-        let uuid7 = uuid7::APPLET.command();
-        construct!([qr, uuid7]).group_help("Generators")
-    };
-
-    let paths = {
-        let upwards = upwards::APPLET.command();
-        let hops = hops::APPLET.command();
-        construct!([upwards, hops]).group_help("Paths")
-    };
-
-    let shell_integration = {
-        let completion = completion::APPLET.command();
-        construct!([completion]).group_help("Shell integration")
-    };
-
-    construct!([generators, paths, shell_integration])
+    let groups = APPLET_GROUPS.iter().map(|(heading, applets)| {
+        choice(applets.iter().map(|applet| applet.command().boxed()))
+            .group_help(*heading)
+            .boxed()
+    });
+    choice(groups)
         .to_options()
         .version(env!("CARGO_PKG_VERSION"))
         .fallback_to_usage()
@@ -223,28 +214,30 @@ mod test {
         }
     }
 
+    /// The registry drives the CLI, so this only has to catch rendering
+    /// breakage: every applet and heading must reach `--help`.
     #[test]
     fn bare_invocation_and_help_list_applets_under_their_category() {
         for items in [&[][..], &["--help"][..]] {
             let help = help_text(items);
-            for applet in all_applets() {
+            for applet in applets() {
                 assert!(
                     help.contains(applet.name()),
                     "missing applet {:?} in:\n{help}",
                     applet.name()
                 );
             }
-            for heading in ["Generators", "Paths", "Shell integration"] {
+            for (heading, _) in APPLET_GROUPS {
                 assert!(help.contains(heading), "missing {heading:?} in:\n{help}");
             }
         }
     }
 
-    /// Every registered applet must also be a command of the dispatcher CLI,
-    /// otherwise it stays reachable only through its own `argv[0]`.
+    /// Each registry applet must come out of the group builder as a dispatcher
+    /// command: sharing the registry does not by itself wire one up.
     #[test]
-    fn every_registered_applet_renders_its_help_as_a_command() {
-        for applet in all_applets() {
+    fn every_applet_command_renders_help() {
+        for applet in applets() {
             let name = applet.name();
             let help = help_text(&[name, "--help"]);
             assert!(

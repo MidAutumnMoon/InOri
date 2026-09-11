@@ -24,7 +24,7 @@ use tracing::debug;
 
 use super::Applet;
 use super::Invocation;
-use super::all_applets;
+use super::applets;
 use super::find_applet;
 
 const NAME: &str = "completion";
@@ -112,7 +112,7 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
         return generate_completion(&exe, &flag, args.shell, applet);
     }
 
-    for (index, applet) in all_applets().enumerate() {
+    for (index, applet) in applets().enumerate() {
         if index > 0 {
             println!();
         }
