@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use bpaf::Args;
 use bpaf::OptionParser;
 use bpaf::Parser;
-use bpaf::choice;
+use bpaf::construct;
 
 use crate::BIN_NAME;
 
@@ -82,54 +82,44 @@ impl Applet {
     }
 }
 
-/// A titled applet group in dispatcher help.
-#[derive(Debug)]
-struct AppletCategory {
-    heading: &'static str,
-    applets: &'static [Applet],
-}
-
-impl AppletCategory {
-    /// This category's applets as one command group.
-    fn parser(&self) -> impl Parser<Invocation> + use<> {
-        choice(self.applets.iter().map(|applet| applet.command().boxed()))
-            .group_help(self.heading)
-    }
-}
-
-/// The complete applet registry, grouped in help order.
-const APPLET_WITH_CATEGORIES: &[AppletCategory] = &[
-    AppletCategory {
-        heading: "Generators",
-        applets: &[qr::APPLET, uuid7::APPLET],
-    },
-    AppletCategory {
-        heading: "Paths",
-        applets: &[upwards::APPLET, hops::APPLET],
-    },
-    AppletCategory {
-        heading: "Shell integration",
-        applets: &[completion::APPLET],
-    },
+/// Every applet, in dispatch and completion order.
+const APPLETS: &[Applet] = &[
+    qr::APPLET,
+    uuid7::APPLET,
+    upwards::APPLET,
+    hops::APPLET,
+    completion::APPLET,
 ];
 
 fn all_applets() -> impl Iterator<Item = &'static Applet> {
-    APPLET_WITH_CATEGORIES
-        .iter()
-        .flat_map(|category| category.applets.iter())
+    APPLETS.iter()
 }
 
 fn find_applet(name: &str) -> Option<&'static Applet> {
     all_applets().find(|applet| applet.name() == name)
 }
 
-/// The dispatcher CLI: one command per applet, grouped by category.
+/// The dispatcher CLI: one command per applet, grouped for `--help`.
 #[must_use]
 fn dispatcher_cli() -> OptionParser<Invocation> {
-    let categories = APPLET_WITH_CATEGORIES
-        .iter()
-        .map(|category| category.parser().boxed());
-    choice(categories)
+    let generators = {
+        let qr = qr::APPLET.command();
+        let uuid7 = uuid7::APPLET.command();
+        construct!([qr, uuid7]).group_help("Generators")
+    };
+
+    let paths = {
+        let upwards = upwards::APPLET.command();
+        let hops = hops::APPLET.command();
+        construct!([upwards, hops]).group_help("Paths")
+    };
+
+    let shell_integration = {
+        let completion = completion::APPLET.command();
+        construct!([completion]).group_help("Shell integration")
+    };
+
+    construct!([generators, paths, shell_integration])
         .to_options()
         .version(env!("CARGO_PKG_VERSION"))
         .fallback_to_usage()
@@ -211,11 +201,18 @@ mod test {
         dispatcher_cli().run_inner(Args::from(items).set_name(BIN_NAME))
     }
 
-    /// The applet listing, as `--help` and a bare invocation render it.
-    fn listing(items: &[&str]) -> String {
+    /// Help text rendered for a command line, requiring it to render some.
+    fn help_text(items: &[&str]) -> String {
         match parse(items) {
-            Err(failure) => failure.unwrap_stdout(),
-            Ok(_) => panic!("expected help for {items:?}"),
+            Err(bpaf::ParseFailure::Stdout(help, _)) => help.monochrome(true),
+            Err(bpaf::ParseFailure::Stderr(error)) => panic!(
+                "expected help for {items:?}, got error: {}",
+                error.monochrome(true)
+            ),
+            Err(bpaf::ParseFailure::Completion(_)) => {
+                panic!("expected help for {items:?}, got completion")
+            }
+            Ok(_) => panic!("expected help for {items:?}, got an invocation"),
         }
     }
 
@@ -229,21 +226,31 @@ mod test {
     #[test]
     fn bare_invocation_and_help_list_applets_under_their_category() {
         for items in [&[][..], &["--help"][..]] {
-            let help = listing(items);
-            for category in APPLET_WITH_CATEGORIES {
+            let help = help_text(items);
+            for applet in all_applets() {
                 assert!(
-                    help.contains(category.heading),
-                    "missing category {:?} in:\n{help}",
-                    category.heading
+                    help.contains(applet.name()),
+                    "missing applet {:?} in:\n{help}",
+                    applet.name()
                 );
-                for applet in category.applets {
-                    assert!(
-                        help.contains(applet.name()),
-                        "missing applet {:?} in:\n{help}",
-                        applet.name()
-                    );
-                }
             }
+            for heading in ["Generators", "Paths", "Shell integration"] {
+                assert!(help.contains(heading), "missing {heading:?} in:\n{help}");
+            }
+        }
+    }
+
+    /// Every registered applet must also be a command of the dispatcher CLI,
+    /// otherwise it stays reachable only through its own `argv[0]`.
+    #[test]
+    fn every_registered_applet_renders_its_help_as_a_command() {
+        for applet in all_applets() {
+            let name = applet.name();
+            let help = help_text(&[name, "--help"]);
+            assert!(
+                help.contains(&format!("Usage: derputils {name}")),
+                "{name} is missing from the dispatcher CLI:\n{help}"
+            );
         }
     }
 
