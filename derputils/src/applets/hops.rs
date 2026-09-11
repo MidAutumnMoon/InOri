@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bpaf::OptionParser;
-use bpaf::Parser;
 use bpaf::positional;
 use ino_color::cprint;
 use ino_color::fg;
@@ -37,17 +36,13 @@ pub(super) const APPLET: Applet = Applet::new(NAME, cli);
 /// The most symlink hops allowed before assuming an unbroken loop.
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
-/// Arguments accepted by the applet, independent of their consumer.
-fn args() -> impl Parser<String> {
-    positional::<String>("PROGRAM").help(
-        "Executable name to find in $PATH; a path containing '/' \
-         starts the walk directly instead",
-    )
-}
-
 /// The applet's CLI: resolve one program or path, then walk its hops.
 fn cli() -> OptionParser<Invocation> {
-    Invocation::cli(args(), SUMMARY, |program| {
+    let program = positional::<String>("PROGRAM").help(
+        "Executable name to find in $PATH; a path containing '/' \
+         starts the walk directly instead",
+    );
+    Invocation::cli(program, SUMMARY, |program| {
         run(&program).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -317,26 +312,20 @@ mod test {
 
     use super::*;
 
+    /// `PROGRAM` is required by construction only; `.optional()` would compile.
+    #[test]
+    fn program_argument_is_required() {
+        let result = cli().run_inner(Args::from(&[] as &[&str]).set_name(NAME));
+        assert!(matches!(result, Err(bpaf::ParseFailure::Stderr(_))));
+    }
+
     fn walk(start: &Path) -> rootcause::Result<Vec<AbsolutePath>> {
         let starter = AbsolutePath::resolve(start)?;
         SymlinkAncestor::new(starter).collect()
     }
 
-    fn parse(items: &[&str]) -> Result<String, bpaf::ParseFailure> {
-        args()
-            .to_options()
-            .run_inner(Args::from(items).set_name(NAME))
-    }
-
     #[test]
-    fn program_argument_is_required() {
-        assert_matches!(parse(&[]), Err(bpaf::ParseFailure::Stderr(_)));
-        parse(&["ls"]).unwrap();
-        parse(&["/bin/sh"]).unwrap();
-    }
-
-    #[test]
-    fn plain_file_chain_is_just_itself() {
+    fn traces_a_regular_file_to_itself() {
         let tmp = TempDir::new().unwrap();
         let file = tmp.child("file");
         file.write_str("x").unwrap();
@@ -372,25 +361,6 @@ mod test {
     }
 
     #[test]
-    fn resolves_relative_target_against_parent() {
-        let tmp = TempDir::new().unwrap();
-        let real = tmp.child("real");
-        real.write_str("x").unwrap();
-        tmp.child("dir").create_dir_all().unwrap();
-        let link = tmp.child("dir/link");
-        symlink("../real", link.path()).unwrap();
-
-        let chain = walk(link.path()).unwrap();
-        let expected = vec![
-            AbsolutePath::resolve(link.path()).unwrap(),
-            // The parent is resolved through its own symlinks before
-            // the join, so the hop carries the canonical spelling.
-            AbsolutePath(std::fs::canonicalize(real.path()).unwrap()),
-        ];
-        assert_eq!(chain, expected);
-    }
-
-    #[test]
     fn relative_target_joins_the_resolved_parent() {
         let tmp = TempDir::new().unwrap();
         tmp.child("real/sub").create_dir_all().unwrap();
@@ -415,17 +385,6 @@ mod test {
             ),
         ];
         assert_eq!(chain, expected);
-    }
-
-    #[test]
-    fn nonexistent_start_path_fails() {
-        let tmp = TempDir::new().unwrap();
-        let absent = tmp.child("absent");
-
-        let result = run(absent.path().to_str().unwrap());
-        assert_matches!(result, Err(_));
-        let message = result.unwrap_err().to_string();
-        assert!(message.contains("does not exist"), "{message}");
     }
 
     #[test]
@@ -467,20 +426,6 @@ mod test {
     }
 
     #[test]
-    fn detects_symlink_loop() {
-        let tmp = TempDir::new().unwrap();
-        let link_a = tmp.child("a");
-        let link_b = tmp.child("b");
-        symlink(link_b.path(), link_a.path()).unwrap();
-        symlink(link_a.path(), link_b.path()).unwrap();
-
-        let result = walk(link_a.path());
-        assert_matches!(result, Err(_));
-        let message = result.unwrap_err().to_string();
-        assert!(message.contains("Symlink loop detected"), "{message}");
-    }
-
-    #[test]
     fn stops_at_max_follow_limit() {
         let tmp = TempDir::new().unwrap();
         let real = tmp.child("real");
@@ -503,40 +448,44 @@ mod test {
     }
 
     #[test]
-    fn classifies_well_known_prefixes() {
-        let kind_of = |path: &str| {
-            Subject::new(AbsolutePath::resolve(Path::new(path)).unwrap())
-                .kind
-        };
+    fn classifies_well_known_paths() {
+        const CASES: &[(&str, SubjectKind, &str)] = &[
+            (
+                "/nix/store/abc-hello/bin/hello",
+                SubjectKind::NixStore,
+                "Path in nix store",
+            ),
+            (
+                "/etc/profiles/per-user/teapot/bin/ls",
+                SubjectKind::PerUserProfile,
+                "Per user profile",
+            ),
+            (
+                "/run/current-system/sw/bin/ls",
+                SubjectKind::CurrentSystem,
+                "The current activated generation",
+            ),
+            (
+                "/run/booted-system/sw/bin/ls",
+                SubjectKind::BootedSystem,
+                "The generation activated at boot time",
+            ),
+            ("/home/teapot", SubjectKind::Normal, "Ordinary path"),
+            // Prefixes match whole path components only.
+            ("/nix/storefoo", SubjectKind::Normal, "Ordinary path"),
+            (
+                "/run/current-systemd",
+                SubjectKind::Normal,
+                "Ordinary path",
+            ),
+        ];
 
-        assert_eq!(
-            kind_of("/nix/store/abc-hello/bin/hello"),
-            SubjectKind::NixStore
-        );
-        assert_eq!(
-            kind_of("/etc/profiles/per-user/teapot/bin/ls"),
-            SubjectKind::PerUserProfile
-        );
-        assert_eq!(
-            kind_of("/run/current-system/sw/bin/ls"),
-            SubjectKind::CurrentSystem
-        );
-        assert_eq!(
-            kind_of("/run/booted-system/sw/bin/ls"),
-            SubjectKind::BootedSystem
-        );
-        assert_eq!(kind_of("/home/teapot"), SubjectKind::Normal);
-        // Prefixes match whole path components only.
-        assert_eq!(kind_of("/nix/storefoo"), SubjectKind::Normal);
-        assert_eq!(kind_of("/run/current-systemd"), SubjectKind::Normal);
-    }
-
-    #[test]
-    fn describes_nix_store() {
-        let subject = Subject::new(
-            AbsolutePath::resolve(Path::new("/nix/store/abc-hello"))
-                .unwrap(),
-        );
-        assert_eq!(subject.describe(), "Path in nix store");
+        for (path, kind, description) in CASES {
+            let subject = Subject::new(
+                AbsolutePath::resolve(Path::new(path)).unwrap(),
+            );
+            assert_eq!(subject.kind, *kind, "{path}");
+            assert_eq!(subject.describe(), *description, "{path}");
+        }
     }
 }

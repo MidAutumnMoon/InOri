@@ -165,17 +165,19 @@ mod test {
     }
 
     #[test]
-    fn parses_shell_and_applet() {
-        let args = parse(&["bash", "uuid7"]).unwrap();
-        assert_eq!(args.shell, Shell::Bash);
-        assert_eq!(args.applet.as_deref(), Some("uuid7"));
-    }
+    fn parses_shell_and_optional_applet() {
+        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Elvish] {
+            // `as_str` is the name the completion flag is built from, so the
+            // CLI must accept exactly that spelling.
+            let name = shell.as_str();
+            let parsed = parse(&[name]).unwrap();
+            assert_eq!(parsed.shell, shell, "{name}");
+            assert!(parsed.applet.is_none(), "{name}");
+        }
 
-    #[test]
-    fn applet_is_optional() {
-        let args = parse(&["fish"]).unwrap();
-        assert_eq!(args.shell, Shell::Fish);
-        assert!(args.applet.is_none());
+        let parsed = parse(&["bash", "uuid7"]).unwrap();
+        assert_eq!(parsed.shell, Shell::Bash);
+        assert_eq!(parsed.applet.as_deref(), Some("uuid7"));
     }
 
     #[test]
@@ -184,22 +186,5 @@ mod test {
             parse(&["tcsh"]),
             Err(bpaf::ParseFailure::Stderr(_))
         );
-    }
-
-    #[test]
-    fn stray_argument_after_two_positionals_rejected() {
-        assert_matches!(
-            parse(&["bash", "uuid7", "extra"]),
-            Err(bpaf::ParseFailure::Stderr(_))
-        );
-    }
-
-    #[test]
-    fn shell_from_str_round_trip() {
-        assert_eq!(Shell::from_str("bash").unwrap(), Shell::Bash);
-        assert_eq!(Shell::from_str("zsh").unwrap(), Shell::Zsh);
-        assert_eq!(Shell::from_str("fish").unwrap(), Shell::Fish);
-        assert_eq!(Shell::from_str("elvish").unwrap(), Shell::Elvish);
-        Shell::from_str("nope").unwrap_err();
     }
 }

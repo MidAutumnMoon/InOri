@@ -137,12 +137,14 @@ mod test {
     }
 
     #[test]
-    fn store_root_stays() {
+    fn nix_store_heuristic() {
+        // The store itself and anything outside it stay put...
         assert_eq!(nix_decision("/nix/store"), Some(Decision::StayHere));
-    }
+        assert_eq!(nix_decision("/nix"), None);
+        assert_eq!(nix_decision("/nix/storefoo"), None);
+        assert_eq!(nix_decision("/home/teapot"), None);
 
-    #[test]
-    fn store_paths_go_to_package_root() {
+        // ...while everything below a store path belongs to the package.
         assert_eq!(
             nix_decision("/nix/store/abc-glibc-2.39"),
             Some(Decision::GoUpward("/nix/store/abc-glibc-2.39".into()))
@@ -151,13 +153,6 @@ mod test {
             nix_decision("/nix/store/abc-glibc-2.39/share/man"),
             Some(Decision::GoUpward("/nix/store/abc-glibc-2.39".into()))
         );
-    }
-
-    #[test]
-    fn store_prefix_matches_whole_components_only() {
-        assert_eq!(nix_decision("/nix"), None);
-        assert_eq!(nix_decision("/nix/storefoo"), None);
-        assert_eq!(nix_decision("/home/teapot"), None);
     }
 
     /// The minimum `.git` layout `gix-discover` accepts as a repository.
@@ -172,27 +167,19 @@ mod test {
     }
 
     #[test]
-    fn git_work_tree_toplevel() {
+    fn git_work_tree_resolves_to_its_root() {
         let repo = TempDir::new().unwrap();
         plant_git_files(&repo.child(".git"));
         let nested = repo.child("deep/nested");
         nested.create_dir_all().unwrap();
 
-        assert_eq!(
-            heuristic_git(nested.path()).unwrap(),
-            Some(Decision::GoUpward(repo.path().to_path_buf()))
-        );
-    }
-
-    #[test]
-    fn git_work_tree_root_is_own_toplevel() {
-        let repo = TempDir::new().unwrap();
-        plant_git_files(&repo.child(".git"));
-
-        assert_eq!(
-            heuristic_git(repo.path()).unwrap(),
-            Some(Decision::GoUpward(repo.path().to_path_buf()))
-        );
+        // From the root itself and from any directory below it.
+        for start in [repo.path(), nested.path()] {
+            assert_eq!(
+                heuristic_git(start).unwrap(),
+                Some(Decision::GoUpward(repo.path().to_path_buf()))
+            );
+        }
     }
 
     #[test]

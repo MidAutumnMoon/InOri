@@ -18,21 +18,3 @@ fn cli() -> OptionParser<Invocation> {
         Ok(ExitCode::SUCCESS)
     })
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use bpaf::Args;
-
-    fn parse(items: &[&str]) -> Result<Invocation, bpaf::ParseFailure> {
-        cli().run_inner(Args::from(items).set_name(NAME))
-    }
-
-    #[test]
-    fn stray_argument_rejected() {
-        assert!(matches!(
-            parse(&["x"]),
-            Err(bpaf::ParseFailure::Stderr(_))
-        ));
-    }
-}

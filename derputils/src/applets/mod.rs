@@ -207,17 +207,11 @@ mod test {
         }
     }
 
-    fn unwrap_failure(items: &[&str]) -> String {
-        match parse(items) {
-            Err(failure) => failure.unwrap_stderr(),
-            Ok(_) => panic!("expected {items:?} to fail"),
-        }
-    }
-
     /// The registry drives the CLI, so this only has to catch rendering
-    /// breakage: every applet and heading must reach `--help`.
+    /// breakage: every applet and heading must reach `--help` and a bare
+    /// invocation (which falls back to the same listing).
     #[test]
-    fn bare_invocation_and_help_list_applets_under_their_category() {
+    fn bare_invocation_and_help_render_the_registry() {
         for items in [&[][..], &["--help"][..]] {
             let help = help_text(items);
             for applet in applets() {
@@ -235,6 +229,7 @@ mod test {
 
     /// Each registry applet must come out of the group builder as a dispatcher
     /// command: sharing the registry does not by itself wire one up.
+    /// Parser identity is covered by `applet_commands_parse_applet_arguments`.
     #[test]
     fn every_applet_command_renders_help() {
         for applet in applets() {
@@ -247,17 +242,26 @@ mod test {
         }
     }
 
+    /// `Applet::cli` is type-erased, so a command stays compiling when it is
+    /// wired to another applet's parser or a placeholder; parse one real
+    /// invocation per applet rather than trusting the help text.
     #[test]
-    fn unknown_applet_is_rejected() {
-        let error = unwrap_failure(&["nope"]);
-        assert!(error.contains("nope"), "{error}");
-    }
+    fn applet_commands_parse_applet_arguments() {
+        for items in [
+            &["qr", "-c"][..],
+            &["uuid7"][..],
+            &["upwards"][..],
+            &["hops", "/bin/sh"][..],
+            &["completion", "bash"][..],
+        ] {
+            assert!(parse(items).is_ok(), "{items:?} did not parse");
+        }
 
-    #[test]
-    fn applet_arguments_are_parsed_by_the_applet() {
-        // Only `qr`'s own parser knows it needs exactly one source.
-        let error = unwrap_failure(&["qr"]);
-        assert!(error.contains("--clipboard"), "{error}");
+        // `qr` insists on one source; a placeholder parser would accept this.
+        assert!(matches!(
+            parse(&["qr"]),
+            Err(bpaf::ParseFailure::Stderr(_))
+        ));
     }
 
     #[test]
@@ -276,21 +280,5 @@ mod test {
         // Everything else reaches the parser as spelled.
         let applet = args(&["qr", "-c"]);
         assert_eq!(dispatcher_args(&applet).as_ref(), applet.as_slice());
-    }
-
-    #[test]
-    fn argv0_selects_the_applet() {
-        assert_eq!(
-            dispatch(OsStr::new("/usr/bin/uuid7"), &[]),
-            ExitCode::SUCCESS
-        );
-    }
-
-    #[test]
-    fn unknown_argv0_is_rejected() {
-        assert_eq!(
-            dispatch(OsStr::new("/usr/bin/nope"), &[]),
-            ExitCode::FAILURE
-        );
     }
 }

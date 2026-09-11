@@ -139,13 +139,9 @@ mod test {
     }
 
     #[test]
-    fn each_source_parses() {
+    fn exactly_one_source_is_required() {
         assert_matches!(parse(&["--clipboard"]), Ok(Source::Clipboard));
         assert_matches!(parse(&["-s"]), Ok(Source::Stdin));
-    }
-
-    #[test]
-    fn sources_are_exclusive() {
         assert_matches!(parse(&[]), Err(bpaf::ParseFailure::Stderr(_)));
         assert_matches!(
             parse(&["-c", "-s"]),
