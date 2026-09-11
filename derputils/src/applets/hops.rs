@@ -8,14 +8,12 @@
 //! kernel reaches. A start path that does not exist is an error.
 
 use std::collections::HashSet;
-use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser as _;
+use bpaf::Parser;
 use bpaf::positional;
 use ino_color::cprint;
 use ino_color::fg;
@@ -30,32 +28,28 @@ use tracing::instrument;
 use tracing::trace;
 
 use super::Applet;
-use super::RunFailure;
+use super::Invocation;
 
 const NAME: &str = "hops";
 const SUMMARY: &str = "Trace a symlink to its origin";
-pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
+pub(super) const APPLET: Applet = Applet::new(NAME, cli);
 
 /// The most symlink hops allowed before assuming an unbroken loop.
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
-fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
-    let program = cli()
-        .run_inner(Args::from(args).set_name(NAME))
-        .map_err(RunFailure::Cli)?;
-    run(&program).map_err(RunFailure::Applet)?;
-    Ok(ExitCode::SUCCESS)
+/// Arguments accepted by the applet, independent of their consumer.
+fn args() -> impl Parser<String> {
+    positional::<String>("PROGRAM").help(
+        "Executable name to find in $PATH; a path containing '/' \
+         starts the walk directly instead",
+    )
 }
 
-#[must_use]
-fn cli() -> OptionParser<String> {
-    positional::<String>("PROGRAM")
-        .help(
-            "Executable name to find in $PATH; a path containing '/' \
-             starts the walk directly instead",
-        )
-        .to_options()
-        .descr(SUMMARY)
+/// The applet's CLI: resolve one program or path, then walk its hops.
+fn cli() -> OptionParser<Invocation> {
+    Invocation::cli(args(), SUMMARY, |program| {
+        run(&program).map(|()| ExitCode::SUCCESS)
+    })
 }
 
 #[instrument]
@@ -319,6 +313,7 @@ mod test {
 
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
+    use bpaf::Args;
 
     use super::*;
 
@@ -327,8 +322,10 @@ mod test {
         SymlinkAncestor::new(starter).collect()
     }
 
-    fn parse(args: &[&str]) -> Result<String, bpaf::ParseFailure> {
-        cli().run_inner(Args::from(args).set_name(NAME))
+    fn parse(items: &[&str]) -> Result<String, bpaf::ParseFailure> {
+        args()
+            .to_options()
+            .run_inner(Args::from(items).set_name(NAME))
     }
 
     #[test]

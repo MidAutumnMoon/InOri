@@ -4,13 +4,11 @@
 //! status 1 and no output when there is no upward boundary to report.
 
 use std::env::current_dir;
-use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bpaf::Args;
-use bpaf::Parser as _;
+use bpaf::OptionParser;
 use gix_discover::upwards;
 use gix_discover::upwards::Error as UpwardsError;
 use rootcause::prelude::ResultExt as _;
@@ -19,20 +17,16 @@ use tracing::instrument;
 use tracing::trace;
 
 use super::Applet;
-use super::RunFailure;
+use super::Invocation;
 
 const NAME: &str = "upwards";
 const SUMMARY: &str = "Find upward boundaries that `feel` right";
-pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
+pub(super) const APPLET: Applet = Applet::new(NAME, cli);
 const NIX_STORE: &str = "/nix/store";
 
-fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
-    bpaf::pure(())
-        .to_options()
-        .descr(SUMMARY)
-        .run_inner(Args::from(args).set_name(NAME))
-        .map_err(RunFailure::Cli)?;
-    run().map_err(RunFailure::Applet)
+/// The applet's CLI: probe the CWD, no arguments.
+fn cli() -> OptionParser<Invocation> {
+    Invocation::cli(bpaf::pure(()), SUMMARY, |()| run())
 }
 
 #[instrument]

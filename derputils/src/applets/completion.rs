@@ -2,34 +2,34 @@
 //!
 //! bpaf exposes no public API for completion-script generation; the scripts are
 //! produced by hidden flags handled inside the parser. This applet re-execs the
-//! current executable with those flags and prints the captured output.
+//! current executable under the applet's name, since `argv[0]` is what bpaf
+//! names the generated script after.
 //!
 //! Script generation and runtime completion use separate flags, so generated
 //! scripts query candidates at runtime rather than regenerating themselves.
 
-use std::ffi::OsString;
 use std::fmt;
+use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::Command;
 use std::process::ExitCode;
 use std::str::FromStr;
 
-use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser as _;
+use bpaf::Parser;
 use bpaf::construct;
 use bpaf::positional;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 use super::Applet;
-use super::RunFailure;
+use super::Invocation;
 use super::all_applets;
 use super::find_applet;
 
 const NAME: &str = "completion";
 const SUMMARY: &str = "Generate shell completion scripts for applets";
-pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
+pub(super) const APPLET: Applet = Applet::new(NAME, cli);
 
 /// Target shell for completion script generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,24 +80,21 @@ struct CompletionArgs {
     applet: Option<String>,
 }
 
-#[must_use]
-fn cli() -> OptionParser<CompletionArgs> {
+/// Arguments accepted by the applet, independent of their consumer.
+fn args() -> impl Parser<CompletionArgs> {
     let shell = positional::<Shell>("SHELL")
         .help("Target shell: bash, zsh, fish, elvish");
     let applet = positional::<String>("APPLET")
         .help("Applet name (omit to generate for all applets)")
         .optional();
     construct!(CompletionArgs { shell, applet })
-        .to_options()
-        .descr(SUMMARY)
 }
 
-fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
-    let args = cli()
-        .run_inner(Args::from(args).set_name(NAME))
-        .map_err(RunFailure::Cli)?;
-    run(&args).map_err(RunFailure::Applet)?;
-    Ok(ExitCode::SUCCESS)
+/// The applet's CLI: generate completion scripts for the requested shells.
+fn cli() -> OptionParser<Invocation> {
+    Invocation::cli(args(), SUMMARY, |args| {
+        run(&args).map(|()| ExitCode::SUCCESS)
+    })
 }
 
 fn run(args: &CompletionArgs) -> rootcause::Result<()> {
@@ -134,7 +131,8 @@ fn generate_completion(
     let name = applet.name();
     debug!(applet = name, shell = %shell, "generating completion");
     let output = Command::new(exe)
-        .arg(name)
+        // `argv[0]` selects the applet and names the generated script.
+        .arg0(name)
         .arg(flag)
         .output()
         .context("Unable to execute self for completion generation")?;
@@ -157,10 +155,13 @@ fn generate_completion(
 #[expect(clippy::unwrap_used, reason = "Tests")]
 mod test {
     use super::*;
+    use bpaf::Args;
     use std::assert_matches;
 
-    fn parse(args: &[&str]) -> Result<CompletionArgs, bpaf::ParseFailure> {
-        cli().run_inner(Args::from(args).set_name(NAME))
+    fn parse(items: &[&str]) -> Result<CompletionArgs, bpaf::ParseFailure> {
+        args()
+            .to_options()
+            .run_inner(Args::from(items).set_name(NAME))
     }
 
     #[test]

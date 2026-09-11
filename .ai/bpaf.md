@@ -6,7 +6,8 @@ Gotchas and non-obvious behaviors from using [bpaf](https://crates.io/crates/bpa
 
 - No public generation API. The hidden `--bpaf-complete-style-bash|zsh|fish|elvish` flag emits the script; the installed script calls back via `--bpaf-complete-rev=<n>` to produce candidates. Different flags, so scripts never regenerate themselves — regenerate only on bpaf major bumps.
 - To wrap behind a subcommand (`derputils completion bash`), re-exec `current_exe()` with the flag and print the captured stdout (maintainer's recommendation, discussion #263). The flag is handled inside the parser before `run()`/tracing init, so the child writes only the script — `Command::output()` is safe.
-- Multicall dispatchers need no extra wiring: each applet calls `cli().run_inner(Args::from(args).set_name(NAME))`; `set_name` also sets the program name in the generated script.
+- The generated script is named after `Args::name` — `set_name`, which `derputils` derives from `argv[0]`. So a multicall applet re-execs with `CommandExt::arg0(name)`; passing the name as an argument names the script after the dispatcher instead.
+- Completion follows the parsed scope: a `derputils`-named script completes applet names and, past the command word, that applet's own flags.
 
 ## `construct!`
 
@@ -68,3 +69,5 @@ pub enum ParseFailure {
 `failure.print_message(max_width)` prints to the right stream; `failure.exit_code()` gives the exit code.
 
 ## Testing parsers
+
+- `check_invariants(cosmetic)` ignores `cosmetic` in 0.9.27: it always dumps the `Meta` tree to stdout. It still panics on misplaced positional/command items, so keep calling it — expect the noise.

@@ -1,13 +1,11 @@
 //! `qr` — generate and open a QR code from stdin or the clipboard.
 
-use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bpaf::Args;
 use bpaf::OptionParser;
-use bpaf::Parser as _;
+use bpaf::Parser;
 use bpaf::construct;
 use bpaf::short;
 use ino_shell::Shell;
@@ -16,12 +14,12 @@ use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
 use super::Applet;
-use super::RunFailure;
+use super::Invocation;
 
 const NAME: &str = "qr";
 const SUMMARY: &str =
     "Generate a QR code from stdin or the clipboard and open it";
-pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, applet_main);
+pub(super) const APPLET: Applet = Applet::new(NAME, cli);
 
 /// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]
@@ -32,8 +30,8 @@ enum Source {
     Stdin,
 }
 
-#[must_use]
-fn cli() -> OptionParser<Source> {
+/// Arguments accepted by the applet, independent of their consumer.
+fn args() -> impl Parser<Source> {
     let clipboard = short('c')
         .long("clipboard")
         .help("Use the content of the clipboard as the QR code")
@@ -43,15 +41,14 @@ fn cli() -> OptionParser<Source> {
         .help("Read standard input as the QR code")
         .req_flag(Source::Stdin);
     // Exactly one source — bpaf itself rejects both or neither.
-    construct!([clipboard, stdin]).to_options().descr(SUMMARY)
+    construct!([clipboard, stdin])
 }
 
-fn applet_main(args: &[OsString]) -> Result<ExitCode, RunFailure> {
-    let source = cli()
-        .run_inner(Args::from(args).set_name(NAME))
-        .map_err(RunFailure::Cli)?;
-    run(source).map_err(RunFailure::Applet)?;
-    Ok(ExitCode::SUCCESS)
+/// The applet's CLI: pick the QR code source, then render and open it.
+fn cli() -> OptionParser<Invocation> {
+    Invocation::cli(args(), SUMMARY, |source| {
+        run(source).map(|()| ExitCode::SUCCESS)
+    })
 }
 
 fn run(source: Source) -> rootcause::Result<()> {
@@ -132,10 +129,13 @@ fn open_viewer(svg_path: &Path) -> rootcause::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bpaf::Args;
     use std::assert_matches;
 
-    fn parse(args: &[&str]) -> Result<Source, bpaf::ParseFailure> {
-        cli().run_inner(Args::from(args).set_name(NAME))
+    fn parse(items: &[&str]) -> Result<Source, bpaf::ParseFailure> {
+        args()
+            .to_options()
+            .run_inner(Args::from(items).set_name(NAME))
     }
 
     #[test]
