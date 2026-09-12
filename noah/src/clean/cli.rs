@@ -19,11 +19,7 @@ fn clean_options_cli() -> impl Parser<Options> {
     let keep_since = long("keep-since")
         .short('K')
         .argument::<humantime::Duration>("DURATION")
-        .help(
-            "At least keep gcroots and generations in this time range since \
-             now.\n\nSee the documentation of humantime for possible formats: \
-             https://docs.rs/humantime/latest/humantime/fn.parse_duration.html",
-        )
+        .help("Keep gcroots and generations newer than this (humantime format)")
         .fallback(Duration::from_secs(0).into())
         .display_fallback();
     let dry = long("dry")

@@ -23,10 +23,7 @@ pub fn cli() -> impl Parser<CliOpts> {
     let hostname = long("hostname")
         .short('H')
         .argument::<String>("HOSTNAME")
-        .help(
-            "When using a flake, select this hostname from \
-             nixosConfigurations",
-        )
+        .help("Hostname to select from nixosConfigurations (default: local hostname)")
         .optional();
     let target = target::parser();
 

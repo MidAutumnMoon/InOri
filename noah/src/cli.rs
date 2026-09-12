@@ -56,12 +56,8 @@ fn elevation_cli() -> impl Parser<Option<ElevationStrategy>> {
         .long("elevation-program")
         .argument::<ElevationStrategy>("STRATEGY")
         .help(
-            "Choose the privilege elevation strategy.\n\nCan be a path to an \
-             elevation program (e.g., /usr/bin/sudo), or one of: 'none' (no \
-             elevation), 'passwordless' (use elevation without password \
-             prompt for remote hosts with NOPASSWD configured), or 'auto' \
-             (automatically detect available elevation programs in order: \
-             doas, sudo, run0, pkexec)",
+            "Privilege elevation: 'none', 'auto', 'passwordless', or a \
+             program path",
         )
         .optional()
 }

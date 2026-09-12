@@ -117,10 +117,7 @@ pub fn cli() -> impl Parser<Avif> {
     let quality = long("quality")
         .short('q')
         .argument::<u8>("QUALITY")
-        .help(
-            "libavif color quality in 0..=100. At 100 quantization is \
-             lossless; chroma conversion can still be lossy",
-        )
+        .help("Color quality 0..=100; even 100 can lose chroma")
         .fallback(Avif::default().quality)
         .display_fallback();
     let depth = long("depth")
@@ -137,9 +134,7 @@ pub fn cli() -> impl Parser<Avif> {
         .fallback(Avif::default().chroma)
         .display_fallback();
     let grain = long("grain").switch().help(
-        "Enable libaom's all-intra noise estimation, denoising, and \
-             grain synthesis. Useful for genuinely grainy color art; \
-             harmful to crisp screentone, so it is opt-in",
+        "Synthesize film grain; helps grainy art, harms crisp screentone",
     );
     let speed = long("speed")
         .argument::<u8>("SPEED")

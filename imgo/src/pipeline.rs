@@ -80,11 +80,7 @@ pub fn shared_cli() -> impl Parser<SharedOpts> {
     let jobs = long("jobs")
         .short('J')
         .argument::<NonZeroU64>("N")
-        .help(
-            "Number of images processed concurrently. Encoders may use \
-             multiple threads internally, so expensive encoders default to \
-             one image at once",
-        )
+        .help("Images processed concurrently; expensive encoders default to one")
         .optional();
     let no_recursive = long("no-recursive").short('R').switch().help(
         "Only discover immediate children of each selected directory",

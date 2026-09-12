@@ -33,20 +33,12 @@ pub struct Tomato {
 /// CLI parser for [`Tomato`].
 #[must_use]
 pub fn cli() -> impl Parser<Tomato> {
-    let encrypt = short('e').long("encrypt").switch().help(
-        "Scramble (obfuscate) the image. Exactly one of `--encrypt` / \
-         `--decrypt` must be given",
-    );
-    let decrypt = short('d').long("decrypt").switch().help(
-        "Descramble (restore) the image. Exactly one of `--encrypt` / \
-         `--decrypt` must be given",
-    );
+    let encrypt = short('e').long("encrypt").switch().help("Scramble the image");
+    let decrypt =
+        short('d').long("decrypt").switch().help("Restore a scrambled image");
     let key = long("key")
         .argument::<f64>("KEY")
-        .help(
-            "Key controlling the offset along the Gilbert curve. The same \
-             key is required to reverse scrambling",
-        )
+        .help("Offset along the Gilbert curve; decrypting needs the same key")
         .fallback(1.0)
         .display_fallback();
     construct!(Tomato {

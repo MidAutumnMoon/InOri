@@ -67,12 +67,7 @@ struct CliOpts {
 fn cli() -> OptionParser<CliOpts> {
     let mode = long("mode")
         .argument::<Mode>("MODE")
-        .help(
-            "Decryption mode: `light` (default) skips the key and only \
-             decrypts PNG images by restoring the known PNG header; \
-             `full` reads the encryption key from System.json and \
-             decrypts all asset types (PNG, OGG, M4A)",
-        )
+        .help("Decryption mode: `light` restores PNG headers only, `full` all assets")
         .fallback(Mode::Light)
         .display_fallback();
     let game_dir = positional::<PathBuf>("GAME_DIR")

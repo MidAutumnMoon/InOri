@@ -220,34 +220,19 @@ struct CliTarget {
     positional: Option<String>,
 }
 
-/// Hidden `-f`/`--file` and `-E`/`--expr` arguments, mutually exclusive.
+/// The `-f`/`--file` and `-E`/`--expr` arguments, mutually exclusive.
 #[derive(Debug)]
 enum CliSource {
     File(String),
     Expr(String),
 }
 
-const TARGET_HELP: &str = "Which target to operate on.
-Nix accepts various kinds of installables:
-
-[FLAKEREF[#ATTRPATH]]
-    Flake reference with an optional attribute path.
-    [env: NH_FLAKE]
-
--f, --file <FILE> [ATTRPATH]
-    Path to file with an optional attribute path.
-    [env: NH_FILE]
-    [env: NH_ATTRP]
-
--E, --expr <EXPR> [ATTRPATH]
-    Nix expression with an optional attribute path.
-
-[PATH]
-    Path or symlink to a /nix/store path";
+const TARGET_HELP: &str = "Flake reference (env: NH_FLAKE), /nix/store path, \
+or attribute path";
 
 /// bpaf parser for target selection.
 ///
-/// Accepts a positional target plus the hidden `-f/--file` and `-E/--expr`
+/// Accepts a positional target plus the `-f/--file` and `-E/--expr`
 /// arguments and resolves the combination at parse time, mirroring the Nix
 /// installable grammar. Returns `None` when nothing was supplied; resolution
 /// then falls back to the environment and the default.
@@ -256,12 +241,12 @@ pub fn parser() -> impl Parser<Option<BuildTarget>> {
     let file = long("file")
         .short('f')
         .argument::<String>("FILE")
-        .hide()
+        .help("Nix file to build; TARGET then gives its attribute path")
         .map(CliSource::File);
     let expr = long("expr")
         .short('E')
         .argument::<String>("EXPR")
-        .hide()
+        .help("Nix expression to build; TARGET then gives its attribute path")
         .map(CliSource::Expr);
     let source = construct!([file, expr]).optional();
     let positional = positional::<String>("TARGET")

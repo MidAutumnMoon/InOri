@@ -64,17 +64,11 @@ fn search_flags() -> impl Parser<SearchFlags> {
         .switch();
     let backend_version = long("backend-version")
         .argument::<u32>("VERSION")
-        .help(
-            "Backend index version to query on search.nixos.org. Defaults \
-             to the version bundled with nh",
-        )
+        .help("Backend index version to query (default: bundled with nh)")
         .optional();
     let backend_fallbacks = long("backend-version-fallbacks")
         .argument::<u32>("COUNT")
-        .help(
-            "Number of newer index versions to try when the requested \
-             version is outdated (missing on the backend)",
-        )
+        .help("Newer index versions to try when the requested one is missing")
         .fallback(DEFAULT_BACKEND_FALLBACKS)
         .display_fallback();
     let json = long("json")
@@ -83,10 +77,7 @@ fn search_flags() -> impl Parser<SearchFlags> {
         .switch();
     let default_search = long("default-search")
         .argument::<SearchKind>("MODE")
-        .help(
-            "Default search mode used when no subcommand is given. Accepts \
-             `packages` or `options`",
-        )
+        .help("Search mode for bare queries: `packages` or `options`")
         .fallback(SearchKind::Packages)
         .display_fallback();
 
@@ -205,10 +196,7 @@ pub fn search_cli() -> impl Parser<CliOpts> {
     let without_mode = {
         let flags = search_flags();
         let query = positional::<String>("QUERY")
-            .help(
-                "Query shorthand: equivalent to `nh search packages <query>` \
-                 or `nh search options <query>` depending on --default-search",
-            )
+            .help("Query terms, searched in the --default-search mode")
             .many();
         construct!(SearchWithoutMode { flags, query })
             .map(RawSearch::Shorthand)

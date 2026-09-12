@@ -39,8 +39,7 @@ const MAX_SYMLINK_FOLLOWS: u64 = 64;
 /// The applet's CLI: resolve one program or path, then walk its hops.
 fn cli() -> OptionParser<Invocation> {
     let program = positional::<String>("PROGRAM").help(
-        "Executable name to find in $PATH; a path containing '/' \
-         starts the walk directly instead",
+        "Executable name found via $PATH; a path with '/' skips the lookup",
     );
     Invocation::cli(program, SUMMARY, |program| {
         run(&program).map(|()| ExitCode::SUCCESS)

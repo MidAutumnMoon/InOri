@@ -102,11 +102,7 @@ pub fn denoise_cli() -> impl Parser<Denoise> {
     let mode = long("mode")
         .short('m')
         .argument::<Mode>("MODE")
-        .help(
-            "Preprocessing mode: `artifact` (bilateral blur), \
-             `adaptive-blur`, `fake-pencil` (median plus contrast stretch) \
-             or `despeckle`",
-        )
+        .help("Preprocessing mode: artifact, adaptive-blur, fake-pencil, despeckle")
         .fallback(Denoise::default().mode)
         .display_fallback();
     let strength = long("strength")
@@ -443,10 +439,7 @@ pub struct CleanScan {
 pub fn clean_scan_cli() -> impl Parser<CleanScan> {
     let threshold = long("threshold")
         .argument::<u8>("PERCENT")
-        .help(
-            "Fixed global threshold percentage. Cannot be supplied with \
-             `--otsu`",
-        )
+        .help("Global threshold percentage; cannot be combined with `--otsu`")
         .fallback(CleanScan::default().threshold)
         .display_fallback();
     let otsu = long("otsu")

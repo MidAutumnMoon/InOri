@@ -104,11 +104,7 @@ fn rebuild_cli() -> impl Parser<CliOpts> {
     let hostname = long("hostname")
         .short('H')
         .argument::<String>("HOSTNAME")
-        .help(
-            "When using a flake, select this hostname from \
-             nixosConfigurations.\n\nWhen unspecified, defaults to the local \
-             hostname",
-        )
+        .help("Hostname to select from nixosConfigurations (default: local hostname)")
         .optional();
     let specialisation = specialisation_cli();
     let bypass_root_check = long("bypass-root-check")

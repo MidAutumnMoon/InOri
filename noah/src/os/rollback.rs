@@ -50,10 +50,7 @@ pub fn cli() -> impl Parser<CliOpts> {
     let to = long("to")
         .short('t')
         .argument::<u64>("GENERATION")
-        .help(
-            "Rollback to a specific generation number (defaults to previous \
-             generation)",
-        )
+        .help("Generation number to roll back to (default: previous)")
         .optional();
     let bypass_root_check = long("bypass-root-check")
         .short('R')
