@@ -2,6 +2,11 @@
 //! 2D Gilbert curve traversal. Lossless — output must be written to a
 //! lossless format (PNG).
 //!
+//! The traversal and the key offset replicate the reference Java
+//! implementation (`imgo/TomatoScramble.java`, kept in git history at
+//! commit abe63b1): data scrambled by one implementation must decrypt
+//! under the other.
+//!
 //! All arithmetic is checked and surfaces as `Err` instead of
 //! wrapping; `clippy::arithmetic_side_effects` stays enabled as a
 //! tripwire.
@@ -39,12 +44,20 @@ impl Side {
         Self { len: 1, ..self }
     }
 
-    /// The half-length side in the same direction (rounding down).
+    /// The half-length side in the same direction.
+    ///
+    /// Halves the signed vector, not its magnitude: floor for a
+    /// positive side, ceil for a negative one (the reference's
+    /// `floorDiv`). On odd lengths the two halves are unequal, and this
+    /// decides which half the traversal enters first — magnitude
+    /// rounding swaps them and yields a different curve.
     fn half(self) -> Self {
-        Self {
-            len: self.len.div_euclid(2),
-            ..self
-        }
+        let len = if self.positive {
+            self.len.div_euclid(2)
+        } else {
+            self.len.div_ceil(2)
+        };
+        Self { len, ..self }
     }
 
     /// The part remaining after `head` has been split off.
@@ -473,6 +486,64 @@ mod tests {
         let n = 1000_usize;
         assert_eq!(offset(n, 1.0), 618);
         assert_eq!(offset(n, 0.0), 0);
+    }
+
+    /// FNV-1a over the little-endian bytes of every curve index,
+    /// keeping the golden table to one number per size.
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "golden values are defined over little-endian bytes"
+    )]
+    fn curve_fnv1a(points: &[usize]) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for &index in points {
+            for byte in index.to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        hash
+    }
+
+    #[test]
+    fn gilbert_matches_java_reference() {
+        // Golden values generated from the reference implementation
+        // (see the module docs). Each size halves a negative,
+        // odd-length side somewhere in the recursion — the path where
+        // magnitude rounding used to swap the traversal order of the
+        // split's sub-rectangles.
+        for (width, height, first16, checksum) in [
+            (
+                37_u32,
+                23_u32,
+                [0, 1, 38, 37, 74, 75, 112, 111, 148, 185, 186, 149, 150, 187, 188, 151],
+                1_070_470_865_734_357_235_u64,
+            ),
+            (
+                100,
+                100,
+                [0, 100, 101, 1, 2, 102, 202, 302, 301, 201, 200, 300, 400, 500, 501, 401],
+                2_922_269_138_842_808_277,
+            ),
+            (
+                912,
+                1287,
+                [0, 912, 1824, 1825, 913, 1, 2, 3, 915, 914, 1826, 1827, 2739, 2738, 3650, 3651],
+                1_957_711_295_412_417_129,
+            ),
+        ] {
+            let points = gilbert2d(width, height).unwrap();
+            assert_eq!(
+                points.get(..first16.len()),
+                Some(first16.as_slice()),
+                "{width}x{height} prefix"
+            );
+            assert_eq!(
+                curve_fnv1a(&points),
+                checksum,
+                "{width}x{height} checksum"
+            );
+        }
     }
 
     #[test]
