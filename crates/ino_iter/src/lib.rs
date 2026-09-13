@@ -1,11 +1,36 @@
+//! Ruby-style [`select`](InoIter::select) and [`reject`](InoIter::reject)
+//! methods for iterators.
+//!
+//! Both are lazy, like [`Iterator::filter`].
+//! Predicates take `&Self::Item`; iterators over references pass `&&T`.
+//!
+//! # Example
+//!
+//! ```
+//! use ino_iter::InoIter as _;
+//!
+//! fn is_even(number: &i32) -> bool {
+//!     number % 2 == 0
+//! }
+//!
+//! assert_eq!(
+//!     (1..=4).select(is_even).collect::<Vec<_>>(),
+//!     vec![2, 4],
+//! );
+//! assert_eq!(
+//!     (1..=4).reject(is_even).collect::<Vec<_>>(),
+//!     vec![1, 3],
+//! );
+//! ```
+
 use std::iter::Filter;
 
-/// Some iterator extensions.
+/// Ruby-style filtering methods for iterators.
 pub trait InoIter: Iterator {
-    /// Alias of [`Iterator::filter`] with a more intuitive name.
-    /// Leaving only items for which `pred` returns `true`.
+    /// Creates an iterator that yields items for which `pred` returns `true`.
     ///
-    /// See also `select` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-select>.
+    /// Equivalent to [`Iterator::filter`]. Ruby calls this
+    /// [`Enumerable#select`](https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-select).
     #[inline]
     fn select<P>(self, pred: P) -> Filter<Self, P>
     where
@@ -15,10 +40,10 @@ pub trait InoIter: Iterator {
         self.filter(pred)
     }
 
-    /// The inverse of [`Self::select`] with a more intuitive name.
-    /// Remove(aka reject) items for which `pred` returns `true`.
+    /// Creates an iterator that yields items for which `pred` returns `false`.
     ///
-    /// See also `reject` method from Ruby: <https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-reject>.
+    /// Named after Ruby's
+    /// [`Enumerable#reject`](https://docs.ruby-lang.org/en/3.4/Enumerable.html#method-i-reject).
     #[inline]
     fn reject<P>(
         self,
