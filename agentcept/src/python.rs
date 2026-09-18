@@ -1,11 +1,11 @@
-//! `python`/`pip` policy: neither exists on this host; `uv` is the tool.
+//! Block Python and pip commands in favor of `uv`.
 
 use std::ffi::OsStr;
 use std::process::ExitCode;
 
-/// Whether `name` is the `python`/`pip` family: `python`, `python3`,
-/// `python3.12`, `pip`, `pip3`, ... Lookalikes with other suffixes
-/// (`pipx`, `pytest`) are left alone.
+/// Matches `python` and `pip`, with or without a numeric version suffix.
+///
+/// Names such as `pipx` and `pytest` do not match.
 #[must_use]
 pub fn is_family(name: &[u8]) -> bool {
     let Some(rest) = name
@@ -17,13 +17,11 @@ pub fn is_family(name: &[u8]) -> bool {
     rest.iter().all(|ch| ch.is_ascii_digit() || *ch == b'.')
 }
 
-/// Policy entry: no global python/pip exists; refuse and point at `uv`.
 pub fn run(name: &OsStr) -> ExitCode {
     refuse(name);
     ExitCode::FAILURE
 }
 
-/// Print the reason and the relevant `uv` command shapes.
 fn refuse(name: &OsStr) {
     let pip = name.as_encoded_bytes().starts_with(b"pip");
     let name = name.to_string_lossy();

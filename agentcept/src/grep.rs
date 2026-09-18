@@ -10,7 +10,6 @@ use crate::starts_at_root;
 /// Short options that take a value, attached (`-A3`) or separate (`-A 3`).
 const SHORT_VALUE: &[u8] = b"ABCDdefm";
 
-/// A long option's argument shape and effect on this policy.
 #[derive(Clone, Copy)]
 enum LongOption {
     Flag,
@@ -20,7 +19,6 @@ enum LongOption {
     Terminal,
 }
 
-/// Policy effect of a required long-option value.
 #[derive(Clone, Copy)]
 enum ValueEffect {
     Ignored,
@@ -28,14 +26,12 @@ enum ValueEffect {
     Directories,
 }
 
-/// Why this invocation must not run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Refusal {
     RootSearch,
     LikelyMissingPattern,
 }
 
-/// Classify the GNU grep long options this policy understands.
 #[must_use]
 fn long_option(name: &[u8]) -> Option<LongOption> {
     match name {
@@ -86,11 +82,11 @@ fn long_option(name: &[u8]) -> Option<LongOption> {
     }
 }
 
-/// Decide whether grep would recursively search from `/`.
+/// Returns why a recursive search from `/` should be blocked.
 ///
-/// Options and operands interleave, the first operand is the pattern
-/// unless `-e`/`-f` claimed it, and the last recursion setting wins.
-/// Unknown long options fail open because their arity cannot be guessed.
+/// Options and operands can interleave. The first unclaimed operand is the
+/// pattern, and later recursion options override earlier ones. Unknown long
+/// options pass through because their argument shape is unknown.
 #[must_use]
 fn check(
     args: &[OsString],
@@ -136,7 +132,7 @@ fn check(
                     recursive = true;
                 }
                 LongOption::Value(effect) => {
-                    // argv ran out of the value; real grep errors itself.
+                    // Let grep report a missing option value.
                     let value = match attached {
                         Some(value) => value,
                         None => iter.next()?.as_encoded_bytes(),
@@ -217,7 +213,6 @@ fn check(
     rooted_at_root.then_some(Refusal::RootSearch)
 }
 
-/// Policy entry: refuse unbounded recursive searches, else exec real grep.
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let cwd = std::env::current_dir().ok();
     if let Some(reason) = check(args, cwd.as_deref()) {
@@ -227,7 +222,6 @@ pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     exec::real(name, args)
 }
 
-/// Print the reason and the safe command shape.
 fn refuse(name: &OsStr, reason: Refusal) {
     let (reason, instruction) = match reason {
         Refusal::RootSearch => (
@@ -288,7 +282,7 @@ mod test {
             Some(Refusal::RootSearch)
         );
         assert_eq!(refusal(&["-R", "pattern"], "/tmp"), None);
-        // No pattern means real grep errors before searching.
+        // Let grep reject a missing pattern before searching.
         assert_eq!(refusal(&["-R"], "/"), None);
     }
 

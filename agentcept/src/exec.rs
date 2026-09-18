@@ -1,5 +1,4 @@
-//! Finding and exec'ing the real tool, skipping agentcept's own shims
-//! so PATH dispatch can't loop back into us.
+//! Locate and exec the real tool without recursing into agentcept.
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -15,10 +14,9 @@ use ino_path::is_executable::IsExecutable as _;
 use rootcause::bail;
 use rootcause::report;
 
-/// Exec the real tool `name` with `args`, replacing this process.
+/// Replaces this process with `name`, skipping this executable during lookup.
 ///
-/// Only returns when exec failed; on success the real command runs to
-/// completion and its exit status becomes ours directly.
+/// Returns exit code 127 if lookup or `exec` fails.
 pub fn real(name: &OsStr, args: &[OsString]) -> ExitCode {
     match resolve_and_exec(name, args) {
         Ok(never) => match never {},
@@ -29,8 +27,6 @@ pub fn real(name: &OsStr, args: &[OsString]) -> ExitCode {
     }
 }
 
-/// Unix file identity, for recognizing our own executable
-/// no matter how the shims were set up (symlink, hardlink, copy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileId {
     dev: u64,
@@ -38,14 +34,7 @@ struct FileId {
 }
 
 impl FileId {
-    /// Identity of our own executable. Required, not optional: without it
-    /// we cannot promise to skip our own shims, so we fail closed instead
-    /// of risking an exec loop.
-    ///
-    /// # Errors
-    ///
-    /// A dynamic [`Report`](rootcause::Report) when the current executable
-    /// cannot be resolved or stat'ed.
+    // Without a reliable identity, PATH lookup could select this shim again.
     fn discover() -> rootcause::Result<Self> {
         let exe = match std::env::current_exe() {
             Ok(exe) => exe,
@@ -60,8 +49,7 @@ impl FileId {
         })
     }
 
-    /// Identity of what `path` refers to (symlinks followed);
-    /// `None` if it can't be stat'ed.
+    // Follow symlinks so paths to the same executable compare equal.
     fn of(path: &Path) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
         Some(Self {
@@ -71,8 +59,6 @@ impl FileId {
     }
 }
 
-/// Exec the real tool, searching `$PATH` and skipping anything that is
-/// this very executable, so we never dispatch to ourselves.
 fn resolve_and_exec(
     name: &OsStr,
     args: &[OsString],
@@ -80,7 +66,6 @@ fn resolve_and_exec(
     let myself = FileId::discover()?;
 
     if name.as_encoded_bytes().contains(&b'/') {
-        // An explicit path: exec it directly, but never ourselves.
         let path = PathBuf::from(name);
         if FileId::of(&path) == Some(myself) {
             bail!(
@@ -112,19 +97,18 @@ fn resolve_and_exec(
     );
 }
 
-/// Replace this process with `path`; `exec` only returns on failure.
 fn exec_path(
     path: &Path,
     args: &[OsString],
 ) -> rootcause::Result<std::convert::Infallible> {
+    // `exec` returns only if process replacement fails.
     let err = Command::new(path).args(args).exec();
     Err(report!(err)
         .context(format!("exec {}", path.display()))
         .into())
 }
 
-/// `$PATH` split into directories; an empty entry means the current
-/// directory, as shells read it.
+/// Splits `$PATH`, treating empty entries as the current directory.
 fn path_entries(search_path: &OsStr) -> impl Iterator<Item = PathBuf> {
     search_path
         .as_encoded_bytes()

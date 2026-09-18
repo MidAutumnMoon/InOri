@@ -1,9 +1,7 @@
-//! agentcept: multicall PATH shim that intercepts common agent tool calls
-//! (`find`, `grep`, `python`, ...) and refuses the unbounded ones before
-//! exec'ing the real binary.
+//! Multicall PATH shim for enforcing tool-specific policies.
 //!
-//! Dispatch is by `argv[0]` basename (multicall symlinks), or by the first
-//! argument when invoked as `agentcept` itself.
+//! The applet name comes from `argv[0]`, or from the first argument when
+//! invoked as `agentcept`.
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -17,10 +15,8 @@ mod find;
 mod grep;
 mod python;
 
-/// Name of the dispatcher, i.e. when no applet symlink is used.
 const BIN_NAME: &str = "agentcept";
 
-/// Help text, printed for `agentcept` with no arguments or `--help`.
 const USAGE: &str = indoc::indoc! {"
     agentcept - intercept agent tool calls and police them
 
@@ -46,7 +42,6 @@ fn main() -> ExitCode {
     let _log_guard = ino_tracing::init_tracing_subscriber();
 
     let mut argv_iter = std::env::args_os();
-    // `argv[0]` always exists in practice; default to the dispatcher name.
     let invoked_as =
         argv_iter.next().unwrap_or_else(|| OsString::from(BIN_NAME));
     let args: Vec<OsString> = argv_iter.collect();
@@ -54,18 +49,13 @@ fn main() -> ExitCode {
     dispatch(&invoked_as, &args)
 }
 
-/// An interception policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    /// `find`: refuse unbounded starting points.
     Find,
-    /// `grep` (and `egrep`/`fgrep`): refuse unbounded recursive searches.
     Grep,
-    /// `python`/`pip` family: refuse, point at `uv`.
     Python,
 }
 
-/// Map a tool name (basename) to its policy, if intercepted.
 #[must_use]
 fn classify(name: &OsStr) -> Option<Kind> {
     match name.as_encoded_bytes() {
@@ -76,7 +66,6 @@ fn classify(name: &OsStr) -> Option<Kind> {
     }
 }
 
-/// Basename of a path-like string (`argv[0]` or a tool argument).
 #[must_use]
 fn basename(path: &OsStr) -> &OsStr {
     let raw = path.as_encoded_bytes();
@@ -86,7 +75,6 @@ fn basename(path: &OsStr) -> &OsStr {
     })
 }
 
-/// Resolve one invocation and run it to completion.
 fn dispatch(invoked_as: &OsStr, args: &[OsString]) -> ExitCode {
     let name = basename(invoked_as);
 
@@ -102,7 +90,6 @@ fn dispatch(invoked_as: &OsStr, args: &[OsString]) -> ExitCode {
         return run(kind, name, args);
     }
 
-    // Dispatcher mode: the first argument selects the tool.
     let Some((first, rest)) = args.split_first() else {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
@@ -125,7 +112,6 @@ fn dispatch(invoked_as: &OsStr, args: &[OsString]) -> ExitCode {
     }
 }
 
-/// Apply the policy for `kind` and exec the real tool (or refuse).
 fn run(kind: Kind, name: &OsStr, args: &[OsString]) -> ExitCode {
     match kind {
         Kind::Find => find::run(name, args),
@@ -134,11 +120,10 @@ fn run(kind: Kind, name: &OsStr, args: &[OsString]) -> ExitCode {
     }
 }
 
-/// Whether the path lexically denotes the filesystem root (`/`, `//`,
-/// `/.`, `/a/..`); relative paths never do.
+/// Matches absolute paths that normalize lexically to `/`.
 ///
-/// `..` saturates at the root, as Linux resolves it. Lexical only —
-/// spots the habit, not evasion.
+/// Parent components saturate at the root, as on Linux. Symlinks are not
+/// resolved.
 #[must_use]
 fn is_lexical_root(path: &Path) -> bool {
     let mut absolute = false;
@@ -155,9 +140,10 @@ fn is_lexical_root(path: &Path) -> bool {
     absolute && depth == 0
 }
 
-/// Whether a search starting at `operand` — or at the cwd when `None`,
-/// both tools' default — begins at `/`. Relative operands resolve
-/// against `cwd`; what can't be judged passes (fail open).
+/// Resolves a search operand against `cwd` and checks whether it is `/`.
+///
+/// `None` means the tool's implicit current-directory operand. Relative and
+/// implicit operands pass through when `cwd` is unavailable.
 #[must_use]
 fn starts_at_root(operand: Option<&OsStr>, cwd: Option<&Path>) -> bool {
     match (operand, cwd) {
@@ -216,7 +202,7 @@ mod test {
 
     #[test]
     fn resolves_starting_roots_against_the_cwd() {
-        // The tools' implicit starting point is the cwd itself.
+        // No operand means the current directory.
         assert!(starts_at_root(None, Some(Path::new("/"))));
         assert!(!starts_at_root(None, Some(Path::new("/tmp"))));
         // Relative operands resolve against the cwd.

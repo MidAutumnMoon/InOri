@@ -7,16 +7,15 @@ use std::process::ExitCode;
 use crate::exec;
 use crate::starts_at_root;
 
-/// Decide whether find would start searching from `/`.
+/// Returns whether `find` would start searching from `/`.
 ///
-/// Only the first expression token is interpreted. Looking deeper would
-/// require parsing expression arity: `--help` and `-files0-from` can also
-/// be data for predicates and actions.
+/// Parsing stops at the first expression token because later `--help` and
+/// `-files0-from` tokens may be predicate or action arguments.
 #[must_use]
 fn check(args: &[OsString], cwd: Option<&std::path::Path>) -> bool {
     let mut index = 0;
 
-    // Real options precede the starting points.
+    // find's global options come before its starting points.
     while let Some(arg) = args.get(index) {
         let raw = arg.as_encoded_bytes();
         match raw {
@@ -42,7 +41,7 @@ fn check(args: &[OsString], cwd: Option<&std::path::Path>) -> bool {
                 index += 2;
             }
             level if is_olevel(level) => index += 1,
-            // Malformed real options error before any search.
+            // Let find reject malformed options before searching.
             level if level.starts_with(b"-O") => return false,
             _ => break,
         }
@@ -60,7 +59,7 @@ fn check(args: &[OsString], cwd: Option<&std::path::Path>) -> bool {
         return false;
     };
 
-    // These first expression tokens do not search the argv points.
+    // These expressions either exit or obtain starting points elsewhere.
     if let Some(expression) = args.get(index) {
         let raw = expression.as_encoded_bytes();
         if matches!(raw, b"--help" | b"-help" | b"--version" | b"-version")
@@ -77,7 +76,7 @@ fn check(args: &[OsString], cwd: Option<&std::path::Path>) -> bool {
         || (points.is_empty() && starts_at_root(None, cwd))
 }
 
-/// `-Olevel` is written with the level attached (e.g. `-O3`).
+// find accepts optimization levels only in attached form, such as `-O3`.
 fn is_olevel(raw: &[u8]) -> bool {
     let Some(level) = raw.strip_prefix(b"-O") else {
         return false;
@@ -85,7 +84,6 @@ fn is_olevel(raw: &[u8]) -> bool {
     !level.is_empty() && level.iter().all(u8::is_ascii_digit)
 }
 
-/// Policy entry: refuse unbounded starting points, else exec real `find`.
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let cwd = std::env::current_dir().ok();
     if check(args, cwd.as_deref()) {
@@ -95,7 +93,6 @@ pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     exec::real(name, args)
 }
 
-/// Print the reason and safer starting-point examples.
 fn refuse(name: &OsStr) {
     eprint!(
         "{}",
@@ -158,7 +155,7 @@ mod test {
             &["-H", "-L", "-O2", "-D", "rates", "/", "(", "-true"],
             "/tmp"
         ));
-        // Malformed real options error before searching.
+        // Let find reject malformed options before searching.
         assert!(!refused(&["-D"], "/"));
         assert!(!refused(&["-Oinvalid", "/"], "/"));
     }
@@ -187,7 +184,7 @@ mod test {
     fn opaque_points_pass_through() {
         assert!(!refused(&["-files0-from", "-"], "/"));
         assert!(!refused(&["/", "-files0-from", "/dev/null"], "/tmp"));
-        // Attached values are invalid; real find reports the error.
+        // Let find reject the invalid attached form.
         assert!(!refused(&["-files0-from=/dev/null"], "/"));
     }
 }

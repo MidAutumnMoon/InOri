@@ -1,8 +1,4 @@
-//! End-to-end guards for the exec shim: resolving the real tool through
-//! `$PATH` while skipping our own shims (symlinked, hardlinked, or
-//! copied), passing the exit status through, refusing before any exec,
-//! failing loudly when nothing usable remains, and routing — or
-//! rejecting — dispatcher-mode invocations.
+//! Integration tests for PATH dispatch and self-shim detection.
 
 #![expect(clippy::expect_used, reason = "in tests")]
 
@@ -13,17 +9,13 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
-/// The built agentcept binary.
 const BIN: &str = env!("CARGO_BIN_EXE_agentcept");
 
-/// A scratch directory removed on drop, holding a `shim` dir with our
-/// symlinks (early in `$PATH`, as in real use) and a `real` dir with
-/// the marker binaries resolution must land on.
+/// Test directory with `shim` and `real` PATH entries.
 struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(tag: &str) -> Self {
-        // Cargo's designated scratch space for integration tests.
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "agentcept-exec-test-{tag}-{}",
             std::process::id()
@@ -33,18 +25,14 @@ impl Scratch {
         Self(root)
     }
 
-    /// The scratch root, for files that belong to no search dir.
     fn root(&self) -> &Path {
         &self.0
     }
 
-    /// Path of the `shim/<name>` entry, whatever is installed there.
     fn shim_path(&self, name: &str) -> PathBuf {
         self.0.join("shim").join(name)
     }
 
-    /// Symlink `shim/<name>` to agentcept and write an executable
-    /// `real/<name>` running `script`; returns the shim path.
     fn pair(&self, name: &str, script: &str) -> PathBuf {
         let shim = self.shim_path(name);
         drop(fs::remove_file(&shim));
@@ -54,8 +42,6 @@ impl Scratch {
         shim
     }
 
-    /// Write an executable `<dir>/<name>` running `script`, creating
-    /// the directory if needed.
     fn executable(&self, dir: &str, name: &str, script: &str) -> PathBuf {
         let dir = self.0.join(dir);
         fs::create_dir_all(&dir).expect("creating the tool dir");
@@ -66,8 +52,6 @@ impl Scratch {
         path
     }
 
-    /// `$PATH` made of the given subdirectories, in order; earlier
-    /// entries shadow later ones.
     fn search(&self, dirs: &[&str]) -> String {
         dirs.iter()
             .map(|dir| self.0.join(dir).to_string_lossy().into_owned())
@@ -82,7 +66,6 @@ impl Drop for Scratch {
     }
 }
 
-/// Run the shim with `$PATH` set to `search`.
 fn run(search: &str, shim: &Path, args: &[&str]) -> Output {
     Command::new(shim)
         .args(args)
@@ -113,11 +96,8 @@ mod test {
         );
         let shim = scratch.shim_path("find");
 
-        // The `find` in $PATH position one is agentcept itself — as a
-        // symlink, hardlink, or plain copy — and must be skipped in
-        // favor of the marker in position two. All variants derive
-        // from one local copy of the binary: hardlinks cannot cross
-        // filesystems, so the source lives in the scratch dir itself.
+        // Hard links cannot cross filesystems, so install every variant from
+        // a copy in the scratch directory.
         let myself = scratch.root().join("agentcept");
         fs::copy(BIN, &myself)
             .expect("copying the binary into the scratch");
@@ -162,9 +142,6 @@ mod test {
         std::os::unix::fs::symlink(BIN, &shim)
             .expect("symlinking the shim");
 
-        // An unrelated `find` sits ahead of the shim: it must be
-        // exec'd as-is. Only agentcept itself is skipped — never
-        // "whatever came first".
         let output = run(
             &scratch.search(&["early", "shim", "real"]),
             &shim,
@@ -198,8 +175,6 @@ mod test {
         let shim =
             scratch.pair("find", "#!/bin/sh\necho REAL-FIND \"$@\"\n");
 
-        // `--help` from `/`: the real find prints and exits; the cwd
-        // guard must not fire, because no search happens.
         let output = Command::new(&shim)
             .arg("--help")
             .current_dir("/")
@@ -240,7 +215,6 @@ mod test {
         let shim =
             scratch.pair("grep", "#!/bin/sh\necho REAL-GREP \"$@\"\n");
 
-        // `grep -R PATTERN /`: the file operand is the root itself.
         let output = run(
             &scratch.search(&["shim", "real"]),
             &shim,
@@ -253,8 +227,8 @@ mod test {
             "{output:?}"
         );
 
-        // `grep -R /`: the lone `/` became the pattern; the agent meant
-        // a root scan, so it is refused on any cwd.
+        // A lone `/` is parsed as the pattern but usually means the pattern
+        // was omitted from a root scan.
         let refusal =
             run(&scratch.search(&["shim", "real"]), &shim, &["-R", "/"]);
         assert_eq!(refusal.status.code(), Some(1), "{refusal:?}");
@@ -284,8 +258,6 @@ mod test {
         let scratch = Scratch::new("dispatcher");
         scratch.pair("find", "#!/bin/sh\necho REAL-FIND \"$@\"\n");
 
-        // argv[0] is agentcept itself; the first argument picks the
-        // tool, and the marker must see the args after it.
         let output = run(
             &scratch.search(&["shim", "real"]),
             Path::new(BIN),
@@ -311,8 +283,7 @@ mod test {
         std::os::unix::fs::symlink(BIN, &shim)
             .expect("symlinking the shim");
 
-        // A tool given as an explicit path is exec'd directly: no $PATH
-        // search happens — none here could succeed anyway.
+        // Explicit tool paths bypass `$PATH` lookup.
         let marker = marker.to_string_lossy().into_owned();
         let output = run(
             &scratch.search(&["shim"]),
@@ -325,7 +296,7 @@ mod test {
             "REAL-FIND . -name x\n"
         );
 
-        // An explicit path to agentcept itself is refused, not looped.
+        // Explicit paths must still reject agentcept itself.
         let shim = shim.to_string_lossy().into_owned();
         let refusal = run(
             &scratch.search(&["shim"]),
@@ -342,13 +313,13 @@ mod test {
         let scratch = Scratch::new("dispatcher-usage");
         let bin = Path::new(BIN);
 
-        // Bare: usage on stderr, exit failure.
+        // No arguments: usage on stderr and failure.
         let output = run(&scratch.search(&["shim", "real"]), bin, &[]);
         assert_eq!(output.status.code(), Some(1), "{output:?}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("Usage"), "{stderr}");
 
-        // Help spellings: usage on stdout, exit success.
+        // Help flags: usage on stdout and success.
         for flag in ["--help", "-h", "help"] {
             let flag_output =
                 run(&scratch.search(&["shim", "real"]), bin, &[flag]);
@@ -360,7 +331,7 @@ mod test {
             assert!(stdout.contains("Usage"), "{flag}: {stdout}");
         }
 
-        // Unknown tool: fail loudly rather than run something.
+        // Unknown tools must not fall through to `$PATH`.
         let unknown_output = run(
             &scratch.search(&["shim", "real"]),
             bin,
@@ -384,8 +355,7 @@ mod test {
         let scratch = Scratch::new("wrong-name");
         let shim = scratch.pair("ls", "#!/bin/sh\necho REAL-LS \"$@\"\n");
 
-        // A shim named after an unintercepted tool must not silently
-        // run anything, not even the real `ls` sitting right behind it.
+        // Do not fall through to the real `ls`.
         let output =
             run(&scratch.search(&["shim", "real"]), &shim, &["-la"]);
 
