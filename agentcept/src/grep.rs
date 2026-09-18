@@ -4,7 +4,6 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use crate::command_line;
 use crate::exec;
 use crate::starts_at_root;
 
@@ -222,30 +221,32 @@ fn check(
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let cwd = std::env::current_dir().ok();
     if let Some(reason) = check(args, cwd.as_deref()) {
-        refuse(name, args, reason);
+        refuse(name, reason);
         return ExitCode::FAILURE;
     }
     exec::real(name, args)
 }
 
-/// Yell at the agent for trying to search the whole filesystem.
-fn refuse(name: &OsStr, args: &[OsString], reason: Refusal) {
-    let reason = match reason {
-        Refusal::RootSearch => "recursive search rooted at `/`",
-        Refusal::LikelyMissingPattern => {
-            "likely missing PATTERN before `/`"
-        }
+/// Print the reason and the safe command shape.
+fn refuse(name: &OsStr, reason: Refusal) {
+    let (reason, instruction) = match reason {
+        Refusal::RootSearch => (
+            "recursive search rooted at `/`",
+            "Use a narrower search root:",
+        ),
+        Refusal::LikelyMissingPattern => (
+            "likely missing PATTERN before `/`",
+            "Specify both the pattern and search directory:",
+        ),
     };
-    eprintln!(
+    eprint!(
         "{}",
         indoc::formatdoc! {"
-            agentcept: refusing `{name}`: {reason}
-            Searching the whole filesystem is never the right call. Scope it:
+            {name}: blocked: {reason}
+            {instruction}
                 grep -R PATTERN <dir>
-            Command was: {command}
         ",
         name = name.to_string_lossy(),
-        command = command_line(name, args),
         }
     );
 }

@@ -4,7 +4,6 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use crate::command_line;
 use crate::exec;
 use crate::starts_at_root;
 
@@ -90,25 +89,23 @@ fn is_olevel(raw: &[u8]) -> bool {
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let cwd = std::env::current_dir().ok();
     if check(args, cwd.as_deref()) {
-        refuse(name, args);
+        refuse(name);
         return ExitCode::FAILURE;
     }
     exec::real(name, args)
 }
 
-/// Yell at the agent for trying to search the whole filesystem.
-fn refuse(name: &OsStr, args: &[OsString]) {
-    eprintln!(
+/// Print the reason and safer starting-point examples.
+fn refuse(name: &OsStr) {
+    eprint!(
         "{}",
         indoc::formatdoc! {"
-            agentcept: refusing `{name}`: a starting point is `/`
-            Searching the whole filesystem is never the right call. Scope it:
+            {name}: blocked: a starting point is `/`
+            Use a narrower starting point:
                 find <dir> -name 'PATTERN'
                 find . -maxdepth 3 -type f
-            Command was: {command}
         ",
         name = name.to_string_lossy(),
-        command = command_line(name, args),
         }
     );
 }

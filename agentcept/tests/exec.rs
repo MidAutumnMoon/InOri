@@ -228,8 +228,10 @@ mod test {
 
         assert_eq!(output.status.code(), Some(1), "{output:?}");
         assert!(String::from_utf8_lossy(&output.stdout).is_empty());
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("refusing"), "{stderr}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).starts_with("find:"),
+            "{output:?}"
+        );
     }
 
     #[test]
@@ -246,8 +248,10 @@ mod test {
         );
         assert_eq!(output.status.code(), Some(1), "{output:?}");
         assert!(String::from_utf8_lossy(&output.stdout).is_empty());
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("refusing"), "{stderr}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).starts_with("grep:"),
+            "{output:?}"
+        );
 
         // `grep -R /`: the lone `/` became the pattern; the agent meant
         // a root scan, so it is refused on any cwd.
@@ -255,8 +259,10 @@ mod test {
             run(&scratch.search(&["shim", "real"]), &shim, &["-R", "/"]);
         assert_eq!(refusal.status.code(), Some(1), "{refusal:?}");
         assert!(String::from_utf8_lossy(&refusal.stdout).is_empty());
-        let refusal_stderr = String::from_utf8_lossy(&refusal.stderr);
-        assert!(refusal_stderr.contains("refusing"), "{refusal_stderr}");
+        assert!(
+            String::from_utf8_lossy(&refusal.stderr).starts_with("grep:"),
+            "{refusal:?}"
+        );
     }
 
     #[test]

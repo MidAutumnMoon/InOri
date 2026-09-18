@@ -1,10 +1,7 @@
 //! `python`/`pip` policy: neither exists on this host; `uv` is the tool.
 
 use std::ffi::OsStr;
-use std::ffi::OsString;
 use std::process::ExitCode;
-
-use crate::command_line;
 
 /// Whether `name` is the `python`/`pip` family: `python`, `python3`,
 /// `python3.12`, `pip`, `pip3`, ... Lookalikes with other suffixes
@@ -21,29 +18,35 @@ pub fn is_family(name: &[u8]) -> bool {
 }
 
 /// Policy entry: no global python/pip exists; refuse and point at `uv`.
-pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
-    refuse(name, args);
+pub fn run(name: &OsStr) -> ExitCode {
+    refuse(name);
     ExitCode::FAILURE
 }
 
-/// Yell at the agent for reaching for a python that isn't there.
-fn refuse(name: &OsStr, args: &[OsString]) {
-    eprintln!(
-        "{}",
-        indoc::formatdoc! {"
-            agentcept: `{name}` is not available on this machine.
-            This host runs Python through uv. Rewrite the invocation:
-                python SCRIPT ARGS       =>  uv run SCRIPT ARGS
-                python -m MODULE ARGS    =>  uv run -m MODULE ARGS
-                python -c 'CODE'         =>  uv run python -c 'CODE'
-                pip install PKG          =>  uv pip install PKG
-                pip ARGS                 =>  uv pip ARGS
-            Command was: {command}
-        ",
-        name = name.to_string_lossy(),
-        command = command_line(name, args),
-        }
-    );
+/// Print the reason and the relevant `uv` command shapes.
+fn refuse(name: &OsStr) {
+    let pip = name.as_encoded_bytes().starts_with(b"pip");
+    let name = name.to_string_lossy();
+
+    if pip {
+        eprint!(
+            "{}",
+            indoc::formatdoc! {"
+                {name}: global pip is unavailable; use `uv pip`
+                    uv pip ARGS
+            "}
+        );
+    } else {
+        eprint!(
+            "{}",
+            indoc::formatdoc! {"
+                {name}: global Python is unavailable; use `uv`
+                    script:  uv run SCRIPT [ARGS...]
+                    module:  uv run -m MODULE [ARGS...]
+                    inline:  uv run python -c 'CODE'
+            "}
+        );
+    }
 }
 
 #[cfg(test)]

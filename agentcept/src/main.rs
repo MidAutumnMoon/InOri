@@ -130,17 +130,8 @@ fn run(kind: Kind, name: &OsStr, args: &[OsString]) -> ExitCode {
     match kind {
         Kind::Find => find::run(name, args),
         Kind::Grep => grep::run(name, args),
-        Kind::Python => python::run(name, args),
+        Kind::Python => python::run(name),
     }
-}
-
-/// Render `name args...` on one line, for refusal messages.
-#[must_use]
-fn command_line(name: &OsStr, args: &[OsString]) -> String {
-    std::iter::once(name.to_string_lossy())
-        .chain(args.iter().map(|arg| arg.to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Whether the path lexically denotes the filesystem root (`/`, `//`,
@@ -187,13 +178,11 @@ fn starts_at_root(operand: Option<&OsStr>, cwd: Option<&Path>) -> bool {
 #[cfg(test)]
 mod test {
     use std::ffi::OsStr;
-    use std::ffi::OsString;
     use std::path::Path;
 
     use super::Kind;
     use super::basename;
     use super::classify;
-    use super::command_line;
     use super::is_lexical_root;
     use super::starts_at_root;
 
@@ -213,16 +202,6 @@ mod test {
     fn basenames_paths() {
         assert_eq!(basename(OsStr::new("/a/b/find")), OsStr::new("find"));
         assert_eq!(basename(OsStr::new("find")), OsStr::new("find"));
-    }
-
-    #[test]
-    fn renders_command_lines() {
-        let args: Vec<OsString> =
-            ["/", "-name", "x"].iter().map(OsString::from).collect();
-        assert_eq!(
-            command_line(OsStr::new("find"), &args),
-            "find / -name x"
-        );
     }
 
     #[test]
