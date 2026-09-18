@@ -1,0 +1,18 @@
+[package]
+name = "agentcept"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+homepage.workspace = true
+
+[dependencies]
+indoc.workspace = true
+ino_path.workspace = true
+ino_tracing.workspace = true
+rootcause.workspace = true
+
+[lints]
+workspace = true
