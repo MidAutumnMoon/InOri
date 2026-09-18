@@ -8,50 +8,95 @@ use crate::command_line;
 use crate::exec;
 use crate::starts_at_root;
 
-/// Long options whose value must be attached (`--name=value`)
-/// or given as the next argument.
-const LONG_VALUE: &[&[u8]] = &[
-    b"after-context",
-    b"before-context",
-    b"binary-files",
-    b"context",
-    b"devices",
-    b"directories",
-    b"exclude",
-    b"exclude-dir",
-    b"exclude-from",
-    b"file",
-    b"include",
-    b"label",
-    b"max-count",
-    b"regexp",
-];
-
-/// Long options with an optional value: only the attached form is one.
-const LONG_OPTIONAL_VALUE: &[&[u8]] = &[b"color", b"colour"];
-
 /// Short options that take a value, attached (`-A3`) or separate (`-A 3`).
 const SHORT_VALUE: &[u8] = b"ABCDdefm";
 
-struct Scan<'args> {
-    /// Whether the search descends into directories.
-    recursive: bool,
-    /// Operands naming search targets; the PATTERN operand is excluded.
-    files: Vec<&'args OsStr>,
-    /// The `grep -R /` shape: the sole operand became the pattern.
-    /// A forgotten pattern, not a search for `/` — refuse on any cwd.
-    root_sole_operand: bool,
+/// A long option's argument shape and effect on this policy.
+#[derive(Clone, Copy)]
+enum LongOption {
+    Flag,
+    Value(ValueEffect),
+    OptionalValue,
+    Recursive,
+    Terminal,
 }
 
-/// Find grep's search targets: options and operands interleave, the
-/// first operand is the PATTERN unless `-e`/`-f` claimed it, and the
-/// last recursion setting wins.
-///
-/// `None` = unjudgeable argv; the caller fails open: an unknown long
-/// option (its arity would be a guess), or terminal help/version
-/// (grep exits without searching).
+/// Policy effect of a required long-option value.
+#[derive(Clone, Copy)]
+enum ValueEffect {
+    Ignored,
+    Pattern,
+    Directories,
+}
+
+/// Why this invocation must not run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Refusal {
+    RootSearch,
+    LikelyMissingPattern,
+}
+
+/// Classify the GNU grep long options this policy understands.
 #[must_use]
-fn scan(args: &[OsString]) -> Option<Scan<'_>> {
+fn long_option(name: &[u8]) -> Option<LongOption> {
+    match name {
+        b"basic-regexp"
+        | b"binary"
+        | b"byte-offset"
+        | b"count"
+        | b"extended-regexp"
+        | b"files-with-matches"
+        | b"files-without-match"
+        | b"fixed-regexp"
+        | b"fixed-strings"
+        | b"ignore-case"
+        | b"initial-tab"
+        | b"invert-match"
+        | b"line-buffered"
+        | b"line-number"
+        | b"line-regexp"
+        | b"no-filename"
+        | b"no-group-separator"
+        | b"no-ignore-case"
+        | b"no-messages"
+        | b"null"
+        | b"null-data"
+        | b"only-matching"
+        | b"perl-regexp"
+        | b"quiet"
+        | b"silent"
+        | b"text"
+        | b"with-filename"
+        | b"word-regexp" => Some(LongOption::Flag),
+        b"after-context" | b"before-context" | b"binary-files"
+        | b"context" | b"devices" | b"exclude" | b"exclude-dir"
+        | b"exclude-from" | b"group-separator" | b"include" | b"label"
+        | b"max-count" => Some(LongOption::Value(ValueEffect::Ignored)),
+        b"regexp" | b"file" => {
+            Some(LongOption::Value(ValueEffect::Pattern))
+        }
+        b"directories" => {
+            Some(LongOption::Value(ValueEffect::Directories))
+        }
+        b"color" | b"colour" => Some(LongOption::OptionalValue),
+        b"recursive" | b"dereference-recursive" => {
+            Some(LongOption::Recursive)
+        }
+        b"help" | b"version" => Some(LongOption::Terminal),
+        _ => None,
+    }
+}
+
+/// Decide whether grep would recursively search from `/`.
+///
+/// Options and operands interleave, the first operand is the pattern
+/// unless `-e`/`-f` claimed it, and the last recursion setting wins.
+/// Unknown long options fail open because their arity cannot be guessed.
+#[must_use]
+fn check(
+    args: &[OsString],
+    cwd: Option<&std::path::Path>,
+) -> Option<Refusal> {
     let mut recursive = false;
     let mut have_pattern = false;
     let mut operands: Vec<&OsStr> = Vec::new();
@@ -76,39 +121,48 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
                     (name, Some(value))
                 });
 
-            if LONG_VALUE.contains(&name) {
-                // argv ran out of the value; real grep errors itself.
-                let value = match attached {
-                    Some(value) => value,
-                    None => iter.next()?.as_encoded_bytes(),
-                };
-                match name {
-                    b"regexp" | b"file" => have_pattern = true,
-                    b"directories" => recursive = value == b"recurse",
-                    // Context lines, filters, limits: no policy effect.
-                    _ => {}
+            let option = long_option(name)?;
+            match option {
+                LongOption::Terminal => return None,
+                LongOption::Flag => {
+                    if attached.is_some() {
+                        return None;
+                    }
                 }
-            } else if name == b"help" || name == b"version" {
-                // Terminal, wherever they appear.
-                return None;
-            } else if LONG_OPTIONAL_VALUE.contains(&name) {
-            } else if name == b"recursive"
-                || name == b"dereference-recursive"
-            {
-                recursive = true;
-            } else {
-                // Unknown option: don't guess whether it takes a value.
-                return None;
+                LongOption::OptionalValue => {}
+                LongOption::Recursive => {
+                    if attached.is_some() {
+                        return None;
+                    }
+                    recursive = true;
+                }
+                LongOption::Value(effect) => {
+                    // argv ran out of the value; real grep errors itself.
+                    let value = match attached {
+                        Some(value) => value,
+                        None => iter.next()?.as_encoded_bytes(),
+                    };
+                    match effect {
+                        ValueEffect::Ignored => {}
+                        ValueEffect::Pattern => have_pattern = true,
+                        ValueEffect::Directories => {
+                            recursive = value == b"recurse";
+                        }
+                    }
+                }
             }
             continue;
         }
 
         if raw.first() == Some(&b'-') && raw.len() > 1 {
             let (_, mut cluster) = raw.split_at(1);
-            // `-NUM` is the context option with its value attached.
-            if cluster.first().is_some_and(u8::is_ascii_digit) {
-                continue;
-            }
+            // `-NUM` is a context value; later bytes remain options.
+            let digits = cluster
+                .iter()
+                .take_while(|ch| ch.is_ascii_digit())
+                .count();
+            cluster = cluster.get(digits..)?;
+
             while let Some((ch, rest)) = cluster.split_first() {
                 if *ch == b'V' {
                     // `-V` is `--version`; lowercase `-v` is invert.
@@ -123,7 +177,7 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
                     match *ch {
                         b'e' | b'f' => have_pattern = true,
                         b'd' => recursive = value == b"recurse",
-                        // Context lines, devices: no policy effect.
+                        // Context lines, filters, limits: no policy effect.
                         _ => {}
                     }
                     break;
@@ -139,50 +193,53 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
         operands.push(arg);
     }
 
-    let root_sole_operand = !have_pattern
+    if !recursive {
+        return None;
+    }
+    if !have_pattern
         && operands.len() == 1
         && operands
             .first()
-            .is_some_and(|only| only.as_encoded_bytes() == b"/");
-
-    let mut files = operands;
-    if !have_pattern && !files.is_empty() {
-        files.remove(0);
+            .is_some_and(|operand| operand.as_encoded_bytes() == b"/")
+    {
+        return Some(Refusal::LikelyMissingPattern);
     }
-    Some(Scan {
-        recursive,
-        files,
-        root_sole_operand,
-    })
+
+    let files = if have_pattern {
+        operands.as_slice()
+    } else {
+        operands.split_first()?.1
+    };
+    let rooted_at_root = files
+        .iter()
+        .copied()
+        .any(|file| starts_at_root(Some(file), cwd))
+        || (files.is_empty() && starts_at_root(None, cwd));
+    rooted_at_root.then_some(Refusal::RootSearch)
 }
 
 /// Policy entry: refuse unbounded recursive searches, else exec real grep.
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
-    let Some(scan) = scan(args) else {
-        return exec::real(name, args);
-    };
     let cwd = std::env::current_dir().ok();
-    // With no file operand, recursive grep scans the working directory.
-    let rooted_at_root = scan.root_sole_operand
-        || scan
-            .files
-            .iter()
-            .copied()
-            .any(|file| starts_at_root(Some(file), cwd.as_deref()))
-        || (scan.files.is_empty() && starts_at_root(None, cwd.as_deref()));
-    if scan.recursive && rooted_at_root {
-        refuse(name, args);
+    if let Some(reason) = check(args, cwd.as_deref()) {
+        refuse(name, args, reason);
         return ExitCode::FAILURE;
     }
     exec::real(name, args)
 }
 
 /// Yell at the agent for trying to search the whole filesystem.
-fn refuse(name: &OsStr, args: &[OsString]) {
+fn refuse(name: &OsStr, args: &[OsString], reason: Refusal) {
+    let reason = match reason {
+        Refusal::RootSearch => "recursive search rooted at `/`",
+        Refusal::LikelyMissingPattern => {
+            "likely missing PATTERN before `/`"
+        }
+    };
     eprintln!(
         "{}",
         indoc::formatdoc! {"
-            agentcept: refusing `{name}`: recursive search rooted at `/`
+            agentcept: refusing `{name}`: {reason}
             Searching the whole filesystem is never the right call. Scope it:
                 grep -R PATTERN <dir>
             Command was: {command}
@@ -196,162 +253,156 @@ fn refuse(name: &OsStr, args: &[OsString]) {
 #[cfg(test)]
 mod test {
     use std::ffi::OsString;
+    use std::path::Path;
 
-    use super::scan;
+    use super::Refusal;
+    use super::check;
 
-    /// `(recursive, files, root_sole_operand)` for the given argv.
-    fn parsed(args: &[&str]) -> Option<(bool, Vec<String>, bool)> {
+    fn refusal(args: &[&str], cwd: &str) -> Option<Refusal> {
         let args: Vec<OsString> =
             args.iter().map(OsString::from).collect();
-        scan(&args).map(|parsed| {
-            (
-                parsed.recursive,
-                parsed
-                    .files
-                    .iter()
-                    .map(|file| file.to_string_lossy().into_owned())
-                    .collect(),
-                parsed.root_sole_operand,
-            )
-        })
+        check(&args, Some(Path::new(cwd)))
     }
 
     #[test]
-    fn first_operand_is_the_pattern() {
-        // `grep -R PATTERN /`: the only file operand is the root.
+    fn finds_explicit_root_targets() {
         assert_eq!(
-            parsed(&["-R", "foo", "/"]),
-            Some((true, vec!["/".into()], false))
+            refusal(&["-R", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
         assert_eq!(
-            parsed(&["-R", "foo", ".", "/"]),
-            Some((true, vec![".".into(), "/".into()], false))
+            refusal(&["-R", "-e", "a", "-e", "b", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
+        );
+        assert_eq!(
+            refusal(&["-R", "-f", "patterns", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
     }
 
     #[test]
-    fn root_pattern_is_not_a_target() {
-        // `grep / -R .`: the pattern is `/`, the search starts at `.`.
+    fn resolves_implicit_target_from_cwd() {
         assert_eq!(
-            parsed(&["/", "-R", "."]),
-            Some((true, vec![".".into()], false))
+            refusal(&["-R", "pattern"], "/"),
+            Some(Refusal::RootSearch)
+        );
+        assert_eq!(refusal(&["-R", "pattern"], "/tmp"), None);
+        // No pattern means real grep errors before searching.
+        assert_eq!(refusal(&["-R"], "/"), None);
+    }
+
+    #[test]
+    fn distinguishes_root_pattern_from_root_target() {
+        assert_eq!(refusal(&["/", "-R", "."], "/tmp"), None);
+        assert_eq!(
+            refusal(&["-R", "/"], "/tmp"),
+            Some(Refusal::LikelyMissingPattern)
+        );
+        assert_eq!(refusal(&["-R", "/", "."], "/tmp"), None);
+        assert_eq!(refusal(&["pattern", "/"], "/tmp"), None);
+    }
+
+    #[test]
+    fn option_values_do_not_become_operands() {
+        assert_eq!(
+            refusal(
+                &[
+                    "-R",
+                    "-A3",
+                    "-B",
+                    "2",
+                    "--context=2",
+                    "--color=always",
+                    "-m5",
+                    "pattern",
+                    "/"
+                ],
+                "/tmp"
+            ),
+            Some(Refusal::RootSearch)
+        );
+        assert_eq!(
+            refusal(
+                &[
+                    "--exclude",
+                    "*.o",
+                    "--exclude-dir=.git",
+                    "-d",
+                    "recurse",
+                    "pattern",
+                    "/"
+                ],
+                "/tmp"
+            ),
+            Some(Refusal::RootSearch)
         );
     }
 
     #[test]
-    fn sole_root_operand_scans_cwd() {
-        // `grep -R /` has `/` as the pattern and scans the cwd: the agent
-        // meant a search rooted at `/`.
+    fn long_options_preserve_the_search_target() {
         assert_eq!(
-            parsed(&["-R", "/"]),
-            Some((true, Vec::<String>::new(), true))
+            refusal(&["--line-number", "-R", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
-        // With a second operand, `/` is a legit pattern.
         assert_eq!(
-            parsed(&["-R", "/", "."]),
-            Some((true, vec![".".into()], false))
+            refusal(&["--fixed-regexp", "-R", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
-    }
-
-    #[test]
-    fn non_recursive_root_is_not_a_scan() {
-        // Reads `/` as one file and fails; no search to refuse.
         assert_eq!(
-            parsed(&["foo", "/"]),
-            Some((false, vec!["/".into()], false))
+            refusal(&["--group-separator", "SEP", "-R", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
     }
 
     #[test]
-    fn e_and_f_move_the_pattern_out() {
+    fn numeric_context_prefix_keeps_short_options() {
         assert_eq!(
-            parsed(&["-R", "-e", "a", "-e", "b", "/"]),
-            Some((true, vec!["/".into()], false))
+            refusal(&["-5r", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
         assert_eq!(
-            parsed(&["-R", "-f", "pats", "/"]),
-            Some((true, vec!["/".into()], false))
-        );
-        assert_eq!(
-            parsed(&["-R", "--regexp=/", "."]),
-            Some((true, vec![".".into()], false))
+            refusal(&["-10R", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
     }
 
     #[test]
-    fn values_never_become_operands() {
+    fn recursion_setting_uses_the_last_option() {
         assert_eq!(
-            parsed(&[
-                "-A3",
-                "-B",
-                "2",
-                "--context=2",
-                "--color=always",
-                "-m5",
-                "p",
-                "/etc"
-            ]),
-            Some((false, vec!["/etc".into()], false))
+            refusal(&["-d", "recurse", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
+        );
+        assert_eq!(refusal(&["-r", "-d", "read", "p", "/"], "/tmp"), None);
+        assert_eq!(
+            refusal(&["-rn", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
         assert_eq!(
-            parsed(&[
-                "--exclude",
-                "*.o",
-                "--exclude-dir=.git",
-                "-d",
-                "skip",
-                "p",
-                "/etc"
-            ]),
-            Some((false, vec!["/etc".into()], false))
-        );
-        assert_eq!(
-            parsed(&["-3", "p", "f"]),
-            Some((false, vec!["f".into()], false))
+            refusal(&["--dereference-recursive", "p", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
     }
 
     #[test]
-    fn recursion_is_one_setting_last_wins() {
+    fn double_dash_makes_the_rest_operands() {
         assert_eq!(
-            parsed(&["-d", "recurse", "p", "/"]),
-            Some((true, vec!["/".into()], false))
+            refusal(&["-R", "p", "--", "/"], "/tmp"),
+            Some(Refusal::RootSearch)
         );
-        assert_eq!(
-            parsed(&["-r", "-d", "read", "p", "/"]),
-            Some((false, vec!["/".into()], false))
-        );
-        assert_eq!(
-            parsed(&["-rn", "p", "."]),
-            Some((true, vec![".".into()], false))
-        );
-        assert_eq!(
-            parsed(&["--dereference-recursive", "p", "."]),
-            Some((true, vec![".".into()], false))
-        );
+        assert_eq!(refusal(&["--", "-R", "p", "/"], "/tmp"), None);
     }
 
     #[test]
-    fn double_dash_makes_operands() {
+    fn unjudgeable_or_terminal_argv_passes_through() {
+        assert_eq!(refusal(&["--frobnicate", "p", "/"], "/tmp"), None);
         assert_eq!(
-            parsed(&["-R", "p", "--", "/"]),
-            Some((true, vec!["/".into()], false))
+            refusal(&["-R", "--frobnicate=1", "p", "/"], "/tmp"),
+            None
         );
-        assert_eq!(
-            parsed(&["--", "-R", "p", "/"]),
-            Some((false, vec!["p".into(), "/".into()], false))
-        );
-    }
-
-    #[test]
-    fn unjudgeable_argv_fails_open() {
-        // Unknown options: arity can't be guessed.
-        assert_eq!(parsed(&["--frobnicate", "p", "/"]), None);
-        assert_eq!(parsed(&["-R", "--frobnicate=1", "p", "/"]), None);
-        // Terminal options: real grep exits without searching.
-        assert_eq!(parsed(&["-R", "--help"]), None);
-        assert_eq!(parsed(&["--version", "p", "/"]), None);
-        assert_eq!(parsed(&["-R", "-V"]), None);
-        assert_eq!(parsed(&["-nV", "p", "."]), None);
+        assert_eq!(refusal(&["-R", "--help"], "/"), None);
+        assert_eq!(refusal(&["--version", "p", "/"], "/"), None);
+        assert_eq!(refusal(&["-R", "-V"], "/"), None);
+        assert_eq!(refusal(&["-nV", "p", "."], "/"), None);
+        assert_eq!(refusal(&["--recursive=yes", "p", "/"], "/"), None);
     }
 }

@@ -8,60 +8,74 @@ use crate::command_line;
 use crate::exec;
 use crate::starts_at_root;
 
-enum Scan<'args> {
-    /// Starting points from argv. Empty means find's default: the cwd.
-    Points(Vec<&'args OsStr>),
-    /// find exits without searching: help/version, `-D help`.
-    Terminal,
-    /// Starting points are not on argv (`-files0-from`).
-    Opaque,
-}
-
-/// Extract find's starting points: options first, then every operand
-/// up to the first expression token. An unrecognized leading option is
-/// an unknown predicate — find rejects the argv without searching —
-/// so the points so far are all there are.
+/// Decide whether find would start searching from `/`.
+///
+/// Only the first expression token is interpreted. Looking deeper would
+/// require parsing expression arity: `--help` and `-files0-from` can also
+/// be data for predicates and actions.
 #[must_use]
-fn scan(args: &[OsString]) -> Scan<'_> {
+fn check(args: &[OsString], cwd: Option<&std::path::Path>) -> bool {
     let mut index = 0;
 
-    // Options must precede any path.
+    // Real options precede the starting points.
     while let Some(arg) = args.get(index) {
         let raw = arg.as_encoded_bytes();
         match raw {
             b"-H" | b"-L" | b"-P" => index += 1,
-            b"--help" | b"-help" | b"--version" | b"-version" => {
-                return Scan::Terminal;
+            b"--" => {
+                index += 1;
+                break;
             }
-            // `-D help` explains and exits.
+            b"--help" | b"-help" | b"--version" | b"-version" => {
+                return false;
+            }
             b"-D" => {
-                let explains = args.get(index + 1).is_some_and(|list| {
-                    list.as_encoded_bytes()
-                        .split(|ch| *ch == b',')
-                        .any(|opt| opt == b"help")
-                });
-                if explains {
-                    return Scan::Terminal;
+                let Some(list) = args.get(index + 1) else {
+                    return false;
+                };
+                if list
+                    .as_encoded_bytes()
+                    .split(|ch| *ch == b',')
+                    .any(|opt| opt == b"help")
+                {
+                    return false;
                 }
                 index += 2;
             }
             level if is_olevel(level) => index += 1,
-            _ if raw.starts_with(b"-files0-from") => return Scan::Opaque,
+            // Malformed real options error before any search.
+            level if level.starts_with(b"-O") => return false,
             _ => break,
         }
     }
 
-    let points = args
-        .iter()
-        .skip(index)
-        .take_while(|arg| {
-            let raw = arg.as_encoded_bytes();
-            raw.first() != Some(&b'-') && raw != b"(" && raw != b"!"
-        })
-        .map(OsString::as_os_str)
-        .collect();
+    let first_point = index;
+    while let Some(arg) = args.get(index) {
+        let raw = arg.as_encoded_bytes();
+        if raw.first() == Some(&b'-') || raw == b"(" || raw == b"!" {
+            break;
+        }
+        index += 1;
+    }
+    let Some(points) = args.get(first_point..index) else {
+        return false;
+    };
 
-    Scan::Points(points)
+    // These first expression tokens do not search the argv points.
+    if let Some(expression) = args.get(index) {
+        let raw = expression.as_encoded_bytes();
+        if matches!(raw, b"--help" | b"-help" | b"--version" | b"-version")
+            || raw.starts_with(b"-files0-from")
+        {
+            return false;
+        }
+    }
+
+    points
+        .iter()
+        .map(OsString::as_os_str)
+        .any(|point| starts_at_root(Some(point), cwd))
+        || (points.is_empty() && starts_at_root(None, cwd))
 }
 
 /// `-Olevel` is written with the level attached (e.g. `-O3`).
@@ -74,17 +88,8 @@ fn is_olevel(raw: &[u8]) -> bool {
 
 /// Policy entry: refuse unbounded starting points, else exec real `find`.
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
-    let points = match scan(args) {
-        Scan::Points(points) => points,
-        Scan::Terminal | Scan::Opaque => return exec::real(name, args),
-    };
     let cwd = std::env::current_dir().ok();
-    let unbounded = points
-        .iter()
-        .copied()
-        .any(|point| starts_at_root(Some(point), cwd.as_deref()))
-        || (points.is_empty() && starts_at_root(None, cwd.as_deref()));
-    if unbounded {
+    if check(args, cwd.as_deref()) {
         refuse(name, args);
         return ExitCode::FAILURE;
     }
@@ -109,35 +114,29 @@ fn refuse(name: &OsStr, args: &[OsString]) {
 }
 
 #[cfg(test)]
-#[expect(clippy::panic, reason = "in tests")]
 mod test {
     use std::ffi::OsString;
+    use std::path::Path;
 
-    use super::Scan;
-    use super::scan;
+    use super::check;
 
-    /// Starting points for the given argv, as strings.
-    fn points(args: &[&str]) -> Vec<String> {
+    fn refused(args: &[&str], cwd: &str) -> bool {
         let args: Vec<OsString> =
             args.iter().map(OsString::from).collect();
-        let Scan::Points(points) = scan(&args) else {
-            panic!("expected starting points, got Opaque");
-        };
-        points
-            .iter()
-            .map(|point| point.to_string_lossy().into_owned())
-            .collect()
+        check(&args, Some(Path::new(cwd)))
     }
 
     #[test]
-    fn root_is_a_starting_point() {
-        assert_eq!(points(&["/", "file"]), ["/", "file"]);
+    fn finds_explicit_root_points() {
+        assert!(refused(&["/", "file"], "/tmp"));
+        assert!(refused(&["/tmp", "/", "file"], "/tmp"));
+        assert!(!refused(&["/tmp"], "/tmp"));
     }
 
     #[test]
-    fn expression_is_not_a_starting_point() {
-        // `-path /` belongs to the expression, not the starting points.
-        assert_eq!(points(&[".", "-path", "/"]), ["."]);
+    fn expression_arguments_are_not_points() {
+        assert!(!refused(&[".", "-path", "/"], "/tmp"));
+        assert!(refused(&["/", "-path", "."], "/tmp"));
     }
 
     #[test]
@@ -149,51 +148,49 @@ mod test {
             vec!["-version"],
             vec!["-D", "help"],
             vec!["-D", "exec,help"],
+            vec!["/", "--help"],
         ] {
-            let args: Vec<OsString> =
-                args.iter().map(OsString::from).collect();
-            assert!(matches!(scan(&args), Scan::Terminal), "{args:?}");
+            assert!(!refused(&args, "/"), "{args:?}");
         }
     }
 
     #[test]
-    fn other_debug_lists_still_search() {
-        assert_eq!(points(&["-D", "rates", "/tmp"]), ["/tmp"]);
+    fn real_options_precede_points() {
+        assert!(refused(&["-D", "rates", "/"], "/tmp"));
+        assert!(refused(
+            &["-H", "-L", "-O2", "-D", "rates", "/", "(", "-true"],
+            "/tmp"
+        ));
+        // Malformed real options error before searching.
+        assert!(!refused(&["-D"], "/"));
+        assert!(!refused(&["-Oinvalid", "/"], "/"));
     }
 
     #[test]
-    fn real_options_precede_paths() {
-        assert_eq!(
-            points(&[
-                "-H", "-L", "-O2", "-D", "rates", "/tmp", "(", "-true"
-            ]),
-            ["/tmp"]
-        );
+    fn double_dash_ends_leading_options() {
+        assert!(refused(&["--", "/", "-name", "x"], "/tmp"));
     }
 
     #[test]
     fn no_points_means_cwd() {
-        assert_eq!(points(&["-name", "x"]), Vec::<String>::new());
-        assert_eq!(points(&[]), Vec::<String>::new());
+        assert!(refused(&["-name", "x"], "/"));
+        assert!(refused(&[], "/"));
+        assert!(!refused(&["-name", "x"], "/tmp"));
+        assert!(!refused(&[], "/tmp"));
     }
 
     #[test]
     fn expression_may_start_with_paren_or_bang() {
-        assert_eq!(points(&["(", "-name", "x"]), Vec::<String>::new());
-        assert_eq!(points(&["!", "-name", "x"]), Vec::<String>::new());
-        assert_eq!(points(&["/tmp", "!", "-name", "x"]), ["/tmp"]);
+        assert!(refused(&["(", "-name", "x"], "/"));
+        assert!(refused(&["!", "-name", "x"], "/"));
+        assert!(!refused(&["/tmp", "!", "-name", "x"], "/tmp"));
     }
 
     #[test]
-    fn files0_from_hides_the_starting_points() {
-        let args: Vec<OsString> =
-            ["-files0-from", "-"].iter().map(OsString::from).collect();
-        assert!(matches!(scan(&args), Scan::Opaque));
-    }
-
-    #[test]
-    fn unknown_leading_option_ends_the_paths() {
-        // Real find errors on it before searching anywhere.
-        assert_eq!(points(&["-frobnicate", "/"]), Vec::<String>::new());
+    fn opaque_points_pass_through() {
+        assert!(!refused(&["-files0-from", "-"], "/"));
+        assert!(!refused(&["/", "-files0-from", "/dev/null"], "/tmp"));
+        // Attached values are invalid; real find reports the error.
+        assert!(!refused(&["-files0-from=/dev/null"], "/"));
     }
 }
