@@ -55,8 +55,9 @@ impl FileId {
                     .into());
             }
         };
-        Self::of(&exe)
-            .ok_or_else(|| rootcause::report!("stat'ing our own executable failed"))
+        Self::of(&exe).ok_or_else(|| {
+            rootcause::report!("stat'ing our own executable failed")
+        })
     }
 
     /// Identity of what `path` refers to (symlinks followed);
@@ -150,7 +151,11 @@ mod test {
             path_entries(OsStr::new("/a/bin::/b/bin")).collect();
         assert_eq!(
             entries,
-            [PathBuf::from("/a/bin"), PathBuf::from("."), PathBuf::from("/b/bin")]
+            [
+                PathBuf::from("/a/bin"),
+                PathBuf::from("."),
+                PathBuf::from("/b/bin")
+            ]
         );
     }
 }

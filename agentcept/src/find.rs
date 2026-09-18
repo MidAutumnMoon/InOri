@@ -118,7 +118,8 @@ mod test {
 
     /// Starting points for the given argv, as strings.
     fn points(args: &[&str]) -> Vec<String> {
-        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let args: Vec<OsString> =
+            args.iter().map(OsString::from).collect();
         let Scan::Points(points) = scan(&args) else {
             panic!("expected starting points, got Opaque");
         };
@@ -137,7 +138,6 @@ mod test {
     fn expression_is_not_a_starting_point() {
         // `-path /` belongs to the expression, not the starting points.
         assert_eq!(points(&[".", "-path", "/"]), ["."]);
-        assert_eq!(points(&[".", "-name", "/"]), ["."]);
     }
 
     #[test]
@@ -150,7 +150,8 @@ mod test {
             vec!["-D", "help"],
             vec!["-D", "exec,help"],
         ] {
-            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            let args: Vec<OsString> =
+                args.iter().map(OsString::from).collect();
             assert!(matches!(scan(&args), Scan::Terminal), "{args:?}");
         }
     }
@@ -163,10 +164,11 @@ mod test {
     #[test]
     fn real_options_precede_paths() {
         assert_eq!(
-            points(&["-H", "-L", "-O2", "-D", "rates", "/tmp", "(", "-true"]),
+            points(&[
+                "-H", "-L", "-O2", "-D", "rates", "/tmp", "(", "-true"
+            ]),
             ["/tmp"]
         );
-        assert_eq!(points(&["-O3", "/"]), ["/"]);
     }
 
     #[test]

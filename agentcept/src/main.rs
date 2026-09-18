@@ -80,12 +80,10 @@ fn classify(name: &OsStr) -> Option<Kind> {
 #[must_use]
 fn basename(path: &OsStr) -> &OsStr {
     let raw = path.as_encoded_bytes();
-    raw.iter()
-        .rposition(|ch| *ch == b'/')
-        .map_or(path, |at| {
-            let (_, name) = raw.split_at(at + 1);
-            OsStr::from_bytes(name)
-        })
+    raw.iter().rposition(|ch| *ch == b'/').map_or(path, |at| {
+        let (_, name) = raw.split_at(at + 1);
+        OsStr::from_bytes(name)
+    })
 }
 
 /// Resolve one invocation and run it to completion.
@@ -192,12 +190,12 @@ mod test {
     use std::ffi::OsString;
     use std::path::Path;
 
+    use super::Kind;
     use super::basename;
     use super::classify;
     use super::command_line;
     use super::is_lexical_root;
     use super::starts_at_root;
-    use super::Kind;
 
     #[test]
     fn classifies_tools() {
@@ -221,7 +219,10 @@ mod test {
     fn renders_command_lines() {
         let args: Vec<OsString> =
             ["/", "-name", "x"].iter().map(OsString::from).collect();
-        assert_eq!(command_line(OsStr::new("find"), &args), "find / -name x");
+        assert_eq!(
+            command_line(OsStr::new("find"), &args),
+            "find / -name x"
+        );
     }
 
     #[test]
@@ -240,16 +241,28 @@ mod test {
         assert!(starts_at_root(None, Some(Path::new("/"))));
         assert!(!starts_at_root(None, Some(Path::new("/tmp"))));
         // Relative operands resolve against the cwd.
-        assert!(starts_at_root(Some(OsStr::new(".")), Some(Path::new("/"))));
-        assert!(starts_at_root(Some(OsStr::new("..")), Some(Path::new("/tmp"))));
-        assert!(!starts_at_root(Some(OsStr::new(".")), Some(Path::new("/tmp"))));
+        assert!(starts_at_root(
+            Some(OsStr::new(".")),
+            Some(Path::new("/"))
+        ));
+        assert!(starts_at_root(
+            Some(OsStr::new("..")),
+            Some(Path::new("/tmp"))
+        ));
+        assert!(!starts_at_root(
+            Some(OsStr::new(".")),
+            Some(Path::new("/tmp"))
+        ));
         assert!(!starts_at_root(
             Some(OsStr::new("subdir")),
             Some(Path::new("/"))
         ));
         // Absolute operands ignore the cwd; without a cwd, only they
         // can be judged.
-        assert!(starts_at_root(Some(OsStr::new("/")), Some(Path::new("/tmp"))));
+        assert!(starts_at_root(
+            Some(OsStr::new("/")),
+            Some(Path::new("/tmp"))
+        ));
         assert!(starts_at_root(Some(OsStr::new("/a/..")), None));
         assert!(!starts_at_root(Some(OsStr::new(".")), None));
         assert!(!starts_at_root(None, None));

@@ -92,7 +92,9 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
                 // Terminal, wherever they appear.
                 return None;
             } else if LONG_OPTIONAL_VALUE.contains(&name) {
-            } else if name == b"recursive" || name == b"dereference-recursive" {
+            } else if name == b"recursive"
+                || name == b"dereference-recursive"
+            {
                 recursive = true;
             } else {
                 // Unknown option: don't guess whether it takes a value.
@@ -139,7 +141,9 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
 
     let root_sole_operand = !have_pattern
         && operands.len() == 1
-        && operands.first().is_some_and(|only| only.as_encoded_bytes() == b"/");
+        && operands
+            .first()
+            .is_some_and(|only| only.as_encoded_bytes() == b"/");
 
     let mut files = operands;
     if !have_pattern && !files.is_empty() {
@@ -197,7 +201,8 @@ mod test {
 
     /// `(recursive, files, root_sole_operand)` for the given argv.
     fn parsed(args: &[&str]) -> Option<(bool, Vec<String>, bool)> {
-        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let args: Vec<OsString> =
+            args.iter().map(OsString::from).collect();
         scan(&args).map(|parsed| {
             (
                 parsed.recursive,
@@ -214,7 +219,10 @@ mod test {
     #[test]
     fn first_operand_is_the_pattern() {
         // `grep -R PATTERN /`: the only file operand is the root.
-        assert_eq!(parsed(&["-R", "foo", "/"]), Some((true, vec!["/".into()], false)));
+        assert_eq!(
+            parsed(&["-R", "foo", "/"]),
+            Some((true, vec!["/".into()], false))
+        );
         assert_eq!(
             parsed(&["-R", "foo", ".", "/"]),
             Some((true, vec![".".into(), "/".into()], false))
@@ -224,28 +232,46 @@ mod test {
     #[test]
     fn root_pattern_is_not_a_target() {
         // `grep / -R .`: the pattern is `/`, the search starts at `.`.
-        assert_eq!(parsed(&["/", "-R", "."]), Some((true, vec![".".into()], false)));
+        assert_eq!(
+            parsed(&["/", "-R", "."]),
+            Some((true, vec![".".into()], false))
+        );
     }
 
     #[test]
     fn sole_root_operand_scans_cwd() {
         // `grep -R /` has `/` as the pattern and scans the cwd: the agent
         // meant a search rooted at `/`.
-        assert_eq!(parsed(&["-R", "/"]), Some((true, Vec::<String>::new(), true)));
+        assert_eq!(
+            parsed(&["-R", "/"]),
+            Some((true, Vec::<String>::new(), true))
+        );
         // With a second operand, `/` is a legit pattern.
-        assert_eq!(parsed(&["-R", "/", "."]), Some((true, vec![".".into()], false)));
+        assert_eq!(
+            parsed(&["-R", "/", "."]),
+            Some((true, vec![".".into()], false))
+        );
     }
 
     #[test]
     fn non_recursive_root_is_not_a_scan() {
         // Reads `/` as one file and fails; no search to refuse.
-        assert_eq!(parsed(&["foo", "/"]), Some((false, vec!["/".into()], false)));
+        assert_eq!(
+            parsed(&["foo", "/"]),
+            Some((false, vec!["/".into()], false))
+        );
     }
 
     #[test]
     fn e_and_f_move_the_pattern_out() {
-        assert_eq!(parsed(&["-R", "-e", "a", "-e", "b", "/"]), Some((true, vec!["/".into()], false)));
-        assert_eq!(parsed(&["-R", "-f", "pats", "/"]), Some((true, vec!["/".into()], false)));
+        assert_eq!(
+            parsed(&["-R", "-e", "a", "-e", "b", "/"]),
+            Some((true, vec!["/".into()], false))
+        );
+        assert_eq!(
+            parsed(&["-R", "-f", "pats", "/"]),
+            Some((true, vec!["/".into()], false))
+        );
         assert_eq!(
             parsed(&["-R", "--regexp=/", "."]),
             Some((true, vec![".".into()], false))
@@ -255,21 +281,50 @@ mod test {
     #[test]
     fn values_never_become_operands() {
         assert_eq!(
-            parsed(&["-A3", "-B", "2", "--context=2", "--color=always", "-m5", "p", "/etc"]),
+            parsed(&[
+                "-A3",
+                "-B",
+                "2",
+                "--context=2",
+                "--color=always",
+                "-m5",
+                "p",
+                "/etc"
+            ]),
             Some((false, vec!["/etc".into()], false))
         );
         assert_eq!(
-            parsed(&["--exclude", "*.o", "--exclude-dir=.git", "-d", "skip", "p", "/etc"]),
+            parsed(&[
+                "--exclude",
+                "*.o",
+                "--exclude-dir=.git",
+                "-d",
+                "skip",
+                "p",
+                "/etc"
+            ]),
             Some((false, vec!["/etc".into()], false))
         );
-        assert_eq!(parsed(&["-3", "p", "f"]), Some((false, vec!["f".into()], false)));
+        assert_eq!(
+            parsed(&["-3", "p", "f"]),
+            Some((false, vec!["f".into()], false))
+        );
     }
 
     #[test]
     fn recursion_is_one_setting_last_wins() {
-        assert_eq!(parsed(&["-d", "recurse", "p", "/"]), Some((true, vec!["/".into()], false)));
-        assert_eq!(parsed(&["-r", "-d", "read", "p", "/"]), Some((false, vec!["/".into()], false)));
-        assert_eq!(parsed(&["-rn", "p", "."]), Some((true, vec![".".into()], false)));
+        assert_eq!(
+            parsed(&["-d", "recurse", "p", "/"]),
+            Some((true, vec!["/".into()], false))
+        );
+        assert_eq!(
+            parsed(&["-r", "-d", "read", "p", "/"]),
+            Some((false, vec!["/".into()], false))
+        );
+        assert_eq!(
+            parsed(&["-rn", "p", "."]),
+            Some((true, vec![".".into()], false))
+        );
         assert_eq!(
             parsed(&["--dereference-recursive", "p", "."]),
             Some((true, vec![".".into()], false))
@@ -278,7 +333,10 @@ mod test {
 
     #[test]
     fn double_dash_makes_operands() {
-        assert_eq!(parsed(&["-R", "p", "--", "/"]), Some((true, vec!["/".into()], false)));
+        assert_eq!(
+            parsed(&["-R", "p", "--", "/"]),
+            Some((true, vec!["/".into()], false))
+        );
         assert_eq!(
             parsed(&["--", "-R", "p", "/"]),
             Some((false, vec!["p".into(), "/".into()], false))

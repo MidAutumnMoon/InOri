@@ -53,7 +53,13 @@ mod test {
     #[test]
     fn matches_the_family() {
         for name in [
-            "python", "python3", "python3.12", "python3.13", "pip", "pip3", "pip3.12",
+            "python",
+            "python3",
+            "python3.12",
+            "python3.13",
+            "pip",
+            "pip3",
+            "pip3.12",
         ] {
             assert!(is_family(name.as_bytes()), "{name}");
         }
