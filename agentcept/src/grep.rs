@@ -1,8 +1,4 @@
 //! `grep` policy: refuse recursive searches rooted at `/`.
-//!
-//! Absolute operands are judged lexically; relative ones — and grep's
-//! cwd default when no file operand is given — resolve against the
-//! working directory.
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -34,36 +30,26 @@ const LONG_VALUE: &[&[u8]] = &[
 /// Long options with an optional value: only the attached form is one.
 const LONG_OPTIONAL_VALUE: &[&[u8]] = &[b"color", b"colour"];
 
-/// Short options that take a value: attached to the cluster
-/// (e.g. `-A3`) or as the next argument (e.g. `-A 3`).
+/// Short options that take a value, attached (`-A3`) or separate (`-A 3`).
 const SHORT_VALUE: &[u8] = b"ABCDdefm";
 
-/// What the scan decided about the invocation.
 struct Scan<'args> {
     /// Whether the search descends into directories.
     recursive: bool,
     /// Operands naming search targets; the PATTERN operand is excluded.
     files: Vec<&'args OsStr>,
-    /// The `grep -R /` shape: the sole operand became the pattern, so
-    /// real grep would scan the cwd. Only a forgotten pattern produces
-    /// this shape — nobody recursive-greps for `/` — so it refuses on
-    /// any cwd, by design.
+    /// The `grep -R /` shape: the sole operand became the pattern.
+    /// A forgotten pattern, not a search for `/` — refuse on any cwd.
     root_sole_operand: bool,
 }
 
-/// Just enough of `grep(1)`'s argv to find the search targets.
+/// Find grep's search targets: options and operands interleave, the
+/// first operand is the PATTERN unless `-e`/`-f` claimed it, and the
+/// last recursion setting wins.
 ///
-/// * options and operands interleave (GNU argument permutation);
-/// * without `-e`/`-f`/`--regexp`/`--file`, the first operand is the
-///   PATTERN and the rest are files;
-/// * `-r`/`-R`/`--recursive`/`--dereference-recursive` and
-///   `-d recurse` / `--directories=recurse` set grep's one
-///   `directories` behavior; the last one wins;
-/// * `--` makes every following argument an operand.
-///
-/// `None` means argv is unjudgeable and the caller fails open: an
-/// unknown long option (its arity would be a guess), or a terminal
-/// `--help`/`--version`/`-V` (real grep exits without searching).
+/// `None` = unjudgeable argv; the caller fails open: an unknown long
+/// option (its arity would be a guess), or terminal help/version
+/// (grep exits without searching).
 #[must_use]
 fn scan(args: &[OsString]) -> Option<Scan<'_>> {
     let mut recursive = false;
@@ -74,7 +60,6 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
     while let Some(arg) = iter.next() {
         let raw = arg.as_encoded_bytes();
 
-        // `--`: every remaining argument is an operand.
         if raw == b"--" {
             operands.extend(&mut iter);
             break;
@@ -107,7 +92,6 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
                 // Terminal, wherever they appear.
                 return None;
             } else if LONG_OPTIONAL_VALUE.contains(&name) {
-                // Nothing to consume.
             } else if name == b"recursive" || name == b"dereference-recursive" {
                 recursive = true;
             } else {
@@ -159,7 +143,6 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
 
     let mut files = operands;
     if !have_pattern && !files.is_empty() {
-        // The first operand was the PATTERN.
         files.remove(0);
     }
     Some(Scan {
@@ -172,7 +155,6 @@ fn scan(args: &[OsString]) -> Option<Scan<'_>> {
 /// Policy entry: refuse unbounded recursive searches, else exec real grep.
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let Some(scan) = scan(args) else {
-        // Unparseable argv: let the real grep decide.
         return exec::real(name, args);
     };
     let cwd = std::env::current_dir().ok();

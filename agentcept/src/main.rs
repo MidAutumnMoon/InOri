@@ -145,12 +145,11 @@ fn command_line(name: &OsStr, args: &[OsString]) -> String {
         .join(" ")
 }
 
-/// Whether the path lexically denotes the filesystem root
-/// (e.g. `/`, `//`, `/.`, `/a/..`). Relative paths never do.
+/// Whether the path lexically denotes the filesystem root (`/`, `//`,
+/// `/.`, `/a/..`); relative paths never do.
 ///
-/// Purely lexical — no symlink resolution, no filesystem access —
-/// which spots the habit, not evasion. `..` saturates at the root,
-/// as Linux resolves it (`/..` is `/`).
+/// `..` saturates at the root, as Linux resolves it. Lexical only —
+/// spots the habit, not evasion.
 #[must_use]
 fn is_lexical_root(path: &Path) -> bool {
     let mut absolute = false;
@@ -167,12 +166,9 @@ fn is_lexical_root(path: &Path) -> bool {
     absolute && depth == 0
 }
 
-/// Whether a search starting at `operand` — or, when `None`, at the
-/// working directory, both tools' default — begins at `/`.
-///
-/// Relative operands resolve against `cwd`. Without a cwd only
-/// absolute operands can be judged; everything unresolvable passes
-/// (fail open, like every other unknowable case).
+/// Whether a search starting at `operand` — or at the cwd when `None`,
+/// both tools' default — begins at `/`. Relative operands resolve
+/// against `cwd`; what can't be judged passes (fail open).
 #[must_use]
 fn starts_at_root(operand: Option<&OsStr>, cwd: Option<&Path>) -> bool {
     match (operand, cwd) {

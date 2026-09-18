@@ -1,8 +1,4 @@
 //! `find` policy: refuse searches starting at `/`.
-//!
-//! Absolute starting points are judged lexically; relative ones — and
-//! find's cwd default when no starting point is given — resolve against
-//! the working directory.
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -12,40 +8,32 @@ use crate::command_line;
 use crate::exec;
 use crate::starts_at_root;
 
-/// What scanning argv found.
 enum Scan<'args> {
-    /// Starting points before the expression. Empty means find's
-    /// default: the working directory.
+    /// Starting points from argv. Empty means find's default: the cwd.
     Points(Vec<&'args OsStr>),
-    /// find exits without searching: help/version options, `-D help`.
+    /// find exits without searching: help/version, `-D help`.
     Terminal,
     /// Starting points are not on argv (`-files0-from`).
     Opaque,
 }
 
-/// Extract the starting points from GNU find's argv.
-///
-/// The five real options (`-H` `-L` `-P`, `-D list`, `-Olevel`) come
-/// first, then every operand up to the first expression token (anything
-/// starting with `-`, plus bare `(` and `!`). Any other leading `-`
-/// option is an unknown predicate: real find rejects the argv without
-/// searching, so scanning stops and the points so far stand — none
-/// meaning find's cwd default.
+/// Extract find's starting points: options first, then every operand
+/// up to the first expression token. An unrecognized leading option is
+/// an unknown predicate — find rejects the argv without searching —
+/// so the points so far are all there are.
 #[must_use]
 fn scan(args: &[OsString]) -> Scan<'_> {
     let mut index = 0;
 
-    // The five real options, which must precede any path.
+    // Options must precede any path.
     while let Some(arg) = args.get(index) {
         let raw = arg.as_encoded_bytes();
         match raw {
             b"-H" | b"-L" | b"-P" => index += 1,
-            // Terminal: find exits without searching (both spellings).
             b"--help" | b"-help" | b"--version" | b"-version" => {
                 return Scan::Terminal;
             }
-            // `-D list` consumes the next argument; `help` in the list
-            // explains and exits.
+            // `-D help` explains and exits.
             b"-D" => {
                 let explains = args.get(index + 1).is_some_and(|list| {
                     list.as_encoded_bytes()
@@ -59,12 +47,10 @@ fn scan(args: &[OsString]) -> Scan<'_> {
             }
             level if is_olevel(level) => index += 1,
             _ if raw.starts_with(b"-files0-from") => return Scan::Opaque,
-            // Paths (or an unknown predicate) begin here.
             _ => break,
         }
     }
 
-    // Starting points, up to the first expression token.
     let points = args
         .iter()
         .skip(index)
@@ -90,8 +76,6 @@ fn is_olevel(raw: &[u8]) -> bool {
 pub fn run(name: &OsStr, args: &[OsString]) -> ExitCode {
     let points = match scan(args) {
         Scan::Points(points) => points,
-        // No search happens (`Terminal`), or the starting points are
-        // unseen (`Opaque`).
         Scan::Terminal | Scan::Opaque => return exec::real(name, args),
     };
     let cwd = std::env::current_dir().ok();
