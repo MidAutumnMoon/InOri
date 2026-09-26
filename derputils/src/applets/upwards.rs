@@ -10,7 +10,6 @@ use std::process::ExitCode;
 
 use bpaf::OptionParser;
 use gix_discover::upwards;
-use gix_discover::upwards::Error as UpwardsError;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 use tracing::instrument;
@@ -102,20 +101,16 @@ fn heuristic_git(cwd: &Path) -> HeuristicResult {
         Ok(found) => found,
         // Discovery completed without finding a repository we may use:
         // nothing found, the search stopped at a filesystem boundary, or
-        // the candidate was discarded for dubious ownership.
-        Err(
-            UpwardsError::NoGitRepository { .. }
-            | UpwardsError::NoGitRepositoryWithinFs { .. }
-            | UpwardsError::NoTrustedGitRepository { .. },
-        ) => {
+        // the candidate was discarded for dubious ownership. gix-discover
+        // classifies every such outcome as "not found".
+        Err(err) if err.is_not_found() => {
             trace!(
                 "CWD is not inside a git repository, skipping this heuristic"
             );
             return Ok(None);
         }
-        Err(err) => {
-            Err(err).context("Failed to search for a git repository")?
-        }
+        Err(err) => Err(err.into_error())
+            .context("Failed to search for a git repository")?,
     };
 
     // Bare repositories have no work tree; the git dir is their toplevel.
