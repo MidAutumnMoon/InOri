@@ -31,9 +31,15 @@ const USAGE: &str = indoc::indoc! {"
 
     Policies:
         find    refuse a search starting at `/`
-        grep    refuse a recursive search starting at `/`
+        grep    refuse a recursive search rooted at `/`
         python  refuse: no global python on this host, use uv
         pip     refuse: no global pip on this host, use uv
+
+    Engines:
+        grep    prefer a pinned ugrep (build-time CFG_UGREP_PATH, or
+                AGENTCEPT_UGREP_PATH; a bare name resolves via $PATH), run
+                under the intercepted name; fall back to the real grep.
+                AGENTCEPT_TOOLS=gnu always uses the real tools.
 
     Unrecognized names error out; agentcept never runs a tool silently.
 "};

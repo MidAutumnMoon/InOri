@@ -67,22 +67,36 @@ impl Drop for Scratch {
 }
 
 fn run(search: &str, shim: &Path, args: &[&str]) -> Output {
-    Command::new(shim)
-        .args(args)
-        .env("PATH", search)
-        .output()
-        .expect("spawning the shim")
+    run_with(search, shim, args, &[])
+}
+
+fn run_with(
+    search: &str,
+    shim: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Output {
+    let mut command = Command::new(shim);
+    command.args(args).env("PATH", search);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("spawning the shim")
 }
 
 #[cfg(test)]
 mod test {
     use std::fs;
+    use std::os::unix::fs::PermissionsExt as _;
     use std::path::Path;
+    use std::path::PathBuf;
     use std::process::Command;
+    use std::process::Output;
 
     use super::BIN;
     use super::Scratch;
     use super::run;
+    use super::run_with;
 
     #[test]
     fn skips_its_own_shim_and_execs_the_real_tool() {
@@ -363,5 +377,312 @@ mod test {
         assert!(String::from_utf8_lossy(&output.stdout).is_empty());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("not an intercepted tool"), "{stderr}");
+    }
+
+    /// Marker reporting which engine served the call. A shebang script
+    /// cannot observe `argv[0]` (the kernel drops it when dispatching to
+    /// the interpreter), so the `arg0` wiring is covered by the real-ugrep
+    /// canary below instead.
+    const PINNED: &str = "#!/bin/sh\necho \"PINNED $0 $@\"\n";
+    const REAL_GREP: &str = "#!/bin/sh\necho \"REAL-GREP $0 $@\"\n";
+
+    fn pinned_grep(tag: &str) -> (Scratch, PathBuf, PathBuf) {
+        let scratch = Scratch::new(tag);
+        let pin = scratch.executable("tools", "ugrep", PINNED);
+        let shim = scratch.shim_path("grep");
+        std::os::unix::fs::symlink(BIN, &shim)
+            .expect("symlinking the shim");
+        scratch.executable("real", "grep", REAL_GREP);
+        (scratch, pin, shim)
+    }
+
+    fn pinned_run(
+        scratch: &Scratch,
+        shim: &Path,
+        pin: &Path,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> Output {
+        let pin = pin.to_string_lossy().into_owned();
+        let mut env = env.to_vec();
+        env.push(("AGENTCEPT_UGREP_PATH", &pin));
+        run_with(&scratch.search(&["shim", "real"]), shim, args, &env)
+    }
+
+    #[test]
+    fn prefers_the_pinned_ugrep_under_the_intercepted_name() {
+        let (scratch, pin, shim) = pinned_grep("pin-name");
+        let output =
+            pinned_run(&scratch, &shim, &pin, &["-R", "hello", "."], &[]);
+
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.starts_with("PINNED "), "{output:?}");
+        assert!(stdout.contains(" -R hello ."), "{output:?}");
+    }
+
+    #[test]
+    fn egrep_and_fgrep_run_the_pin_under_their_own_names() {
+        for name in ["egrep", "fgrep"] {
+            let scratch = Scratch::new("pin-dialects");
+            let pin = scratch.executable("tools", "ugrep", PINNED);
+            let shim = scratch.shim_path(name);
+            std::os::unix::fs::symlink(BIN, &shim)
+                .expect("symlinking the shim");
+            scratch.executable("real", name, REAL_GREP);
+
+            let output =
+                pinned_run(&scratch, &shim, &pin, &["hello", "file"], &[]);
+
+            assert!(output.status.success(), "{name}: {output:?}");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(stdout.starts_with("PINNED "), "{name}: {output:?}");
+            assert!(stdout.contains(" hello file"), "{name}: {output:?}");
+        }
+    }
+
+    #[test]
+    fn a_bare_pin_name_resolves_through_path() {
+        let scratch = Scratch::new("pin-bare-name");
+        scratch.executable("real", "ugrep", PINNED);
+        let shim = scratch.shim_path("grep");
+        std::os::unix::fs::symlink(BIN, &shim)
+            .expect("symlinking the shim");
+        scratch.executable("real", "grep", REAL_GREP);
+
+        let output = run_with(
+            &scratch.search(&["shim", "real", "tools"]),
+            &shim,
+            &["hello", "file"],
+            &[("AGENTCEPT_UGREP_PATH", "ugrep")],
+        );
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout).starts_with("PINNED "),
+            "{output:?}"
+        );
+    }
+
+    /// Pins a real ugrep when one is installed, to check the `argv[0]`
+    /// wiring: only a ugrep running as `grep` serves the BRE dialect.
+    fn real_ugrep() -> Option<PathBuf> {
+        let search = std::env::var_os("PATH")?;
+        search
+            .to_string_lossy()
+            .split(':')
+            .map(|dir| PathBuf::from(dir).join("ugrep"))
+            .find(|candidate| {
+                candidate.is_file()
+                    && fs::metadata(candidate).is_ok_and(|meta| {
+                        meta.permissions().mode() & 0o111 != 0
+                    })
+            })
+    }
+
+    #[test]
+    fn the_pin_runs_ugrep_under_the_grep_name() {
+        let Some(pin) = real_ugrep() else {
+            // No ugrep on this machine: the marker tests above still
+            // cover the routing.
+            return;
+        };
+        let scratch = Scratch::new("pin-real-ugrep");
+        let fixture = scratch.root().join("bre.txt");
+        fs::write(&fixture, "aaa\nb\n").expect("writing the fixture");
+        let fixture = fixture.to_string_lossy().into_owned();
+        let shim = scratch.shim_path("grep");
+        std::os::unix::fs::symlink(BIN, &shim)
+            .expect("symlinking the shim");
+
+        // BRE reads `a+` as literal text (no match); ugrep's native ERE
+        // would match "aaa". Only a ugrep running as `grep` serves BRE.
+        let output =
+            pinned_run(&scratch, &shim, &pin, &["a+", &fixture], &[]);
+
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "",
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn falls_back_when_the_pin_is_missing_or_not_executable() {
+        let (scratch, _pin, shim) = pinned_grep("pin-unusable");
+        let missing =
+            scratch.root().join("tools").join("definitely-absent");
+        let non_executable = scratch.root().join("tools").join("data");
+        fs::write(&non_executable, "#!/bin/sh\n").expect("writing data");
+
+        for unusable in [&missing, &non_executable] {
+            let output = pinned_run(
+                &scratch,
+                &shim,
+                unusable,
+                &["-R", "hello", "."],
+                &[],
+            );
+
+            assert!(output.status.success(), "{unusable:?}: {output:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stdout)
+                    .starts_with("REAL-GREP"),
+                "{unusable:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn falls_back_when_exec_of_the_pin_fails() {
+        let (scratch, pin, shim) = pinned_grep("pin-exec-failure");
+        // Usable (file + executable) but its interpreter does not exist.
+        fs::write(&pin, "#!/nonexistent/shebang\n")
+            .expect("rewriting the pin");
+
+        let output =
+            pinned_run(&scratch, &shim, &pin, &["-R", "hello", "."], &[]);
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .starts_with("REAL-GREP"),
+            "{output:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("using the real"), "{output:?}");
+    }
+
+    #[test]
+    fn skips_itself_when_pinned_as_the_replacement() {
+        let (scratch, _pin, shim) = pinned_grep("pin-is-self");
+        let output = pinned_run(
+            &scratch,
+            &shim,
+            Path::new(BIN),
+            &["-R", "hello", "."],
+            &[],
+        );
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .starts_with("REAL-GREP"),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn tools_gnu_disables_the_replacement() {
+        let (scratch, pin, shim) = pinned_grep("pin-opted-out");
+        let output = pinned_run(
+            &scratch,
+            &shim,
+            &pin,
+            &["-R", "hello", "."],
+            &[("AGENTCEPT_TOOLS", "gnu")],
+        );
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .starts_with("REAL-GREP"),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn tools_values_other_than_gnu_keep_the_replacement() {
+        let (scratch, pin, shim) = pinned_grep("pin-opted-in");
+        let output = pinned_run(
+            &scratch,
+            &shim,
+            &pin,
+            &["-R", "hello", "."],
+            &[("AGENTCEPT_TOOLS", "auto")],
+        );
+
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout).starts_with("PINNED "),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn argv_gated_calls_run_the_real_tool() {
+        let (scratch, pin, shim) = pinned_grep("pin-gated");
+        let dir = scratch.root().join("subdir");
+        fs::create_dir_all(&dir).expect("creating a directory operand");
+        let dir = dir.to_string_lossy().into_owned();
+
+        let gated: [&[&str]; 4] = [
+            &["--version"],
+            &["pattern", &dir],
+            &["-y", "pattern", "file"],
+            // GNU reads stdin alone; ugrep would also scan the tree.
+            &["-r", "pattern", "-"],
+        ];
+        for args in gated {
+            let output = pinned_run(&scratch, &shim, &pin, args, &[]);
+
+            assert!(output.status.success(), "{args:?}: {output:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stdout)
+                    .starts_with("REAL-GREP"),
+                "{args:?}"
+            );
+        }
+
+        // Recursive searches of directories stay on the fast path.
+        let fast = pinned_run(
+            &scratch,
+            &shim,
+            &pin,
+            &["-r", "pattern", &dir],
+            &[],
+        );
+        assert!(
+            String::from_utf8_lossy(&fast.stdout).starts_with("PINNED "),
+            "{fast:?}"
+        );
+    }
+
+    #[test]
+    fn refusals_win_over_the_replacement() {
+        let (scratch, pin, shim) = pinned_grep("pin-refused");
+        let output =
+            pinned_run(&scratch, &shim, &pin, &["-R", "hello", "/"], &[]);
+
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).is_empty());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).starts_with("grep:"),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn find_is_never_replaced() {
+        let scratch = Scratch::new("pin-find-unaffected");
+        let pin = scratch.executable("tools", "ugrep", PINNED);
+        let shim = scratch.shim_path("find");
+        std::os::unix::fs::symlink(BIN, &shim)
+            .expect("symlinking the shim");
+        scratch.executable(
+            "real",
+            "find",
+            "#!/bin/sh\necho REAL-FIND \"$@\"\n",
+        );
+
+        let output =
+            pinned_run(&scratch, &shim, &pin, &[".", "-name", "x"], &[]);
+
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "REAL-FIND . -name x\n"
+        );
     }
 }

@@ -11,6 +11,7 @@ use std::process::Command;
 use std::process::ExitCode;
 
 use ino_path::is_executable::IsExecutable as _;
+use rootcause::Result;
 use rootcause::bail;
 use rootcause::report;
 
@@ -18,13 +19,50 @@ use rootcause::report;
 ///
 /// Returns exit code 127 if lookup or `exec` fails.
 pub fn real(name: &OsStr, args: &[OsString]) -> ExitCode {
-    match resolve_and_exec(name, args) {
+    match exec_real(name, args) {
         Ok(never) => match never {},
         Err(report) => {
             eprintln!("agentcept: {report}");
             ExitCode::from(127)
         }
     }
+}
+
+/// Replaces this process with `name`'s real tool, preferring `replacement`
+/// when it locates a usable executable other than agentcept itself.
+///
+/// The replacement runs under the intercepted `name` as `argv[0]`, so a
+/// multicall replacement such as ugrep serves the matching dialect.
+/// `AGENTCEPT_TOOLS=gnu` disables the preference; a failed `exec` of the
+/// replacement falls back to the real tool with a warning.
+pub fn prefer(
+    replacement: Option<&OsStr>,
+    name: &OsStr,
+    args: &[OsString],
+) -> ExitCode {
+    let replacement = replacement.filter(|_| !opted_out());
+    if let Some(replacement) = replacement {
+        // Warnings must survive the imminent `exec`, so they cannot go
+        // through the lossy non-blocking tracing writer.
+        match exec_replacement(replacement, name, args) {
+            Ok(never) => match never {},
+            Err(report) => {
+                eprintln!("agentcept: {report}");
+                eprintln!(
+                    "agentcept: using the real `{}` instead",
+                    name.to_string_lossy(),
+                );
+            }
+        }
+    }
+    real(name, args)
+}
+
+/// `AGENTCEPT_TOOLS=gnu` keeps every call on the real tools.
+fn opted_out() -> bool {
+    std::env::var_os("AGENTCEPT_TOOLS").is_some_and(|value| {
+        value.as_os_str().as_encoded_bytes() == b"gnu"
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +73,7 @@ struct FileId {
 
 impl FileId {
     // Without a reliable identity, PATH lookup could select this shim again.
-    fn discover() -> rootcause::Result<Self> {
+    fn discover() -> Result<Self> {
         let exe = match std::env::current_exe() {
             Ok(exe) => exe,
             Err(err) => {
@@ -49,7 +87,7 @@ impl FileId {
         })
     }
 
-    // Follow symlinks so paths to the same executable compare equal.
+    // Follows symlinks so paths to the same executable compare equal.
     fn of(path: &Path) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
         Some(Self {
@@ -59,10 +97,10 @@ impl FileId {
     }
 }
 
-fn resolve_and_exec(
+fn exec_real(
     name: &OsStr,
     args: &[OsString],
-) -> rootcause::Result<std::convert::Infallible> {
+) -> Result<std::convert::Infallible> {
     let myself = FileId::discover()?;
 
     if name.as_encoded_bytes().contains(&b'/') {
@@ -73,36 +111,88 @@ fn resolve_and_exec(
                 name.to_string_lossy()
             );
         }
-        return exec_path(&path, args);
+        return exec_as(&path, path.as_os_str(), args);
     }
 
-    let search_path = std::env::var_os("PATH")
-        .unwrap_or_else(|| OsString::from("/usr/bin:/bin"));
-    for entry in path_entries(&search_path) {
-        let candidate = entry.join(name);
-        if FileId::of(&candidate) == Some(myself) {
-            continue;
-        }
-        let Ok(meta) = std::fs::metadata(&candidate) else {
-            continue;
-        };
-        if !meta.is_file() || !candidate.is_executable() {
-            continue;
-        }
-        return exec_path(&candidate, args);
-    }
-    bail!(
-        "no usable `{}` in $PATH after skipping agentcept itself",
-        name.to_string_lossy()
-    );
+    let Some(path) = locate_in_path(myself, name) else {
+        bail!(
+            "no usable `{}` in $PATH after skipping agentcept itself",
+            name.to_string_lossy()
+        );
+    };
+    exec_as(&path, path.as_os_str(), args)
 }
 
-fn exec_path(
-    path: &Path,
+/// Runs `replacement` for `name`, or reports why it cannot serve the call.
+fn exec_replacement(
+    replacement: &OsStr,
+    name: &OsStr,
     args: &[OsString],
-) -> rootcause::Result<std::convert::Infallible> {
-    // `exec` returns only if process replacement fails.
-    let err = Command::new(path).args(args).exec();
+) -> Result<std::convert::Infallible> {
+    let myself = FileId::discover()?;
+    let path = locate_replacement(myself, replacement)?;
+    exec_as(&path, name, args)
+}
+
+/// Resolves the preferred replacement: an explicit path must name a usable
+/// executable, a bare name is looked up via `$PATH`.
+fn locate_replacement(
+    myself: FileId,
+    replacement: &OsStr,
+) -> Result<PathBuf> {
+    if replacement.as_encoded_bytes().contains(&b'/') {
+        let path = PathBuf::from(replacement);
+        if FileId::of(&path) == Some(myself) {
+            bail!(
+                "`{}` is agentcept itself",
+                replacement.to_string_lossy()
+            );
+        }
+        if !usable(&path) {
+            bail!(
+                "`{}` is not a usable executable",
+                replacement.to_string_lossy()
+            );
+        }
+        return Ok(path);
+    }
+    locate_in_path(myself, replacement).ok_or_else(|| {
+        rootcause::report!(
+            "no usable `{}` in $PATH",
+            replacement.to_string_lossy()
+        )
+    })
+}
+
+fn usable(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && path.is_executable())
+}
+
+/// Searches `$PATH` for `name`, skipping unusable entries and this
+/// executable itself.
+fn locate_in_path(myself: FileId, name: &OsStr) -> Option<PathBuf> {
+    let search_path = std::env::var_os("PATH")
+        .unwrap_or_else(|| OsString::from("/usr/bin:/bin"));
+    path_entries(&search_path)
+        .map(|entry| entry.join(name))
+        .find(|candidate| {
+            FileId::of(candidate) != Some(myself) && usable(candidate)
+        })
+}
+
+/// Execs `path` as `argv0`, replacing this process.
+///
+/// `exec` returns only if the process replacement fails.
+fn exec_as(
+    path: &Path,
+    argv0: &OsStr,
+    args: &[OsString],
+) -> Result<std::convert::Infallible> {
+    let mut command = Command::new(path);
+    command.arg0(argv0);
+    command.args(args);
+    let err = command.exec();
     Err(report!(err)
         .context(format!("exec {}", path.display()))
         .into())
