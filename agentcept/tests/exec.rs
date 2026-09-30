@@ -268,6 +268,43 @@ mod test {
     }
 
     #[test]
+    fn skips_other_agentcept_installs_in_path() {
+        // Two agentcept installs in `$PATH` (an old build during a
+        // rollout, say) must not exec each other in a loop; both are
+        // skipped when looking for the real tool. Without the skip this
+        // test hangs, each install exec'ing the other.
+        let scratch = Scratch::new("two-installs");
+
+        let old = scratch.root().join("old");
+        fs::create_dir_all(&old).expect("creating the old install dir");
+        fs::copy(BIN, old.join("agentcept"))
+            .expect("installing the old build");
+        std::os::unix::fs::symlink("agentcept", old.join("grep"))
+            .expect("symlinking the old grep");
+
+        let shim = scratch.shim_path("grep");
+        std::os::unix::fs::symlink(BIN, &shim)
+            .expect("symlinking the shim");
+        scratch.executable(
+            "real",
+            "grep",
+            "#!/bin/sh\necho REAL-GREP \"$@\"\n",
+        );
+
+        let output = run(
+            &scratch.search(&["shim", "old", "real"]),
+            &shim,
+            &["-R", "hello", "."],
+        );
+
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "REAL-GREP -R hello .\n"
+        );
+    }
+
+    #[test]
     fn dispatches_on_the_first_argument() {
         let scratch = Scratch::new("dispatcher");
         scratch.pair("find", "#!/bin/sh\necho REAL-FIND \"$@\"\n");

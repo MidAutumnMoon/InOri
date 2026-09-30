@@ -169,16 +169,31 @@ fn usable(path: &Path) -> bool {
         .is_ok_and(|meta| meta.is_file() && path.is_executable())
 }
 
-/// Searches `$PATH` for `name`, skipping unusable entries and this
-/// executable itself.
+/// Searches `$PATH` for `name`, skipping unusable entries, this
+/// executable itself, and other agentcept installs.
 fn locate_in_path(myself: FileId, name: &OsStr) -> Option<PathBuf> {
     let search_path = std::env::var_os("PATH")
         .unwrap_or_else(|| OsString::from("/usr/bin:/bin"));
     path_entries(&search_path)
         .map(|entry| entry.join(name))
         .find(|candidate| {
-            FileId::of(candidate) != Some(myself) && usable(candidate)
+            FileId::of(candidate) != Some(myself)
+                && !is_shim_install(candidate)
+                && usable(candidate)
         })
+}
+
+/// Detects a multicall install: a tool-named symlink pointing at an
+/// executable named `agentcept` — this build, an older build, or a copy.
+///
+/// Skipping only our own inode is not enough: with two agentcept installs
+/// in `$PATH`, each exec's the other in a loop.
+fn is_shim_install(candidate: &Path) -> bool {
+    std::fs::read_link(candidate).is_ok_and(|target| {
+        target
+            .file_name()
+            .is_some_and(|name| name.as_encoded_bytes() == b"agentcept")
+    })
 }
 
 /// Execs `path` as `argv0`, replacing this process.
