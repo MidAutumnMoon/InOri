@@ -388,7 +388,7 @@ fn describe(
                 .arg("--configuration-revision")
                 .output()
                 .ok()
-                .and_then(|output| String::from_utf8(output.stdout).ok())
+                .map(|output| String::from_utf8_lossy_owned(output.stdout))
                 .map(|revision| revision.trim().to_owned())
                 .filter(|revision| !revision.is_empty())
         } else {
