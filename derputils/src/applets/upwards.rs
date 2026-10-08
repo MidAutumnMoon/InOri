@@ -109,8 +109,9 @@ fn heuristic_git(cwd: &Path) -> HeuristicResult {
             );
             return Ok(None);
         }
-        Err(err) => Err(err.into_error())
-            .context("Failed to search for a git repository")?,
+        Err(err) => {
+            Err(err).context("Failed to search for a git repository")?
+        }
     };
 
     // Bare repositories have no work tree; the git dir is their toplevel.
