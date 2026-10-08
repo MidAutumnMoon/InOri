@@ -21,7 +21,7 @@ tap.workspace = true
 tracing.workspace = true
 
 [dependencies.minijinja]
-version = "2.10.2"
+version = "3.0.0"
 default-features = false
 features = [
     "debug",
