@@ -7,6 +7,7 @@ use rootcause::Result;
 use rootcause::bail;
 use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
+use serde::Serialize;
 use tap::Tap as _;
 use tracing::debug;
 use tracing::trace;
@@ -15,11 +16,11 @@ use crate::template::RenderedPath;
 
 const CURRENT_BLUEPRINT_VERSION: usize = 1;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(try_from = "UnvalidatedBlueprint")]
 pub struct Blueprint(UnvalidatedBlueprint);
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct UnvalidatedBlueprint {
     version: usize,
@@ -92,7 +93,7 @@ impl FromStr for Blueprint {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[derive(PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Symlink {
@@ -204,5 +205,23 @@ mod test {
                 .to_string()
                 .contains("self-referential")
         );
+    }
+
+    #[test]
+    fn serialization_round_trips() {
+        let json = serde_json::json! { {
+            "version": CURRENT_BLUEPRINT_VERSION,
+            "symlinks": [ { "src": "/a", "dst": "/tar" } ]
+        } };
+        let blueprint =
+            Blueprint::deserialize(json.into_deserializer()).unwrap();
+        let serialized = serde_json::to_string(&blueprint).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"version":1,"symlinks":[{"src":"/a","dst":"/tar"}]}"#
+        );
+
+        let reparsed = Blueprint::from_str(&serialized).unwrap();
+        assert_eq!(reparsed.into_symlinks(), blueprint.into_symlinks());
     }
 }

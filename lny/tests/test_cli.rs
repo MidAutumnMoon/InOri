@@ -55,6 +55,10 @@ fn write_blueprint(
         .tap(|it| it.write_str(&blueprint.to_string()).unwrap())
 }
 
+fn read_json(path: &Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
 fn assert_success(output: &std::process::Output) {
     assert!(
         output.status.success(),
@@ -65,13 +69,13 @@ fn assert_success(output: &std::process::Output) {
 
 fn run_migration(
     new_blueprint: &Path,
-    old_blueprint: &Path,
+    state: &Path,
 ) -> std::process::Output {
     make_app!()
         .arg("--new-blueprint")
         .arg(new_blueprint)
-        .arg("--old-blueprint")
-        .arg(old_blueprint)
+        .arg("--state")
+        .arg(state)
         .output()
         .unwrap()
 }
@@ -201,7 +205,7 @@ fn typical_workload() {
         let mut cmd_process = app
             .arg("--new-blueprint")
             .arg(new_bp.path())
-            .arg("--old-blueprint")
+            .arg("--state")
             .arg(old_bp.path())
             .spawn()
             .unwrap();
@@ -209,6 +213,8 @@ fn typical_workload() {
         let ret = cmd_process.wait().unwrap();
 
         assert!(ret.success());
+
+        assert_eq!(read_json(old_bp.path()), read_json(new_bp.path()));
 
         assert_eq!(
             std::fs::read_to_string(norm_file).unwrap(),
@@ -247,13 +253,14 @@ fn unchanged_declaration_repairs_missing_symlink() {
     let source = top.child("source").tap(|it| it.touch().unwrap());
     let destination = top.child("destination");
     let symlinks = [(source.path(), destination.path())];
-    let old_blueprint = write_blueprint(&top, "old.json", &symlinks);
+    let state = write_blueprint(&top, "state.json", &symlinks);
     let new_blueprint = write_blueprint(&top, "new.json", &symlinks);
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert_success(&output);
     assert_eq!(destination.read_link().unwrap(), source.path());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
 }
 
 #[test]
@@ -279,9 +286,9 @@ fn collapse_children_into_parent_symlink() {
         .child("git-abbr.fish")
         .tap(|it| it.symlink_to_file(&git_abbr_src).unwrap());
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[
             (moonstep_src.path(), moonstep_dst.path()),
             (git_abbr_src.path(), git_abbr_dst.path()),
@@ -293,11 +300,12 @@ fn collapse_children_into_parent_symlink() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert_success(&output);
     assert!(destination_dir.is_symlink());
     assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
 }
 
 #[test]
@@ -316,9 +324,9 @@ fn collapse_missing_tree_and_completed_retry() {
     let destination_dir = destination_parent.child("conf.d");
     let old_destination = destination_dir.child("__moonstep.fish");
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[(source_file.path(), old_destination.path())],
     );
     let new_blueprint = write_blueprint(
@@ -327,12 +335,11 @@ fn collapse_missing_tree_and_completed_retry() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let first_run =
-        run_migration(new_blueprint.path(), old_blueprint.path());
+    let first_run = run_migration(new_blueprint.path(), state.path());
     assert_success(&first_run);
     assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
 
-    let retry = run_migration(new_blueprint.path(), old_blueprint.path());
+    let retry = run_migration(new_blueprint.path(), state.path());
     assert_success(&retry);
     assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
     assert_eq!(std::fs::read_to_string(source_file).unwrap(), "moonstep");
@@ -358,9 +365,9 @@ fn collapse_recovers_missing_nested_descendant() {
         .tap(|it| it.create_dir_all().unwrap());
     let missing_destination = nested_destination_dir.child("file");
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[(source_file.path(), missing_destination.path())],
     );
     let new_blueprint = write_blueprint(
@@ -369,7 +376,7 @@ fn collapse_recovers_missing_nested_descendant() {
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert_success(&output);
     assert_eq!(destination_dir.read_link().unwrap(), source_dir.path());
@@ -403,9 +410,9 @@ fn expand_parent_symlink_into_child_symlinks() {
     let first_destination = destination_dir.child("first");
     let second_destination = destination_dir.child("second");
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[(old_source_dir.path(), destination_dir.path())],
     );
     let new_blueprint = write_blueprint(
@@ -417,7 +424,7 @@ fn expand_parent_symlink_into_child_symlinks() {
         ],
     );
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert_success(&output);
     assert!(destination_dir.symlink_metadata().unwrap().is_dir());
@@ -443,13 +450,12 @@ fn expand_parent_symlink_into_child_symlinks() {
             .unwrap()
     );
 
-    // Retry from a partially expanded real directory. Existing unmanaged
-    // entries remain, and missing desired links are restored.
+    // Retry from a partially expanded real directory.
     std::fs::remove_file(second_destination.path()).unwrap();
     let unmanaged = destination_dir
         .child("unmanaged")
         .tap(|it| it.write_str("keep").unwrap());
-    let retry = run_migration(new_blueprint.path(), old_blueprint.path());
+    let retry = run_migration(new_blueprint.path(), state.path());
 
     assert_success(&retry);
     assert_eq!(
@@ -481,18 +487,19 @@ fn collapse_refuses_unmanaged_directory_entries_before_mutating() {
         .child("unmanaged")
         .tap(|it| it.write_str("unmanaged").unwrap());
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[(source_file.path(), managed_destination.path())],
     );
+    let seeded_state = std::fs::read_to_string(state.path()).unwrap();
     let new_blueprint = write_blueprint(
         &top,
         "new.json",
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert!(!output.status.success());
     assert!(
@@ -506,6 +513,10 @@ fn collapse_refuses_unmanaged_directory_entries_before_mutating() {
     assert_eq!(
         std::fs::read_to_string(unmanaged_destination).unwrap(),
         "unmanaged"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state.path()).unwrap(),
+        seeded_state
     );
 }
 
@@ -527,18 +538,19 @@ fn collapse_refuses_retargeted_child_before_mutating() {
         .child("managed")
         .tap(|it| it.symlink_to_file(&foreign_source).unwrap());
 
-    let old_blueprint = write_blueprint(
+    let state = write_blueprint(
         &top,
-        "old.json",
+        "state.json",
         &[(expected_source.path(), destination.path())],
     );
+    let seeded_state = std::fs::read_to_string(state.path()).unwrap();
     let new_blueprint = write_blueprint(
         &top,
         "new.json",
         &[(source_dir.path(), destination_dir.path())],
     );
 
-    let output = run_migration(new_blueprint.path(), old_blueprint.path());
+    let output = run_migration(new_blueprint.path(), state.path());
 
     assert!(!output.status.success());
     assert!(
@@ -547,6 +559,10 @@ fn collapse_refuses_retargeted_child_before_mutating() {
     );
     assert_eq!(destination.read_link().unwrap(), foreign_source.path());
     assert!(destination_dir.symlink_metadata().unwrap().is_dir());
+    assert_eq!(
+        std::fs::read_to_string(state.path()).unwrap(),
+        seeded_state
+    );
 }
 
 #[test]
@@ -575,4 +591,391 @@ fn abs_path() {
         String::from_utf8_lossy(&res.stderr)
             .contains("Path must be absolute")
     );
+}
+
+#[test]
+fn state_without_new_blueprint_does_nothing() {
+    let top = make_tempdir!();
+    let state = top.child("state.json");
+    state.write_str("sentinel").unwrap();
+
+    let output = make_app!()
+        .arg("--state")
+        .arg(state.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(std::fs::read_to_string(state.path()).unwrap(), "sentinel");
+}
+
+#[test]
+fn first_run_writes_state() {
+    let top = make_tempdir!();
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst = top.child("dst");
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+    let state = top.child("state.json");
+
+    let output = run_migration(new_blueprint.path(), state.path());
+
+    assert_success(&output);
+    assert!(dst.is_symlink());
+    assert_eq!(dst.read_link().unwrap(), src.path());
+
+    assert!(state.is_file());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
+    assert!(
+        std::fs::read_to_string(state.path())
+            .unwrap()
+            .contains(src.path().to_str().unwrap())
+    );
+}
+
+#[test]
+fn rerun_same_blueprint_is_noop_with_stable_state() {
+    let top = make_tempdir!();
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst = top.child("dst");
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+    let state = top.child("state.json");
+
+    assert_success(&run_migration(new_blueprint.path(), state.path()));
+    let first_state = std::fs::read_to_string(state.path()).unwrap();
+
+    assert_success(&run_migration(new_blueprint.path(), state.path()));
+
+    assert_eq!(
+        std::fs::read_to_string(state.path()).unwrap(),
+        first_state
+    );
+    assert_eq!(dst.read_link().unwrap(), src.path());
+}
+
+#[test]
+fn migration_removes_old_and_records_new_state() {
+    let top = make_tempdir!();
+    let gone_src = top.child("gone_src").tap(|it| it.touch().unwrap());
+    let old_src = top.child("old_src").tap(|it| it.touch().unwrap());
+    let new_src = top.child("new_src").tap(|it| it.touch().unwrap());
+
+    let gone_dst = top
+        .child("gone")
+        .tap(|it| it.symlink_to_file(&gone_src).unwrap());
+    let replaced_dst = top
+        .child("replaced")
+        .tap(|it| it.symlink_to_file(&old_src).unwrap());
+    let fresh_dst = top.child("fresh");
+
+    let state = write_blueprint(
+        &top,
+        "state.json",
+        &[
+            (gone_src.path(), gone_dst.path()),
+            (old_src.path(), replaced_dst.path()),
+        ],
+    );
+    let new_blueprint = write_blueprint(
+        &top,
+        "new.json",
+        &[
+            (new_src.path(), replaced_dst.path()),
+            (new_src.path(), fresh_dst.path()),
+        ],
+    );
+
+    let output = run_migration(new_blueprint.path(), state.path());
+
+    assert_success(&output);
+    assert!(!gone_dst.try_exists_no_traverse().unwrap());
+    assert_eq!(replaced_dst.read_link().unwrap(), new_src.path());
+    assert_eq!(fresh_dst.read_link().unwrap(), new_src.path());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
+}
+
+#[test]
+fn corrupt_state_fails_without_mutation() {
+    let top = make_tempdir!();
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst = top.child("dst");
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+    let state = top.child("state.json");
+    state.write_str("{ definitely not json").unwrap();
+
+    let output = run_migration(new_blueprint.path(), state.path());
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("not a valid blueprint")
+    );
+    assert!(!dst.try_exists_no_traverse().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(state.path()).unwrap(),
+        "{ definitely not json"
+    );
+}
+
+#[test]
+fn state_directory_or_wrong_version_is_hard_error() {
+    let top = make_tempdir!();
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+
+    // state path is a directory
+    {
+        let dst = top.child("dst_a");
+        let new_blueprint = write_blueprint(
+            &top,
+            "new_a.json",
+            &[(src.path(), dst.path())],
+        );
+        let state =
+            top.child("state_a").tap(|it| it.create_dir_all().unwrap());
+
+        let output = run_migration(new_blueprint.path(), state.path());
+
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("not a regular file")
+        );
+        assert!(!dst.try_exists_no_traverse().unwrap());
+        assert!(state.try_exists_no_traverse().unwrap());
+    }
+
+    // state records an unsupported version
+    {
+        let dst = top.child("dst_b");
+        let new_blueprint = write_blueprint(
+            &top,
+            "new_b.json",
+            &[(src.path(), dst.path())],
+        );
+        let state = top.child("state_b.json");
+        state
+            .write_str(
+                &serde_json::json!({
+                    "version": VERSION + 1,
+                    "symlinks": [],
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let seeded = std::fs::read_to_string(state.path()).unwrap();
+
+        let output = run_migration(new_blueprint.path(), state.path());
+
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("version mismatch")
+        );
+        assert!(!dst.try_exists_no_traverse().unwrap());
+        assert_eq!(std::fs::read_to_string(state.path()).unwrap(), seeded);
+    }
+}
+
+#[test]
+fn interrupted_run_converges_on_retry() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let top = make_tempdir!();
+    let old1_src = top.child("old1_src").tap(|it| it.touch().unwrap());
+    let old2_src = top.child("old2_src").tap(|it| it.touch().unwrap());
+    let new_src = top.child("new_src").tap(|it| it.touch().unwrap());
+
+    let keep = top.child("keep").tap(|it| it.create_dir_all().unwrap());
+    let old1_dst = keep
+        .child("old1")
+        .tap(|it| it.symlink_to_file(&old1_src).unwrap());
+    let new_dst = keep.child("new");
+
+    let frozen =
+        top.child("frozen").tap(|it| it.create_dir_all().unwrap());
+    let old2_dst = frozen
+        .child("old2")
+        .tap(|it| it.symlink_to_file(&old2_src).unwrap());
+
+    let state = write_blueprint(
+        &top,
+        "state.json",
+        &[
+            (old1_src.path(), old1_dst.path()),
+            (old2_src.path(), old2_dst.path()),
+        ],
+    );
+    let seeded_state = std::fs::read_to_string(state.path()).unwrap();
+    let new_blueprint = write_blueprint(
+        &top,
+        "new.json",
+        &[(new_src.path(), new_dst.path())],
+    );
+
+    // The read-only directory only fails at execute time: the new link
+    // is ensured and the first removal applied before the run dies.
+    std::fs::set_permissions(
+        frozen.path(),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+
+    let failed = run_migration(new_blueprint.path(), state.path());
+    assert!(!failed.status.success());
+
+    std::fs::set_permissions(
+        frozen.path(),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    assert!(new_dst.is_symlink());
+    assert_eq!(new_dst.read_link().unwrap(), new_src.path());
+    assert_eq!(old2_dst.read_link().unwrap(), old2_src.path());
+    assert_eq!(
+        std::fs::read_to_string(state.path()).unwrap(),
+        seeded_state
+    );
+
+    let retry = run_migration(new_blueprint.path(), state.path());
+    assert_success(&retry);
+
+    assert!(!old1_dst.try_exists_no_traverse().unwrap());
+    assert!(!frozen.try_exists_no_traverse().unwrap());
+    assert_eq!(new_dst.read_link().unwrap(), new_src.path());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
+}
+
+#[test]
+fn replace_recovers_after_interrupted_run() {
+    let top = make_tempdir!();
+    let old_src = top.child("old_src").tap(|it| it.touch().unwrap());
+    let new_src = top.child("new_src").tap(|it| it.touch().unwrap());
+    let dst = top
+        .child("dst")
+        .tap(|it| it.symlink_to_file(&new_src).unwrap());
+
+    // The previous run swapped the link but died before recording it.
+    let state = write_blueprint(
+        &top,
+        "state.json",
+        &[(old_src.path(), dst.path())],
+    );
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(new_src.path(), dst.path())]);
+
+    let output = run_migration(new_blueprint.path(), state.path());
+
+    assert_success(&output);
+    assert_eq!(dst.read_link().unwrap(), new_src.path());
+    assert_eq!(read_json(state.path()), read_json(new_blueprint.path()));
+
+    // A plain re-run from the recorded state stays a no-op.
+    let rerun = run_migration(new_blueprint.path(), state.path());
+    assert_success(&rerun);
+    assert_eq!(dst.read_link().unwrap(), new_src.path());
+}
+
+#[test]
+fn state_records_rendered_paths_not_templates() {
+    use std::os::unix::fs::symlink;
+
+    let top = make_tempdir!();
+    let old_src = top.child("old-src").tap(|it| it.touch().unwrap());
+    let new_src = top.child("new-src").tap(|it| it.touch().unwrap());
+
+    let old_dst = top.child("old-dst");
+    symlink(old_src.path(), old_dst.path()).unwrap();
+
+    let seeded = serde_json::json!({
+        "version": VERSION,
+        "symlinks": [
+            { "src": "{{ home }}/old-src", "dst": "{{ home }}/old-dst" }
+        ]
+    });
+    let state = top.child("state.json");
+    state.write_str(&seeded.to_string()).unwrap();
+
+    let new_blueprint = top.child("new.json");
+    new_blueprint
+        .write_str(
+            &serde_json::json!({
+                "version": VERSION,
+                "symlinks": [
+                    {
+                        "src": "{{ home }}/new-src",
+                        "dst": "{{ home }}/new-dst"
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    // Pin the XDG environment so `{{ home }}` renders deterministically.
+    let mut app = make_app!();
+    let output = app
+        .env("HOME", top.path())
+        .env("XDG_CONFIG_HOME", top.child(".config").path())
+        .env("XDG_DATA_HOME", top.child(".local/share").path())
+        .env("XDG_CACHE_HOME", top.child(".cache").path())
+        .env("XDG_STATE_HOME", top.child(".local/state").path())
+        .arg("--new-blueprint")
+        .arg(new_blueprint.path())
+        .arg("--state")
+        .arg(state.path())
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+
+    assert!(!old_dst.try_exists_no_traverse().unwrap());
+    let new_dst = top.child("new-dst");
+    assert_eq!(new_dst.read_link().unwrap(), new_src.path());
+
+    let raw = std::fs::read_to_string(state.path()).unwrap();
+    assert!(
+        !raw.contains("{{"),
+        "state must not contain template text: {raw}"
+    );
+    assert_eq!(
+        read_json(state.path()),
+        serde_json::json!({
+            "version": VERSION,
+            "symlinks": [
+                { "src": new_src.path(), "dst": new_dst.path() }
+            ]
+        })
+    );
+}
+
+// A symlinked state is rejected as not a regular file: a stale link
+// must not silently read through to whatever it points at.
+#[test]
+fn state_symlink_to_blueprint_is_hard_error() {
+    use std::os::unix::fs::symlink;
+
+    let top = make_tempdir!();
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst = top.child("dst");
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+    let state = top.child("state.json");
+    symlink(new_blueprint.path(), state.path()).unwrap();
+
+    let output = run_migration(new_blueprint.path(), state.path());
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("not a regular file")
+    );
+    assert!(!dst.try_exists_no_traverse().unwrap());
+    assert_eq!(state.read_link().unwrap(), new_blueprint.path());
 }

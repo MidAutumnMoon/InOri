@@ -57,8 +57,6 @@ impl Engine {
     }
 }
 
-// N.B. May cause test to fail in environment if XDG variables
-// are not set, e.g. nix. In this case, set the variables manually.
 #[derive(serde::Serialize, Debug)]
 pub struct ContextOfTemplate {
     home: PathBuf,
@@ -69,10 +67,9 @@ pub struct ContextOfTemplate {
 }
 
 impl ContextOfTemplate {
-    // N.B. May cause tests to fail in environments where XDG variables
-    // can't be autodetected (e.g. nix sandboxes). Set them manually in
-    // that case. On Linux `etcetera` provides sensible defaults for
-    // most dirs, so failures here are rare in practice.
+    // N.B. May fail where XDG variables can't be autodetected, e.g.
+    // nix sandboxes. On Linux `etcetera` provides sensible defaults,
+    // so failures are rare in practice.
     #[tracing::instrument(name = "template_context_new")]
     pub fn new() -> Result<Self> {
         use etcetera::BaseStrategy as _;
@@ -109,6 +106,8 @@ impl ContextOfTemplate {
 /// A [`Path`] wrapper that guaranteed to not contains unrendered
 /// templates and be absolute.
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize)]
+#[serde(transparent)]
 pub struct RenderedPath {
     inner: PathBuf,
 }

@@ -216,7 +216,6 @@ impl Iterator for StepQueue {
     }
 }
 
-/// The step to be taken.
 /// N.B. Best effort [TOC/TOU](https://w.wiki/GQE) prevention.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
@@ -246,10 +245,10 @@ pub enum Step {
 impl Step {
     /// Check whether this step is feasible without mutating the filesystem.
     ///
-    /// N.B. Catches path topology mistakes and collisions but intentionally
-    /// does not probe writability — see [`Self::ensure_creatable_topology`]
-    /// for the rationale. ENOSPC, permission errors, and similar surface
-    /// only at [`Self::execute`] time.
+    /// N.B. Catches path topology mistakes and collisions but
+    /// intentionally does not probe writability. The rationale is in
+    /// [`Self::ensure_creatable_topology`]. ENOSPC, permission errors,
+    /// and similar surface only at [`Self::execute`] time.
     #[inline]
     pub fn check_feasibility(&self) -> Result<()> {
         self.real_execute(true)
@@ -300,8 +299,7 @@ impl Step {
             );
         }
 
-        // N.B. We deliberately allow src to not exist — creating links to
-        // not-yet-existing targets is a legitimate use case (e.g. linking
+        // N.B. Deliberately allow a nonexistent src (e.g. linking
         // before installing). Emit a trace so typos are diagnosable.
         if !src.try_exists().unwrap_or(false) {
             trace!(
@@ -353,6 +351,20 @@ impl Step {
 
         if new_dst != old_dst {
             bail!("[BUG] new_dst not equals to old_dst");
+        }
+
+        // A prior run may have already swapped this link but died
+        // before recording it. If dst already points to the new src
+        // the replacement is done; the old-src check below would
+        // misread it as a foreign link.
+        if matches!(
+            DstFact::check(new_src, new_dst)?,
+            DstFact::SymlinkToSrc
+        ) {
+            debug!(
+                "dst already points to the new src, nothing to replace"
+            );
+            return Ok(());
         }
 
         let dst = new_dst;
@@ -713,10 +725,10 @@ impl Step {
 
     /// Walk up from `path` removing empty ancestor directories, stopping
     /// at the first non-empty one. The walk is unbounded (up to `/`) and
-    /// does not track ownership — lny is stateless by design, so dirs you
-    /// created manually may be pruned if they become empty. This is
-    /// accepted given the assumption that all symlinks in a managed tree
-    /// belong to lny.
+    /// does not track ownership. The state file records symlinks only,
+    /// not created directories, so dirs you created manually may be
+    /// pruned if they become empty. Accepted under the assumption that
+    /// all symlinks in a managed tree belong to lny.
     #[inline]
     #[tracing::instrument]
     fn remove_empty_parent_dirs(path: &Path) -> Result<()> {
@@ -785,7 +797,7 @@ impl DstFact {
     #[tracing::instrument(name = "dst_fact_check")]
     pub fn check(src: &Path, dst: &Path) -> Result<Self> {
         debug!("check potential collision");
-        // N.B. Don't use [`Path::exists`] because it follows symlink
+        // N.B. [`Path::exists`] follows symlinks and is not used here.
         if dst.try_exists_no_traverse()? {
             debug!("dst is occupied");
             if dst.is_symlink() {
@@ -976,19 +988,27 @@ mod test {
     #[test]
     fn step_queue_is_fifo() {
         // New-generation steps precede unrelated old-generation removals.
-        let new_symlinks = vec![
-            make_symlink!("/a", "/dst_a"),
-            make_symlink!("/b", "/dst_b"),
-        ];
-        let old_symlinks = vec![make_symlink!("/c", "/dst_c")];
+        let first = make_symlink!("/a", "/dst_a");
+        let second = make_symlink!("/b", "/dst_b");
+        let removed = make_symlink!("/c", "/dst_c");
 
-        let mut queue =
-            StepQueue::new(new_symlinks, old_symlinks).unwrap();
+        let queue = StepQueue::new(
+            vec![first.clone(), second.clone()],
+            vec![removed.clone()],
+        )
+        .unwrap();
 
-        assert_matches!(queue.next(), Some(Step::Ensure { .. }));
-        assert_matches!(queue.next(), Some(Step::Ensure { .. }));
-        assert_matches!(queue.next(), Some(Step::Remove { .. }));
-        assert!(queue.next().is_none());
+        let steps: Vec<Step> = queue.into_iter().collect();
+        assert_eq!(
+            steps,
+            vec![
+                Step::Ensure { symlink: first },
+                Step::Ensure { symlink: second },
+                Step::Remove {
+                    old_symlink: removed
+                },
+            ]
+        );
     }
 
     #[test]
@@ -997,7 +1017,7 @@ mod test {
         let src = top.child("src");
         let dst = top.child("dst");
 
-        // 1. collide
+        // collide
         dst.touch().unwrap();
         assert_matches!(
             DstFact::check(src.path(), dst.path()).unwrap(),
@@ -1005,7 +1025,7 @@ mod test {
         );
         remove_file(dst.path()).unwrap();
 
-        // 2. symlink collide
+        // symlink collide
         symlink("/yeebie", dst.path()).unwrap();
         assert_matches!(
             DstFact::check(src.path(), dst.path()).unwrap(),
@@ -1013,7 +1033,7 @@ mod test {
         );
         remove_file(dst.path()).unwrap();
 
-        // 3. our symlink
+        // our symlink
         symlink(src.path(), dst.path()).unwrap();
         assert_matches!(
             DstFact::check(src.path(), dst.path()).unwrap(),
@@ -1021,7 +1041,7 @@ mod test {
         );
         remove_file(dst.path()).unwrap();
 
-        // 4. coast is clear
+        // coast is clear
         assert_matches!(
             DstFact::check(src.path(), dst.path()).unwrap(),
             DstFact::NotExist
@@ -1032,13 +1052,13 @@ mod test {
     fn ensure_creatable_topology() {
         let top = make_tempdir!();
 
-        // 1. parent exists and is a dir
+        // parent exists and is a dir
         {
             let dst = top.child(make_random_str!());
             Step::ensure_creatable_topology(dst.path()).unwrap();
         }
 
-        // 2. partial chain missing, no obstacle
+        // partial chain missing, no obstacle
         {
             let grandparent = top.child(make_random_str!());
             let parent = grandparent.child(make_random_str!());
@@ -1047,7 +1067,7 @@ mod test {
             Step::ensure_creatable_topology(dst.path()).unwrap();
         }
 
-        // 3. ancestor is a regular file — the bug we're catching
+        // ancestor is a regular file
         {
             let file = top
                 .child(make_random_str!())
@@ -1056,7 +1076,7 @@ mod test {
             assert!(Step::ensure_creatable_topology(dst.path()).is_err());
         }
 
-        // 4. ancestor is a symlink (deferred to OS at write time)
+        // ancestor is a symlink (deferred to OS at write time)
         {
             let real_dir = top
                 .child(make_random_str!())
@@ -1080,7 +1100,7 @@ mod test {
             make_symlink!(src.to_str().unwrap(), dst.to_str().unwrap());
         let step = Step::Ensure { symlink: sym };
 
-        // 1. create symlink normally
+        // create symlink normally
         step.clone().execute().unwrap();
         // TODO structural error
         assert!(
@@ -1088,10 +1108,10 @@ mod test {
                 && dst.path().read_link().unwrap() == src.path()
         );
 
-        // 2. Our symlinks (it has been executed once, dst now is to src)
+        // our symlinks (executed once, dst now is to src)
         step.execute().unwrap();
 
-        // 3. dst is symlink but not ours
+        // dst is a symlink but not ours
         let foreign_sym =
             make_symlink!("/bbbbbr", dst.path().to_str().unwrap());
         let foreign_step = Step::Ensure {
@@ -1101,7 +1121,7 @@ mod test {
         symlink(src.path(), dst.path()).unwrap();
         assert!(foreign_step.execute().is_err());
 
-        // 4. create missing parent dirs
+        // create missing parent dirs
         {
             // don't create the dir
             let dir = top.child(make_random_str!());
@@ -1133,19 +1153,19 @@ mod test {
             make_symlink!(&src.to_str().unwrap(), &dst.to_str().unwrap());
         let step = Step::Remove { old_symlink: sym };
 
-        // 1. normal case
+        // normal case
         symlink(&src, &dst).unwrap();
         step.clone().execute().unwrap();
         assert!(!dst.try_exists().unwrap());
 
-        // 2. Not our symlinks
+        // Not our symlinks
         // the dst is removed last step, this symlink call
         // shouldn't fail because of "file already exists"
         symlink("/", &dst).unwrap();
         assert!(step.clone().execute().is_err());
         assert!(dst.try_exists_no_traverse().unwrap());
 
-        // 3. dst already deleted
+        // dst already deleted
         remove_file(&dst).unwrap();
         step.execute().unwrap();
 
@@ -1169,9 +1189,8 @@ mod test {
             assert!(empty_parent.try_exists_no_traverse().unwrap());
         }
 
-        // 4. clean up the remaining dirs
+        // clean up the remaining dirs
         {
-            // don't create the dir
             let dir = top
                 .child(make_random_str!())
                 .tap(|it| it.create_dir_all().unwrap());
@@ -1204,11 +1223,8 @@ mod test {
 
             nested_step.execute().unwrap();
 
-            // Dir and dir_dir shouldn't be touched because
-            // they are not empty
             assert!(dir.try_exists_no_traverse().unwrap());
             assert!(dir_dir.try_exists_no_traverse().unwrap());
-            // but dir_dir_dir should be removed
             assert!(!dir_dir_dir.try_exists_no_traverse().unwrap());
 
             assert!(!nested_dst.try_exists_no_traverse().unwrap());
@@ -1221,7 +1237,7 @@ mod test {
 
     #[test]
     fn replace_symlink() {
-        // 0. erroneous data
+        // erroneous data
         {
             let new_symlink = make_symlink!("/yjay", "/ann");
             let old_symlink = make_symlink!("/yjay", "/buffoon");
@@ -1235,7 +1251,7 @@ mod test {
                     && ret.err().unwrap().to_string().contains("BUG")
             });
         }
-        // 1. normal case
+        // normal case
         {
             let top = make_tempdir!();
             let old_src =
@@ -1261,7 +1277,7 @@ mod test {
             step.execute().unwrap();
             assert_eq!(dst.read_link().unwrap().as_path(), new_src.path());
         }
-        // 2. not ours
+        // not ours
         {
             let top = make_tempdir!();
             let old_src =
@@ -1288,7 +1304,7 @@ mod test {
             assert!(step.execute().is_err());
             assert_eq!(dst.read_link().unwrap(), trdsrc.path());
         }
-        // 3. subdirs
+        // subdirs
         {
             let top = make_tempdir!();
             let dir = top
@@ -1322,7 +1338,7 @@ mod test {
             step.execute().unwrap();
             assert!(dir.symlink_metadata().unwrap().is_dir());
         }
-        // 4. parent dir doesn't exist (regression for BUGS.md #1)
+        // Regression for BUGS.md #1: parent dir doesn't exist.
         {
             let top = make_tempdir!();
             let dir = top.child(make_random_str!()); // deliberately not created
@@ -1355,5 +1371,35 @@ mod test {
                     && dst.read_link().unwrap() == new_src.path()
             );
         }
+    }
+
+    // An interrupted run may leave dst already pointing at the new src.
+    // Re-running the replacement must be a no-op, not a "not controlled
+    // by us" refusal.
+    #[test]
+    fn replace_symlink_already_applied() {
+        let top = make_tempdir!();
+        let old_src = top.child("old_src").tap(|it| it.touch().unwrap());
+        let new_src = top.child("src").tap(|it| it.touch().unwrap());
+        let dst = top.child("dst");
+
+        symlink(&new_src, &dst).unwrap();
+
+        let new_symlink = make_symlink!(
+            &new_src.to_str().unwrap(),
+            &dst.to_str().unwrap()
+        );
+        let old_symlink = make_symlink!(
+            &old_src.to_str().unwrap(),
+            &dst.to_str().unwrap()
+        );
+        let step = Step::Replace {
+            new_symlink,
+            old_symlink,
+        };
+
+        step.check_feasibility().unwrap();
+        step.execute().unwrap();
+        assert_eq!(dst.read_link().unwrap().as_path(), new_src.path());
     }
 }

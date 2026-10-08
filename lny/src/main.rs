@@ -1,8 +1,11 @@
 mod blueprint;
+mod state;
 mod step;
 mod template;
 
 use crate::blueprint::Blueprint;
+use crate::state::PendingState;
+use crate::state::load_old;
 use crate::step::StepQueue;
 
 use bpaf::OptionParser;
@@ -26,9 +29,8 @@ use std::path::PathBuf;
 struct CliOpts {
     /// Blueprint for symlinks to be created.
     new_blueprint: Option<PathBuf>,
-    /// Previous generation of blueprint, symlinks in it
-    /// will be removed.
-    old_blueprint: Option<PathBuf>,
+    /// State file recording the last applied blueprint.
+    state: Option<PathBuf>,
 }
 
 #[must_use]
@@ -38,17 +40,17 @@ fn cli() -> OptionParser<CliOpts> {
         .argument::<PathBuf>("PATH")
         .help("Blueprint for symlinks to be created")
         .optional();
-    let old_blueprint = long("old-blueprint")
-        .short('o')
+    let state = long("state")
+        .short('s')
         .argument::<PathBuf>("PATH")
         .help(
-            "Previous generation of blueprint, symlinks in it \
-             will be removed",
+            "State file recording the last applied blueprint, \
+             superseded on success",
         )
         .optional();
     construct!(CliOpts {
         new_blueprint,
-        old_blueprint
+        state
     })
     .to_options()
     .descr("Maintaining symlinks")
@@ -56,32 +58,33 @@ fn cli() -> OptionParser<CliOpts> {
 }
 
 fn run(cliopts: CliOpts) -> Result<()> {
+    let CliOpts {
+        new_blueprint,
+        state,
+    } = cliopts;
+
+    let Some(new_blueprint) = new_blueprint else {
+        warn!("No new blueprint given, nothing to do");
+        return Ok(());
+    };
+
     info!("Preparing blueprints");
 
-    let new_blueprint = cliopts
-        .new_blueprint
-        .map(|path| Blueprint::from_file(&path))
-        .transpose()
+    let new_blueprint = Blueprint::from_file(&new_blueprint)
         .context("Failed to load the new blueprint")?
         .tap(|blueprint| trace!(?blueprint));
 
-    let old_blueprint = cliopts
-        .old_blueprint
-        .map(|path| Blueprint::from_file(&path))
-        .transpose()
-        .context("Failed to load the old blueprint")?
-        .tap(|blueprint| trace!(?blueprint));
+    let (old_symlinks, pending_state) = match state {
+        None => (Vec::new(), None),
+        Some(state_path) => {
+            let old_symlinks = load_old(&state_path)?;
+            let pending_state =
+                PendingState::new(state_path, &new_blueprint)?;
+            (old_symlinks, Some(pending_state))
+        }
+    };
 
-    if new_blueprint.is_none() && old_blueprint.is_none() {
-        warn!("No new nor old blueprint given, nothing to do");
-        return Ok(());
-    }
-
-    let (new_symlinks, old_symlinks) = [new_blueprint, old_blueprint]
-        .map(|blueprint| {
-            blueprint.map_or_else(Vec::new, Blueprint::into_symlinks)
-        })
-        .into();
+    let new_symlinks = new_blueprint.into_symlinks();
 
     let step_queue = StepQueue::new(new_symlinks, old_symlinks)
         .context("Error happened while executing the blueprint")?;
@@ -94,6 +97,11 @@ fn run(cliopts: CliOpts) -> Result<()> {
 
     for step in step_queue {
         step.execute()?;
+    }
+
+    if let Some(pending_state) = pending_state {
+        info!("Persist state");
+        pending_state.write()?;
     }
 
     Ok(())
