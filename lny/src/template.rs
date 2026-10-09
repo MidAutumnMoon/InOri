@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 
 use ino_path::PathExt as _;
 use minijinja::Environment;
+use minijinja::UndefinedBehavior;
+use minijinja::value::Value;
 use rootcause::Result;
 use rootcause::bail;
 use rootcause::option_ext::OptionExt as _;
@@ -16,19 +18,17 @@ use tap::Tap as _;
 use tracing::debug;
 use tracing::trace;
 
-// Constructing an [`Environment`] is expensive.
 #[expect(
     clippy::unwrap_used,
     reason = "single global init; failure is a programmer error"
 )]
 static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
-    use minijinja::UndefinedBehavior;
-
     debug!("Initialize global template engine");
 
     let context = ContextOfTemplate::new()
         .context("Failed to initialize context for template")
-        .unwrap();
+        .unwrap()
+        .into_value();
 
     let mut environ = Environment::empty();
     environ.set_undefined_behavior(UndefinedBehavior::Strict);
@@ -40,7 +40,7 @@ static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
 #[derive(Debug)]
 pub struct Engine {
     environ: Environment<'static>,
-    context: ContextOfTemplate,
+    context: Value,
 }
 
 impl Engine {
@@ -57,13 +57,13 @@ impl Engine {
     }
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(Debug)]
 pub struct ContextOfTemplate {
-    home: PathBuf,
-    config: PathBuf,
-    data: PathBuf,
-    cache: PathBuf,
-    state: PathBuf,
+    home: String,
+    config: String,
+    data: String,
+    cache: String,
+    state: String,
 }
 
 impl ContextOfTemplate {
@@ -80,16 +80,15 @@ impl ContextOfTemplate {
         let xdg =
             choose_base_strategy().context("Failed to find XDG dirs")?;
 
-        let home = xdg.home_dir().must_absolute()?.into();
-        let config = xdg.config_dir().must_absolute()?.into();
-        let data = xdg.data_dir().must_absolute()?.into();
-        let cache = xdg.cache_dir().must_absolute()?.into();
+        let home = dir_as_string(xdg.home_dir(), "home")?;
+        let config = dir_as_string(&xdg.config_dir(), "config")?;
+        let data = dir_as_string(&xdg.data_dir(), "data")?;
+        let cache = dir_as_string(&xdg.cache_dir(), "cache")?;
 
-        let state = xdg
+        let state_dir = xdg
             .state_dir()
-            .context("Failed to determine XDG state directory")?
-            .must_absolute()?
-            .into();
+            .context("Failed to determine XDG state directory")?;
+        let state = dir_as_string(&state_dir, "state")?;
 
         let me = Self {
             home,
@@ -101,6 +100,37 @@ impl ContextOfTemplate {
         .tap(|context| trace!(?context));
         Ok(me)
     }
+
+    fn into_value(self) -> Value {
+        let Self {
+            home,
+            config,
+            data,
+            cache,
+            state,
+        } = self;
+
+        Value::from_pairs([
+            ("home", home),
+            ("config", config),
+            ("data", data),
+            ("cache", cache),
+            ("state", state),
+        ])
+    }
+}
+
+/// Context entries are plain strings: the directory must be
+/// absolute (rendered paths are validated against this) and valid
+/// UTF-8 (the template context is built without serde).
+fn dir_as_string(dir: &Path, name: &str) -> Result<String> {
+    let dir = dir.must_absolute()?;
+    Ok(dir.to_str().map(str::to_owned).context_with(|| {
+        format!(
+            r#"XDG {name} directory is not valid UTF-8: "{}""#,
+            dir.display()
+        )
+    })?)
 }
 
 /// A [`Path`] wrapper that guaranteed to not contains unrendered
