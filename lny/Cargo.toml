@@ -23,12 +23,7 @@ tracing.workspace = true
 [dependencies.minijinja]
 version = "3.0.0"
 default-features = false
-features = [
-    "debug",
-    "serde",
-    "std_collections",
-    "unicode",
-]
+features = ["debug", "unicode"]
 
 [dev-dependencies]
 assert_fs.workspace = true
