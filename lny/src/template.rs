@@ -120,9 +120,8 @@ impl ContextOfTemplate {
     }
 }
 
-/// Context entries are plain strings: the directory must be
-/// absolute (rendered paths are validated against this) and valid
-/// UTF-8 (the template context is built without serde).
+// A template value is a string, so a non-UTF-8 dir is an error
+// rather than a lossy rewrite.
 fn dir_as_string(dir: &Path, name: &str) -> Result<String> {
     let dir = dir.must_absolute()?;
     Ok(dir.to_str().map(str::to_owned).context_with(|| {
