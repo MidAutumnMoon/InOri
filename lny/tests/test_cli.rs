@@ -979,3 +979,68 @@ fn state_symlink_to_blueprint_is_hard_error() {
     assert!(!dst.try_exists_no_traverse().unwrap());
     assert_eq!(state.read_link().unwrap(), new_blueprint.path());
 }
+
+// A dry run validates everything a real run validates, including the
+// state file, but creates no symlinks, no parent directories, and no
+// state directory.
+#[test]
+fn dry_run_touches_nothing() {
+    let top = make_tempdir!();
+
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst_parent = top.child("nested");
+    let dst = dst_parent.child("dst");
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+    let state = top.child("state/state.json");
+
+    let output = make_app!()
+        .arg("--new-blueprint")
+        .arg(new_blueprint.path())
+        .arg("--state")
+        .arg(state.path())
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Dry run: ensure 1")
+    );
+    assert!(!dst.try_exists_no_traverse().unwrap());
+    assert!(!dst_parent.exists());
+    assert!(!state.exists());
+    assert!(!state.parent().unwrap().exists());
+
+    // The validated plan applies cleanly on a real run.
+    let apply_output = run_migration(new_blueprint.path(), state.path());
+    assert_success(&apply_output);
+    assert!(dst.is_symlink());
+    assert!(state.is_file());
+}
+
+// A dry run still checks feasibility, so a foreign file at the
+// destination fails the run before anything could be mutated.
+#[test]
+fn dry_run_detects_collisions() {
+    let top = make_tempdir!();
+
+    let src = top.child("src").tap(|it| it.touch().unwrap());
+    let dst = top.child("dst").tap(|it| it.write_str("keep").unwrap());
+
+    let new_blueprint =
+        write_blueprint(&top, "new.json", &[(src.path(), dst.path())]);
+
+    let output = make_app!()
+        .arg("--new-blueprint")
+        .arg(new_blueprint.path())
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("occupied"));
+    assert_eq!(std::fs::read_to_string(dst.path()).unwrap(), "keep");
+}

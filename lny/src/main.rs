@@ -31,6 +31,8 @@ struct CliOpts {
     new_blueprint: Option<PathBuf>,
     /// State file recording the last applied blueprint.
     state: Option<PathBuf>,
+    /// Validate and print the plan without applying it.
+    dry_run: bool,
 }
 
 #[must_use]
@@ -48,9 +50,13 @@ fn cli() -> OptionParser<CliOpts> {
              superseded on success",
         )
         .optional();
+    let dry_run = long("dry-run")
+        .help("Validate and print the plan without applying it")
+        .switch();
     construct!(CliOpts {
         new_blueprint,
-        state
+        state,
+        dry_run
     })
     .to_options()
     .descr("Maintaining symlinks")
@@ -61,6 +67,7 @@ fn run(cliopts: CliOpts) -> Result<()> {
     let CliOpts {
         new_blueprint,
         state,
+        dry_run,
     } = cliopts;
 
     let Some(new_blueprint) = new_blueprint else {
@@ -93,7 +100,14 @@ fn run(cliopts: CliOpts) -> Result<()> {
 
     step_queue.check_feasibility()?;
 
-    info!("Execute blueprint");
+    let summary = step_queue.plan_summary();
+
+    if dry_run {
+        info!("Dry run: {summary}; no changes were made");
+        return Ok(());
+    }
+
+    info!("Execute blueprint ({summary})");
 
     for step in step_queue {
         step.execute()?;

@@ -207,6 +207,48 @@ impl StepQueue {
         }
         Ok(())
     }
+
+    /// One-line summary of the planned steps, e.g. `ensure 2, remove 1`.
+    /// Zero counts are omitted, so an empty plan is `nothing to do`.
+    /// Counts describe the plan, not the outcome. An `Ensure` whose dst
+    /// already points at src is counted although executing it is a no-op.
+    #[must_use]
+    #[expect(
+        clippy::rest_pattern_accessible_field,
+        reason = "Only the variant kind is counted"
+    )]
+    pub fn plan_summary(&self) -> String {
+        let (mut ensure, mut replace) = (0, 0);
+        let (mut collapse, mut expand, mut remove) = (0, 0, 0);
+        for step in &self.steps {
+            match step {
+                Step::Ensure { .. } => ensure += 1,
+                Step::Replace { .. } => replace += 1,
+                Step::Collapse { .. } => collapse += 1,
+                Step::Expand { .. } => expand += 1,
+                Step::Remove { .. } => remove += 1,
+            }
+        }
+
+        let mut parts = Vec::new();
+        for (label, count) in [
+            ("ensure", ensure),
+            ("replace", replace),
+            ("collapse", collapse),
+            ("expand", expand),
+            ("remove", remove),
+        ] {
+            if count > 0 {
+                parts.push(format!("{label} {count}"));
+            }
+        }
+
+        if parts.is_empty() {
+            "nothing to do".to_owned()
+        } else {
+            parts.join(", ")
+        }
+    }
 }
 
 impl Iterator for StepQueue {
@@ -1009,6 +1051,49 @@ mod test {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn plan_summary_format() {
+        // empty plan
+        {
+            let queue = StepQueue::new(vec![], vec![]).unwrap();
+            assert_eq!(queue.plan_summary(), "nothing to do");
+        }
+        // ensure, replace, remove
+        {
+            let queue = StepQueue::new(
+                vec![
+                    make_symlink!("/src_new", "/dst_new"),
+                    make_symlink!("/src_new", "/dst_replaced"),
+                ],
+                vec![
+                    make_symlink!("/src_old", "/dst_replaced"),
+                    make_symlink!("/src_old", "/dst_removed"),
+                ],
+            )
+            .unwrap();
+            assert_eq!(
+                queue.plan_summary(),
+                "ensure 1, replace 1, remove 1"
+            );
+        }
+        // collapse, expand
+        {
+            let collapse_queue = StepQueue::new(
+                vec![make_symlink!("/src_anc", "/anc")],
+                vec![make_symlink!("/src_child", "/anc/child")],
+            )
+            .unwrap();
+            assert_eq!(collapse_queue.plan_summary(), "collapse 1");
+
+            let expand_queue = StepQueue::new(
+                vec![make_symlink!("/src_child", "/anc/child")],
+                vec![make_symlink!("/src_anc", "/anc")],
+            )
+            .unwrap();
+            assert_eq!(expand_queue.plan_summary(), "expand 1");
+        }
     }
 
     #[test]

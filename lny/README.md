@@ -5,11 +5,12 @@ Manage your symlinks.
 ## Usage
 
 ```
-Usage: lny [-n=PATH] [-s=PATH]
+Usage: lny [-n=PATH] [-s=PATH] [--dry-run]
 
 Available options:
     -n, --new-blueprint=PATH  Blueprint for symlinks to be created
     -s, --state=PATH          State file recording the last applied blueprint, superseded on success
+        --dry-run             Validate and print the plan without applying it
     -h, --help                Prints help information
     -V, --version             Prints version information
 ```
@@ -21,6 +22,17 @@ Available options:
 - `--new-blueprint` + `--state`: stateful apply. Symlinks recorded in
   the state but absent from the new blueprint are removed; the rest of
   the recorded generation drives replace/collapse/expand transitions.
+- `--dry-run`: validate the new blueprint (and the state file, when
+  given), check feasibility, print the plan, and exit. Nothing is
+  created, removed, or written, not even the state file or its
+  directory. Writability is deliberately not probed, so failures such
+  as permission errors can still surface only on a real run.
+
+Every run that gets past validation logs a one-line plan summary at
+`info` level, e.g. `ensure 2, replace 1, remove 1`. The counts describe
+the plan, not the outcome. An unchanged generation still reports
+`ensure N` because every link is re-checked and repaired when missing.
+`nothing to do` appears only when the plan itself is empty.
 
 ### State Semantics
 
