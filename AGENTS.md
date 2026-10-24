@@ -13,6 +13,7 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 - Don't meaninglessly repeat what the user already knows or owns.
 - Don't pad with disclaimers, summaries, or "hope that helps" type closings.
 - If something is wrong, say what's wrong and how to fix it. Don't hedge.
+- Write user-facing messages in concise and non-repetitive manner. Don't repeat what user already knows.
 
 ## Make changes
 
@@ -90,12 +91,20 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 - Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
 - Renovate bot is configured for automated dependency updates.
 
+## VCS
+
+Use `jj` vcs exclusively. For example, `jj status`, `jj new`.
+
+External pager is configured. Use `jj diff --git` and `jj show --git` for traditional git style diff output.
+
+Don't commit on behalf of the user. Don't write commit message
+
 ## Verify Changes
 
 After making changes (scope to the relevant app/crate):
 
-1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>`
+1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>` Don't act immediately on clippy suggestions. Don't suppress warnings.
 2. **Test**: `cargo test --all-features --package <crate>`
-3. Dedup, collect and report all triggered clippy warning to the user and require them to review. Ensure tests pass before considering the change complete.
+3. Collect, dedup and report all triggered clippy warning to the user and require user review. Because new warnings are symptom of deeper architecural problems, don't suppress or workaround them without user's review. But ensure tests pass before considering the change complete.
 
 Do not pipe command output through `head` or `tail`, especially `cargo test`.
