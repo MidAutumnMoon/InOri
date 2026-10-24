@@ -8,8 +8,9 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 
 ## Communication
 
-- Be short. Say the thing, stop.
-- Don't repeat what I already said or what's already in context.
+- Be concise. Say the thing, stop. Say natural, straight and plain English. No jargon in any form.
+- Don't repeat what user already said or what's already in context.
+- Don't meaninglessly repeat what the user already knows or owns.
 - Don't pad with disclaimers, summaries, or "hope that helps" type closings.
 - If something is wrong, say what's wrong and how to fix it. Don't hedge.
 
@@ -95,6 +96,6 @@ After making changes (scope to the relevant app/crate):
 
 1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>`
 2. **Test**: `cargo test --all-features --package <crate>`
-3. Ensure the above all pass before considering the change complete.
+3. Dedup, collect and report all triggered clippy warning to the user and require them to review. Ensure tests pass before considering the change complete.
 
 Do not pipe command output through `head` or `tail`, especially `cargo test`.
