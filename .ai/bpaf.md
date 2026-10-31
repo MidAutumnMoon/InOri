@@ -4,16 +4,16 @@ Gotchas and non-obvious behaviors from using [bpaf](https://crates.io/crates/bpa
 
 ## Shell completion
 
-- No public generation API. The hidden `--bpaf-complete-style-bash|zsh|fish|elvish` flag emits the script; the installed script calls back via `--bpaf-complete-rev=<n>` to produce candidates. Different flags, so scripts never regenerate themselves — regenerate only on bpaf major bumps.
-- To wrap behind a subcommand (`derputils completion bash`), re-exec `current_exe()` with the flag and print the captured stdout (maintainer's recommendation, discussion #263). The flag is handled inside the parser before `run()`/tracing init, so the child writes only the script — `Command::output()` is safe.
-- The generated script is named after `Args::name` (`set_name`). In `derputils` each applet sets it to its fixed `NAME`, so a multicall applet re-execs with `CommandExt::arg0(name)`; the dispatcher does not compose a parser.
-- Completion follows the parsed scope: each generated applet script completes that applet's own flags. `derputils completion` emits per-applet scripts; there is no dispatcher-level script.
+- No public generation API. The hidden `--bpaf-complete-style-bash|zsh|fish|elvish` flag emits the script; the installed script calls back via `--bpaf-complete-rev=<n>` to produce candidates. Different flags, so scripts never regenerate themselves; regenerate only on bpaf major bumps.
+- To wrap behind a subcommand (`derputils completion bash`), re-exec `current_exe()` with the flag and print the captured stdout (maintainer's recommendation, discussion #263). The flag is handled during parsing, before the applet's effect runs, so the child writes only the script to stdout and `Command::output()` is safe.
+- The generated script is named after `Args::name`, set by `set_name`. In `derputils` each applet sets it to its fixed `NAME`, so the script is always named after the applet. The `completion` applet re-execs with `CommandExt::arg0(name)` to reach that applet, since the dispatcher has no parser of its own.
+- Completion follows the parsed scope: each generated applet script completes that applet's own flags. `derputils completion SHELL` emits one script per applet; there is no dispatcher-level script.
 
 ## `construct!`
 
 - "Exactly one of" → array form `construct!([a, b, c])`; bpaf rejects both or neither. Struct/variant form takes variable shorthand only: `construct!(T { field })`, not `field: expr` (macro error: "no rules expected `:`"). See `qr.rs` / `completion.rs`.
 - Array alternatives must all be `Parser<T>` for one `T`; map command outputs into the dispatch enum or build the variant directly (`construct!(CliOpts::Avif { transcoder, shared })`).
-- Each branch runs on a cloned state (full backtracking). The more-consuming / left-most success wins; ties go to the first alternative. Because a failed alternative falls through to the next, a required argument inside a subcommand alternative can end up matching a later positional alternative — enforce such rules in a `.parse()` *after* the alternatives.
+- Each branch runs on a cloned state (full backtracking). Whichever branch consumes the left-most argument that the other branch did not consume wins; if they consume the same arguments (or none), the first alternative does. Because a failed alternative falls through to the next, a required argument inside a subcommand alternative can end up matching a later positional alternative; enforce such rules in a `.parse()` *after* the alternatives.
 - Parser output values must be `Debug + Clone + 'static` throughout.
 - `display_fallback()` renders the default via `Display`; `PathBuf` has none, so path fallbacks can't show their default.
 
@@ -23,18 +23,18 @@ Order decides who consumes what, not just how usage renders. A positional declar
 
 ## Global flags
 
-A named parser declared **before** a command in `construct!` evaluates first and scans the whole current scope, including past the command word. One declaration therefore accepts the flag before the subcommand, after it, and after nested subcommands — no per-subcommand copies.
+A named parser declared **before** a command in `construct!` evaluates first and scans the whole current scope, including past the command word. One declaration therefore accepts the flag before the subcommand, after it, and after nested subcommands, so no per-subcommand copies are needed.
 
 - Never declare the same flag name at two levels: the outer parser silently steals the inner flag ("outer flag wins", documented in bpaf's `command.md`).
-- A command word only matches at the head of the remaining items — `app hello packages` does not trigger a `packages` command.
+- A command word only matches at the head of the remaining items: `app hello packages` does not trigger a `packages` command.
 
 ## `env` + `switch` is presence-only
 
-`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present" — it never parses the value. On `argument`, `.env()` parses via `FromStr` as expected.
+`long("ask").env("NH_ASK").switch()` treats any variable value (even `false`, `0`, empty) as "flag present"; it never parses the value. On `argument`, `.env()` parses via `FromStr` as expected.
 
 ## Aliases
 
-No alias API; chaining works: `long("no-gc").long("nogc")` — first name visible, the rest hidden. Same for `.short()`; multiple `.env()` fall back in order. Hidden aliases don't appear in help, completions, or error messages.
+No alias API; chaining works: `long("no-gc").long("nogc")` keeps the first name visible and hides the rest. Same for `.short()`; multiple `.env()` fall back in order. Hidden aliases don't appear in help, completions, or error messages.
 
 ## `--` and passthrough
 
@@ -45,12 +45,12 @@ No alias API; chaining works: `long("no-gc").long("nogc")` — first name visibl
 
 `req_flag(())` anchor + `positional` items in a `construct!(a, b, c).adjacent()` group, repeated with `.many()`. An incomplete group fails with "expected `VALUE` ...".
 
-`req_flag()` returns a plain `impl Parser<T>` — `.help()` and other `NamedArg` methods must come before it. `.switch()`/`.argument()` keep their own `.help()`.
+`req_flag()` returns a plain `impl Parser<T>`, so `.help()` and other `NamedArg` methods must come before it. `.switch()`/`.argument()` keep their own `.help()`.
 
 ## Subcommands
 
 - The free `command(name, subparser)` fn is deprecated (0.9.27); use `subparser.command(name)`.
-- The command's help line inherits the inner parser's `.descr()` — set it there once.
+- The command's help line inherits the inner parser's `.descr()`, so set it there once.
 - `--version` is set with `.version(env!("CARGO_PKG_VERSION"))` on the top-level `to_options()` only; subcommands get no `--version`.
 
 ## `run_inner` vs `run`
@@ -70,4 +70,4 @@ pub enum ParseFailure {
 
 ## Testing parsers
 
-- `check_invariants(cosmetic)` ignores `cosmetic` in 0.9.27: it always dumps the `Meta` tree to stdout. It still panics on misplaced positional/command items, so keep calling it — expect the noise.
+- `check_invariants(cosmetic)` ignores `cosmetic` in 0.9.27: it always dumps the `Meta` tree to stdout. It still panics on misplaced positional/command items, so keep calling it and expect the noise.

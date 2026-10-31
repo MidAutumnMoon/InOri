@@ -1,5 +1,3 @@
-//! Applet registry, name-first dispatch, and the grouped help listing.
-
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Path;
@@ -13,14 +11,12 @@ use super::upwards;
 use super::uuid7;
 use crate::BIN_NAME;
 
-/// The complete applet registry, grouped as the listing shows them.
 const APPLET_GROUPS: &[(&str, &[Applet])] = &[
     ("Generators", &[qr::APPLET, uuid7::APPLET]),
     ("Paths", &[upwards::APPLET, hops::APPLET]),
     ("Shell integration", &[completion::APPLET]),
 ];
 
-/// Every applet, in registry order.
 pub fn applets() -> impl Iterator<Item = &'static Applet> {
     APPLET_GROUPS.iter().flat_map(|&(_, applets)| applets)
 }
@@ -29,7 +25,6 @@ pub fn find_applet(name: &str) -> Option<&'static Applet> {
     applets().find(|applet| applet.name() == name)
 }
 
-/// The applet listing, grouped in registry order.
 fn listing() -> String {
     use std::fmt::Write as _;
 
@@ -62,28 +57,25 @@ fn print_listing() {
     print!("{}", listing());
 }
 
-/// Report a name that is not in the registry.
-fn unknown_applet(name: &OsStr) -> ExitCode {
+fn report_unknown_applet(name: &OsStr) -> ExitCode {
     eprintln!("{BIN_NAME}: unknown applet `{}`", name.to_string_lossy());
     eprintln!("Run `{BIN_NAME} --help` for the applet list.");
     ExitCode::FAILURE
 }
 
-/// Resolve and execute one multicall process invocation.
 #[must_use]
 pub fn dispatch(invoked_as: &OsStr, args: &[OsString]) -> ExitCode {
-    // Multicall name: `argv[0]` selects the applet.
-    let invoked = Path::new(invoked_as)
+    let invoked_name = Path::new(invoked_as)
         .file_name()
         .unwrap_or_else(|| OsStr::new(BIN_NAME));
-    if invoked != OsStr::new(BIN_NAME) {
-        let Some(applet) = invoked.to_str().and_then(find_applet) else {
-            return unknown_applet(invoked);
+    if invoked_name != OsStr::new(BIN_NAME) {
+        let Some(applet) = invoked_name.to_str().and_then(find_applet)
+        else {
+            return report_unknown_applet(invoked_name);
         };
         return applet.run(args);
     }
 
-    // Dispatcher name: the first argument selects the applet.
     let Some((first, rest)) = args.split_first() else {
         print_listing();
         return ExitCode::SUCCESS;
@@ -100,11 +92,11 @@ pub fn dispatch(invoked_as: &OsStr, args: &[OsString]) -> ExitCode {
         }
         Some(name) => {
             let Some(applet) = find_applet(name) else {
-                return unknown_applet(OsStr::new(name));
+                return report_unknown_applet(OsStr::new(name));
             };
             applet.run(rest)
         }
-        None => unknown_applet(first.as_os_str()),
+        None => report_unknown_applet(first.as_os_str()),
     }
 }
 

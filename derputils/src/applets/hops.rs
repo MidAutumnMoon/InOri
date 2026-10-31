@@ -1,11 +1,8 @@
-//! `hops` — trace a symlink to its origin.
-//!
-//! Prints the whole chain of an executable or a path: the path itself,
-//! every symlink hop, and the final target, annotating well-known
-//! Nix-related locations. Relative targets are joined against the
-//! parent directory resolved through its symlinks — falling back to
-//! the lexical spelling when that fails — so the hops match what the
-//! kernel reaches. A start path that does not exist is an error.
+//! `hops` — trace a symlink chain to its origin.
+//! Prints each hop and annotates Nix store, per-user profile, and
+//! system generation paths. Relative targets resolve against the
+//! symlink-resolved parent, falling back to the lexical spelling to match
+//! the kernel; a missing start path is an error.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -35,10 +32,8 @@ const NAME: &str = "hops";
 const SUMMARY: &str = "Trace a symlink to its origin";
 pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
-/// The most symlink hops allowed before assuming an unbroken loop.
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
-/// The applet's parser: resolve one program or path.
 fn cli() -> OptionParser<String> {
     positional::<String>("PROGRAM")
         .help("Executable name found via $PATH; a path with '/' skips the lookup")
@@ -46,9 +41,8 @@ fn cli() -> OptionParser<String> {
         .descr(SUMMARY)
 }
 
-/// Parse a dispatcher or `argv[0]` invocation and run the applet.
-fn entry(raw: &[OsString]) -> ExitCode {
-    invoke(&cli(), NAME, raw, |program| {
+fn entry(args: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, args, |program| {
         run(&program).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -74,8 +68,6 @@ fn run(program: &str) -> rootcause::Result<()> {
         bail!(r#"Path "{starter}" does not exist"#);
     }
 
-    // Print each hop as it is walked, so a failure keeps the hops
-    // that led up to it.
     for hop in SymlinkAncestor::new(starter) {
         explain_path(hop?);
     }
@@ -85,10 +77,8 @@ fn run(program: &str) -> rootcause::Result<()> {
 
 /// Finds the first executable named `program` in `$PATH`.
 ///
-/// Directories are skipped even though they pass the executable
-/// check, since exec would reject them too. Returns `None` when
-/// `$PATH` is unset or nothing matches, leaving the failure message
-/// to the caller which knows the program name.
+/// Directories are skipped even though they pass the executable check.
+/// Returns `None` when `$PATH` is unset or nothing matches.
 fn find_in_path(program: &str) -> Option<PathBuf> {
     let env_path = std::env::var_os("PATH")?;
 
@@ -107,9 +97,6 @@ fn find_in_path(program: &str) -> Option<PathBuf> {
 struct AbsolutePath(PathBuf);
 
 impl AbsolutePath {
-    /// Resolve a possibly-relative path to absolute.
-    /// Relative paths are resolved against CWD.
-    /// The result is cleaned via `PathClean`.
     fn resolve(path: &Path) -> rootcause::Result<Self> {
         let absolute = if path.is_absolute() {
             path.to_owned()
@@ -121,14 +108,6 @@ impl AbsolutePath {
         Ok(Self(path_clean::PathClean::clean(&absolute)))
     }
 
-    /// Resolve a symlink target relative to this path's
-    /// parent directory.
-    ///
-    /// If `target` is absolute, it is wrapped and cleaned.
-    /// If relative, it is joined with this path's parent directory —
-    /// resolved through the symlinks inside it, falling back to the
-    /// lexical spelling when that fails — and cleaned, producing an
-    /// absolute path that matches the kernel's resolution.
     fn resolve_target(&self, target: &Path) -> Self {
         let resolved = if target.is_relative() {
             #[expect(
@@ -203,7 +182,6 @@ impl Iterator for SymlinkAncestor {
         let current = self.current.take()?;
         debug!(path = %current);
 
-        // Check for symlink loop
         if self.visited_paths.contains(&current) {
             debug!("Already visited this path");
             return Some(Err(report!(
@@ -211,7 +189,6 @@ impl Iterator for SymlinkAncestor {
             )));
         }
 
-        // Follow symlink if applicable
         if current.is_symlink() {
             if self.symlink_followed >= MAX_SYMLINK_FOLLOWS {
                 return Some(Err(report!(
@@ -255,7 +232,7 @@ struct Subject {
 
 impl Subject {
     fn new(path: AbsolutePath) -> Self {
-        // N.B. #[expect] has subtle bugs with enum_glob_use :/
+        // `#[expect]` mishandles `enum_glob_use`, so use `allow`.
         #![allow(clippy::enum_glob_use, reason = "Nicer to work with")]
 
         use SubjectKind::*;
@@ -318,7 +295,6 @@ mod test {
 
     use super::*;
 
-    /// `PROGRAM` is required by construction only; `.optional()` would compile.
     #[test]
     fn program_argument_is_required() {
         let result =

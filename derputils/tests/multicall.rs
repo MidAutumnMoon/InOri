@@ -1,6 +1,3 @@
-//! The multicall contract: a symlink named after an applet runs that
-//! applet's own CLI, named after the symlink rather than the dispatcher.
-
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -14,8 +11,6 @@ use std::process::Command;
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
 
-/// Runs the binary through a symlink named `name`, as a multicall install
-/// invokes it.
 fn via_symlink(name: &str, args: &[&str]) -> std::process::Output {
     let tmp = TempDir::new().unwrap();
     let link = tmp.child(name);
@@ -23,7 +18,6 @@ fn via_symlink(name: &str, args: &[&str]) -> std::process::Output {
 
     Command::new(link.path())
         .args(args)
-        // Keep the applet's output free of ambient tracing filter noise.
         .env_remove("RUST_LOG")
         .output()
         .unwrap()
@@ -31,7 +25,6 @@ fn via_symlink(name: &str, args: &[&str]) -> std::process::Output {
 
 #[test]
 fn argv0_selects_the_applet_and_names_it() {
-    // Going through the dispatcher would spell this `derputils qr`.
     let output = via_symlink("qr", &["--help"]);
     assert!(output.status.success());
 

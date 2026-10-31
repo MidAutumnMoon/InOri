@@ -1,5 +1,3 @@
-//! `qr` — generate and open a QR code from stdin or the clipboard.
-
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,16 +20,12 @@ const SUMMARY: &str =
     "Generate a QR code from stdin or the clipboard and open it";
 pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
-/// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]
 enum Source {
-    /// Text from the clipboard.
     Clipboard,
-    /// Standard input, read to EOF.
     Stdin,
 }
 
-/// Arguments accepted by the applet, independent of their consumer.
 fn args() -> impl Parser<Source> {
     let clipboard = short('c')
         .long("clipboard")
@@ -41,18 +35,16 @@ fn args() -> impl Parser<Source> {
         .long("stdin")
         .help("Read standard input as the QR code")
         .req_flag(Source::Stdin);
-    // Exactly one source — bpaf itself rejects both or neither.
+    // Exactly one source; bpaf rejects both or neither.
     construct!([clipboard, stdin])
 }
 
-/// The applet's parser: pick the QR code source.
 fn cli() -> OptionParser<Source> {
     args().to_options().descr(SUMMARY)
 }
 
-/// Parse a dispatcher or `argv[0]` invocation and run the applet.
-fn entry(raw: &[OsString]) -> ExitCode {
-    invoke(&cli(), NAME, raw, |source| {
+fn entry(args: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, args, |source| {
         run(source).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -110,9 +102,8 @@ fn render_svg(data: &str) -> rootcause::Result<String> {
         .build())
 }
 
-/// Temp files are intentionally not cleaned up.
-/// Files use `UUIDv7` names, so collisions are not a concern
-/// (and they sort nicely).
+/// Temp files are intentionally left behind. `UUIDv7` names avoid
+/// collisions and sort nicely.
 fn write_tempfile(svg: &str) -> rootcause::Result<PathBuf> {
     let filename = format!("{NAME}:{}.svg", uuid::Uuid::now_v7());
     let path = std::env::temp_dir().join(filename);

@@ -1,7 +1,6 @@
 //! `upwards` — print the "toplevel" directory of the CWD.
-//!
-//! Exits successfully with the absolute toplevel path on stdout, or with
-//! status 1 and no output when there is no upward boundary to report.
+//! Prints the absolute toplevel on stdout, or exits with status 1 and no
+//! output when there is no upward boundary.
 
 use std::env::current_dir;
 use std::ffi::OsString;
@@ -23,16 +22,15 @@ use super::applet::invoke;
 const NAME: &str = "upwards";
 const SUMMARY: &str = "Find upward boundaries that `feel` right";
 pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
+
 const NIX_STORE: &str = "/nix/store";
 
-/// The applet's parser: probe the CWD, no arguments.
 fn cli() -> OptionParser<()> {
     bpaf::pure(()).to_options().descr(SUMMARY)
 }
 
-/// Parse a dispatcher or `argv[0]` invocation and run the applet.
-fn entry(raw: &[OsString]) -> ExitCode {
-    invoke(&cli(), NAME, raw, |()| run())
+fn entry(args: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, args, |()| run())
 }
 
 #[instrument]
@@ -48,8 +46,6 @@ fn run() -> rootcause::Result<ExitCode> {
     debug!(?decision);
 
     match decision {
-        // Fail silently, so a shell wrapper can tell "found" from "not
-        // found" by the exit status alone.
         Decision::StayHere => Ok(ExitCode::FAILURE),
         Decision::GoUpward(toplevel) => {
             print_toplevel(&toplevel)?;
@@ -71,20 +67,15 @@ fn print_toplevel(toplevel: &Path) -> rootcause::Result<()> {
     Ok(())
 }
 
-/// What a heuristic concluded about the CWD.
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
-    /// No upward path to report; the caller stays put.
     StayHere,
-    /// Print this path as the toplevel of the CWD.
     GoUpward(PathBuf),
 }
 
-/// What one heuristic concludes about the CWD: `None` means it does not
-/// apply, deferring the decision to the next heuristic.
+/// `None` means the heuristic does not apply, deferring to the next one.
 type HeuristicResult = rootcause::Result<Option<Decision>>;
 
-/// Classifies the CWD inside the nix store.
 #[instrument]
 fn heuristic_nix_store(cwd: &Path) -> HeuristicResult {
     let Some(rest) = cwd.strip_prefix(NIX_STORE).ok() else {
@@ -92,24 +83,17 @@ fn heuristic_nix_store(cwd: &Path) -> HeuristicResult {
         return Ok(None);
     };
 
-    // The store itself is already the desired toplevel.
     let Some(package) = rest.components().next() else {
         return Ok(Some(Decision::StayHere));
     };
 
-    // Anything below a store path belongs to the package it names.
     Ok(Some(Decision::GoUpward(Path::new(NIX_STORE).join(package))))
 }
 
-/// Classifies the CWD inside a git repository.
 #[instrument]
 fn heuristic_git(cwd: &Path) -> HeuristicResult {
     let (repo, _trust) = match upwards(cwd) {
         Ok(found) => found,
-        // Discovery completed without finding a repository we may use:
-        // nothing found, the search stopped at a filesystem boundary, or
-        // the candidate was discarded for dubious ownership. gix-discover
-        // classifies every such outcome as "not found".
         Err(err) if err.is_not_found() => {
             trace!(
                 "CWD is not inside a git repository, skipping this heuristic"
@@ -121,7 +105,6 @@ fn heuristic_git(cwd: &Path) -> HeuristicResult {
         }
     };
 
-    // Bare repositories have no work tree; the git dir is their toplevel.
     let (git_dir, work_dir) =
         repo.into_repository_and_work_tree_directories();
     Ok(Some(Decision::GoUpward(work_dir.unwrap_or(git_dir))))
@@ -141,13 +124,11 @@ mod test {
 
     #[test]
     fn nix_store_heuristic() {
-        // The store itself and anything outside it stay put...
         assert_eq!(nix_decision("/nix/store"), Some(Decision::StayHere));
         assert_eq!(nix_decision("/nix"), None);
         assert_eq!(nix_decision("/nix/storefoo"), None);
         assert_eq!(nix_decision("/home/teapot"), None);
 
-        // ...while everything below a store path belongs to the package.
         assert_eq!(
             nix_decision("/nix/store/abc-glibc-2.39"),
             Some(Decision::GoUpward("/nix/store/abc-glibc-2.39".into()))
@@ -176,7 +157,6 @@ mod test {
         let nested = repo.child("deep/nested");
         nested.create_dir_all().unwrap();
 
-        // From the root itself and from any directory below it.
         for start in [repo.path(), nested.path()] {
             assert_eq!(
                 heuristic_git(start).unwrap(),

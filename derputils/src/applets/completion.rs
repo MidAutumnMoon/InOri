@@ -1,12 +1,6 @@
-//! `completion` — generate shell completion scripts for applets.
-//!
-//! bpaf exposes no public API for completion-script generation; the scripts are
-//! produced by hidden flags handled inside the parser. This applet re-execs the
-//! current executable under the applet's name, since `argv[0]` is what bpaf
-//! names the generated script after.
-//!
-//! Script generation and runtime completion use separate flags, so generated
-//! scripts query candidates at runtime rather than regenerating themselves.
+//! bpaf has no public API for completion-script generation; a hidden flag
+//! handled by the target applet emits the script. This applet re-execs under
+//! that applet's name, and generated scripts query candidates at runtime.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -32,7 +26,6 @@ const NAME: &str = "completion";
 const SUMMARY: &str = "Generate shell completion scripts for applets";
 pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
-/// Target shell for completion script generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
     Bash,
@@ -42,7 +35,6 @@ enum Shell {
 }
 
 impl Shell {
-    /// Canonical shell name, shared by `Display` and `FromStr`.
     const fn as_str(self) -> &'static str {
         match self {
             Self::Bash => "bash",
@@ -74,14 +66,12 @@ impl FromStr for Shell {
     }
 }
 
-/// Parsed arguments for the `completion` applet.
 #[derive(Debug, Clone)]
 struct CompletionArgs {
     shell: Shell,
     applet: Option<String>,
 }
 
-/// Arguments accepted by the applet, independent of their consumer.
 fn args() -> impl Parser<CompletionArgs> {
     let shell = positional::<Shell>("SHELL")
         .help("Target shell: bash, zsh, fish, elvish");
@@ -91,15 +81,13 @@ fn args() -> impl Parser<CompletionArgs> {
     construct!(CompletionArgs { shell, applet })
 }
 
-/// The applet's parser: generate completion scripts for the requested shells.
 fn cli() -> OptionParser<CompletionArgs> {
     args().to_options().descr(SUMMARY)
 }
 
-/// Parse a dispatcher or `argv[0]` invocation and run the applet.
-fn entry(raw: &[OsString]) -> ExitCode {
-    invoke(&cli(), NAME, raw, |args| {
-        run(&args).map(|()| ExitCode::SUCCESS)
+fn entry(args: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, args, |parsed| {
+        run(&parsed).map(|()| ExitCode::SUCCESS)
     })
 }
 
@@ -107,11 +95,9 @@ fn run(args: &CompletionArgs) -> rootcause::Result<()> {
     let exe = std::env::current_exe()
         .context("Unable to resolve current executable")?;
 
-    // Depends only on the shell, not the applet — build once.
     let flag = format!("--bpaf-complete-style-{}", args.shell.as_str());
 
     if let Some(name) = args.applet.as_deref() {
-        // Resolve before printing anything.
         let applet = find_applet(name).ok_or_else(|| {
             rootcause::report!("unknown applet '{name}'")
         })?;
@@ -137,7 +123,7 @@ fn generate_completion(
     let name = applet.name();
     debug!(applet = name, shell = %shell, "generating completion");
     let output = Command::new(exe)
-        // `argv[0]` selects the applet and names the generated script.
+        // `argv[0]` routes the child to this applet.
         .arg0(name)
         .arg(flag)
         .output()
@@ -174,8 +160,6 @@ mod test {
     fn parses_shell_and_optional_applet() {
         for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Elvish]
         {
-            // `as_str` is the name the completion flag is built from, so the
-            // CLI must accept exactly that spelling.
             let name = shell.as_str();
             let parsed = parse(&[name]).unwrap();
             assert_eq!(parsed.shell, shell, "{name}");

@@ -16,7 +16,6 @@ use std::process::Command;
 fn upwards() -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_derputils"))
         .arg("upwards")
-        // Keep the shell contract free of ambient tracing filter noise.
         .env_remove("RUST_LOG")
         .output()
         .unwrap()
@@ -40,7 +39,6 @@ fn output_iff_exit_success() {
     let original = std::env::current_dir().unwrap();
     let top = TempDir::new().unwrap();
 
-    // No boundary anywhere near: no output, exit status 1.
     let plain = top.child("plain");
     plain.create_dir_all().unwrap();
     std::env::set_current_dir(plain.path()).unwrap();
@@ -49,7 +47,6 @@ fn output_iff_exit_success() {
     assert_eq!(not_found.stdout, Vec::<u8>::new());
     assert_eq!(not_found.stderr, Vec::<u8>::new());
 
-    // Inside a repository: the toplevel on stdout, exit status 0.
     let repo = top.child("repo");
     plant_git_files(&repo.child(".git"));
     let nested = repo.child("deep/nested");
