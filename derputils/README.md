@@ -1,14 +1,9 @@
 # derputils
 
-A set of utils which deserve questioning
-what's purpose of their existence in the first place.
-
-Multicall binary (busybox-style): invoked as `derputils` it dispatches on
-the first argument; invoked through a symlink (or copy) named after an
-applet it runs that applet directly.
+Run an applet by passing its name as the first argument, or by invoking a symlink named after it:
 
     ln -s derputils qr
-    ln -s derputils uuid7
+    derputils qr --help
+    ./qr --help
 
-Run `derputils --help` for the applets available in this build.
-
+Run `derputils --help` for the applet list.
