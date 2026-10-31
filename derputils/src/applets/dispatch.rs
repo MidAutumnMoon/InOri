@@ -26,31 +26,32 @@ pub fn find_applet(name: &str) -> Option<&'static Applet> {
 }
 
 fn listing() -> String {
-    use std::fmt::Write as _;
-
-    let width = applets()
+    let name_width = applets()
         .map(|applet| applet.name().len())
         .max()
         .unwrap_or(0);
 
-    let mut out = format!("Usage: {BIN_NAME} APPLET [OPTIONS]...\n");
+    let group_blocks: Vec<_> = APPLET_GROUPS
+        .iter()
+        .map(|&(heading, applets)| {
+            let rows: Vec<_> = applets
+                .iter()
+                .map(|applet| {
+                    format!(
+                        "    {:<name_width$}  {}",
+                        applet.name(),
+                        applet.summary()
+                    )
+                })
+                .collect();
+            format!("{heading}\n{}", rows.join("\n"))
+        })
+        .collect();
 
-    for &(heading, applets) in APPLET_GROUPS {
-        if applets.is_empty() {
-            continue;
-        }
-        _ = writeln!(out, "\n{heading}");
-        for applet in applets {
-            _ = writeln!(
-                out,
-                "    {:<width$}  {}",
-                applet.name(),
-                applet.summary()
-            );
-        }
-    }
-
-    out
+    format!(
+        "Usage: {BIN_NAME} APPLET [OPTIONS]...\n\n{}\n",
+        group_blocks.join("\n\n")
+    )
 }
 
 fn print_listing() {
