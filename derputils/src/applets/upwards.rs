@@ -4,28 +4,35 @@
 //! status 1 and no output when there is no upward boundary to report.
 
 use std::env::current_dir;
+use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bpaf::OptionParser;
+use bpaf::Parser as _;
 use gix_discover::upwards;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 
-use super::Applet;
-use super::Invocation;
+use super::applet::Applet;
+use super::applet::invoke;
 
 const NAME: &str = "upwards";
 const SUMMARY: &str = "Find upward boundaries that `feel` right";
-pub(super) const APPLET: Applet = Applet::new(NAME, cli);
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 const NIX_STORE: &str = "/nix/store";
 
-/// The applet's CLI: probe the CWD, no arguments.
-fn cli() -> OptionParser<Invocation> {
-    Invocation::cli(bpaf::pure(()), SUMMARY, |()| run())
+/// The applet's parser: probe the CWD, no arguments.
+fn cli() -> OptionParser<()> {
+    bpaf::pure(()).to_options().descr(SUMMARY)
+}
+
+/// Parse a dispatcher or `argv[0]` invocation and run the applet.
+fn entry(raw: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, raw, |()| run())
 }
 
 #[instrument]

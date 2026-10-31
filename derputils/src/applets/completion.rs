@@ -8,6 +8,7 @@
 //! Script generation and runtime completion use separate flags, so generated
 //! scripts query candidates at runtime rather than regenerating themselves.
 
+use std::ffi::OsString;
 use std::fmt;
 use std::os::unix::process::CommandExt as _;
 use std::path::Path;
@@ -22,14 +23,14 @@ use bpaf::positional;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-use super::Applet;
-use super::Invocation;
-use super::applets;
-use super::find_applet;
+use super::applet::Applet;
+use super::applet::invoke;
+use super::dispatch::applets;
+use super::dispatch::find_applet;
 
 const NAME: &str = "completion";
 const SUMMARY: &str = "Generate shell completion scripts for applets";
-pub(super) const APPLET: Applet = Applet::new(NAME, cli);
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
 /// Target shell for completion script generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,9 +91,14 @@ fn args() -> impl Parser<CompletionArgs> {
     construct!(CompletionArgs { shell, applet })
 }
 
-/// The applet's CLI: generate completion scripts for the requested shells.
-fn cli() -> OptionParser<Invocation> {
-    Invocation::cli(args(), SUMMARY, |args| {
+/// The applet's parser: generate completion scripts for the requested shells.
+fn cli() -> OptionParser<CompletionArgs> {
+    args().to_options().descr(SUMMARY)
+}
+
+/// Parse a dispatcher or `argv[0]` invocation and run the applet.
+fn entry(raw: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, raw, |args| {
         run(&args).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -158,15 +164,16 @@ mod test {
     use bpaf::Args;
     use std::assert_matches;
 
-    fn parse(items: &[&str]) -> Result<CompletionArgs, bpaf::ParseFailure> {
-        args()
-            .to_options()
-            .run_inner(Args::from(items).set_name(NAME))
+    fn parse(
+        items: &[&str],
+    ) -> Result<CompletionArgs, bpaf::ParseFailure> {
+        cli().run_inner(Args::from(items).set_name(NAME))
     }
 
     #[test]
     fn parses_shell_and_optional_applet() {
-        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Elvish] {
+        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Elvish]
+        {
             // `as_str` is the name the completion flag is built from, so the
             // CLI must accept exactly that spelling.
             let name = shell.as_str();

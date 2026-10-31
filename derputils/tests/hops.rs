@@ -51,7 +51,7 @@ fn missing_start_path_fails_without_output() {
     let output = hops(tmp.child("absent").path());
 
     assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, Vec::<u8>::new());
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("does not exist"), "{stderr}");

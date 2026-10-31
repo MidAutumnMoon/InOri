@@ -1,5 +1,6 @@
 //! `qr` — generate and open a QR code from stdin or the clipboard.
 
+use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -13,13 +14,13 @@ use ino_shell::cmd;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
-use super::Applet;
-use super::Invocation;
+use super::applet::Applet;
+use super::applet::invoke;
 
 const NAME: &str = "qr";
 const SUMMARY: &str =
     "Generate a QR code from stdin or the clipboard and open it";
-pub(super) const APPLET: Applet = Applet::new(NAME, cli);
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
 /// Where the QR code content comes from.
 #[derive(Debug, Clone, Copy)]
@@ -44,9 +45,14 @@ fn args() -> impl Parser<Source> {
     construct!([clipboard, stdin])
 }
 
-/// The applet's CLI: pick the QR code source, then render and open it.
-fn cli() -> OptionParser<Invocation> {
-    Invocation::cli(args(), SUMMARY, |source| {
+/// The applet's parser: pick the QR code source.
+fn cli() -> OptionParser<Source> {
+    args().to_options().descr(SUMMARY)
+}
+
+/// Parse a dispatcher or `argv[0]` invocation and run the applet.
+fn entry(raw: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, raw, |source| {
         run(source).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -133,9 +139,7 @@ mod test {
     use std::assert_matches;
 
     fn parse(items: &[&str]) -> Result<Source, bpaf::ParseFailure> {
-        args()
-            .to_options()
-            .run_inner(Args::from(items).set_name(NAME))
+        cli().run_inner(Args::from(items).set_name(NAME))
     }
 
     #[test]

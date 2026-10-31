@@ -8,11 +8,13 @@
 //! kernel reaches. A start path that does not exist is an error.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bpaf::OptionParser;
+use bpaf::Parser as _;
 use bpaf::positional;
 use ino_color::cprint;
 use ino_color::fg;
@@ -26,22 +28,27 @@ use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 
-use super::Applet;
-use super::Invocation;
+use super::applet::Applet;
+use super::applet::invoke;
 
 const NAME: &str = "hops";
 const SUMMARY: &str = "Trace a symlink to its origin";
-pub(super) const APPLET: Applet = Applet::new(NAME, cli);
+pub(super) const APPLET: Applet = Applet::new(NAME, SUMMARY, entry);
 
 /// The most symlink hops allowed before assuming an unbroken loop.
 const MAX_SYMLINK_FOLLOWS: u64 = 64;
 
-/// The applet's CLI: resolve one program or path, then walk its hops.
-fn cli() -> OptionParser<Invocation> {
-    let program = positional::<String>("PROGRAM").help(
-        "Executable name found via $PATH; a path with '/' skips the lookup",
-    );
-    Invocation::cli(program, SUMMARY, |program| {
+/// The applet's parser: resolve one program or path.
+fn cli() -> OptionParser<String> {
+    positional::<String>("PROGRAM")
+        .help("Executable name found via $PATH; a path with '/' skips the lookup")
+        .to_options()
+        .descr(SUMMARY)
+}
+
+/// Parse a dispatcher or `argv[0]` invocation and run the applet.
+fn entry(raw: &[OsString]) -> ExitCode {
+    invoke(&cli(), NAME, raw, |program| {
         run(&program).map(|()| ExitCode::SUCCESS)
     })
 }
@@ -314,7 +321,8 @@ mod test {
     /// `PROGRAM` is required by construction only; `.optional()` would compile.
     #[test]
     fn program_argument_is_required() {
-        let result = cli().run_inner(Args::from(&[] as &[&str]).set_name(NAME));
+        let result =
+            cli().run_inner(Args::from(&[] as &[&str]).set_name(NAME));
         assert!(matches!(result, Err(bpaf::ParseFailure::Stderr(_))));
     }
 
@@ -472,11 +480,7 @@ mod test {
             ("/home/teapot", SubjectKind::Normal, "Ordinary path"),
             // Prefixes match whole path components only.
             ("/nix/storefoo", SubjectKind::Normal, "Ordinary path"),
-            (
-                "/run/current-systemd",
-                SubjectKind::Normal,
-                "Ordinary path",
-            ),
+            ("/run/current-systemd", SubjectKind::Normal, "Ordinary path"),
         ];
 
         for (path, kind, description) in CASES {

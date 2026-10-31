@@ -46,8 +46,8 @@ fn output_iff_exit_success() {
     std::env::set_current_dir(plain.path()).unwrap();
     let not_found = upwards();
     assert_eq!(not_found.status.code(), Some(1));
-    assert!(not_found.stdout.is_empty());
-    assert!(not_found.stderr.is_empty());
+    assert_eq!(not_found.stdout, Vec::<u8>::new());
+    assert_eq!(not_found.stderr, Vec::<u8>::new());
 
     // Inside a repository: the toplevel on stdout, exit status 0.
     let repo = top.child("repo");

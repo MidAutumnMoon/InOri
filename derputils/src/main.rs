@@ -16,5 +16,5 @@ fn main() -> ExitCode {
         argv_iter.next().unwrap_or_else(|| OsString::from(BIN_NAME));
     let args: Vec<OsString> = argv_iter.collect();
 
-    applets::dispatch(&invoked_as, &args)
+    applets::dispatch::dispatch(&invoked_as, &args)
 }
