@@ -5,7 +5,6 @@
 
 use std::io::Write as _;
 use std::path::Path;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use super::CURRENT_PROFILE;
@@ -53,31 +52,24 @@ impl std::fmt::Display for DiffMode {
     }
 }
 
-/// Converts an error produced by an external crate into a
-/// [`rootcause::Report`].
+/// Converts an error produced by `dix` into a [`rootcause::Report`].
 ///
-/// Dependencies that don't speak rootcause (i.e. `dix`) report their failures
-/// through the boxed-error representation; this is the seam where such
-/// errors enter rootcause.
-fn external_report<E>(err: E) -> rootcause::Report
-where
-    Box<dyn std::error::Error + Send + Sync>: From<E>,
-{
-    rootcause::report!(Box::<dyn std::error::Error + Send + Sync>::from(
-        err
-    ))
-    .into()
+/// `dix` reports failures as `misstep::Report`, which does not implement
+/// `std::error::Error`; `ReportError` adapts it back into an error type that
+/// rootcause accepts. This is the seam where such errors enter rootcause.
+fn misstep_report(err: misstep::Report) -> rootcause::Report {
+    rootcause::Report::from(misstep::ReportError::from(err))
 }
 
 struct QueriedDiff {
-    old_label: PathBuf,
-    new_label: PathBuf,
+    old: dix::SnapshotDocument,
+    new: dix::SnapshotDocument,
     report: dix::DiffReport,
 }
 
 impl QueriedDiff {
     fn write(&self) -> Result<()> {
-        print_dix_header_raw(&self.old_label, &self.new_label);
+        print_dix_header_raw(&self.old.path, &self.new.path);
         write_dix_report(&self.report)
     }
 }
@@ -92,16 +84,18 @@ fn print_dix_report(
     old_generation: &Path,
     new_generation: &Path,
 ) -> Result<()> {
-    let report =
-        dix::query_diff_report(old_generation, new_generation, true)
-            .map_err(external_report)?;
+    let store = dix::Store::open();
 
-    QueriedDiff {
-        old_label: display_path(old_generation),
-        new_label: display_path(new_generation),
-        report,
-    }
-    .write()
+    let old = store
+        .query_snapshot_document(old_generation)
+        .map_err(misstep_report)?;
+    let new = store
+        .query_snapshot_document(new_generation)
+        .map_err(misstep_report)?;
+
+    let report = dix::diff_store_snapshots(&old.snapshot, &new.snapshot);
+
+    QueriedDiff { old, new, report }.write()
 }
 
 /// Handles NixOS system diffing for a rebuild.
@@ -141,10 +135,6 @@ pub fn run(diff: &DiffMode, target_profile: &Path) -> Result<()> {
     print_dix_report(current_profile, target_profile)
 }
 
-fn display_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
 fn print_dix_header_raw(old_label: &Path, new_label: &Path) {
     println!(
         "{arrows} {old}",
@@ -159,14 +149,21 @@ fn print_dix_header_raw(old_label: &Path, new_label: &Path) {
 }
 
 fn write_dix_report(report: &dix::DiffReport) -> Result<()> {
+    // Render every package diff; dix's default view hides packages that only
+    // changed in amount or size below its threshold.
+    let options = dix::RenderOptions {
+        full: true,
+        ..dix::RenderOptions::default()
+    };
+
     let mut out = String::new();
-    let wrote = dix::write_diff_report(&mut out, report)?;
+    dix::write_diff_report(&mut out, report, options)?;
 
     std::io::stdout()
         .write_all(out.as_bytes())
         .context("Failed to write diff report to stdout")?;
 
-    if wrote == 0 && report.size_old() == report.size_new() {
+    if report.diffs.is_empty() && report.size_old == report.size_new {
         info!("No version or size changes.");
     }
 

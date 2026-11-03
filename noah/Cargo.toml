@@ -12,7 +12,11 @@ default-run            = "nh"
 
 [dependencies]
 bpaf.workspace                = true
-dix = "2.1.0"
+dix = {
+    default-features = false,
+    features = [ "store" ],
+    version = "3.0.0"
+}
 elasticsearch-dsl = "0.4.24"
 humantime = "2.3.0"
 inquire = {
@@ -27,6 +31,7 @@ jiff = {
     features = [ "std", "tzdb-zoneinfo" ],
     version = "0.2.35"
 }
+misstep = "0.4.1"
 nix = {
     default-features = false,
     features = [ "fs", "user" ],
@@ -34,6 +39,13 @@ nix = {
 }
 regex = "1.12.2"
 rootcause.workspace           = true
+# dix links rusqlite without `bundled`; re-enable it here so noah does not
+# need a system sqlite3.
+rusqlite = {
+    default-features = false,
+    features = [ "bundled" ],
+    version = "0.40.2"
+}
 serde.workspace               = true
 serde_json.workspace          = true
 shlex = "2.0.1"
