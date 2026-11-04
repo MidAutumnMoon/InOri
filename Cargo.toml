@@ -7,7 +7,7 @@ members = [
     "lny",
     "rpgdemake",
     "imgo",
-    "./noah", "agentcept",
+    "agentcept",
 ]
 
 [workspace.package]

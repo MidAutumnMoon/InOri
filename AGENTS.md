@@ -41,7 +41,6 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 | `derputils`    | Miscellaneous utilities                                  |
 | `imgo`         | Image batch processing and transcoding                   |
 | `lny`          | Symlink manager driven by JSON blueprints with templates |
-| `nh` (`noah/`) | Nix CLI helper/wrapper                                   |
 | `rpgdemake`    | Batch decryption of RPG Maker MV/MZ encrypted assets     |
 
 ### Shared Library Crates (`crates/`)
