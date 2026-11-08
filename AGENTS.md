@@ -6,15 +6,6 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 
 - **Repository**: <https://github.com/MidAutumnMoon/InOri>
 
-## Communication
-
-- Be concise. Say the thing, stop. Say natural, straight and plain English. No jargon in any form.
-- Don't repeat what user already said or what's already in context.
-- Don't meaninglessly repeat what the user already knows or owns.
-- Don't pad with disclaimers, summaries, or "hope that helps" type closings.
-- If something is wrong, say what's wrong and how to fix it. Don't hedge.
-- Write user-facing messages in concise and non-repetitive manner. Don't repeat what user already knows.
-
 ## Make changes
 
 - Make systematic changes. Don't be scoped to the spot you are looking at.
