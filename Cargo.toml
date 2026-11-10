@@ -162,3 +162,4 @@ arithmetic_side_effects = "allow"
 pattern_type_mismatch = "allow"
 
 pub_with_shorthand = "allow"
+must_use_candidate = "allow"
