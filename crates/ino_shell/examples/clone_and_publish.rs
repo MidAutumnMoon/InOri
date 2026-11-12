@@ -17,7 +17,9 @@ fn main() -> rootcause::Result<()> {
         .split_once("version = \"")
         .and_then(|it| it.1.split_once('\"'))
         .map(|it| it.0)
-        .ok_or_else(|| rootcause::report!("can't find version field in the manifest"))?;
+        .ok_or_else(|| {
+            rootcause::report!("can't find version field in the manifest")
+        })?;
 
     cmd!(sh, "git tag {version}").run()?;
 

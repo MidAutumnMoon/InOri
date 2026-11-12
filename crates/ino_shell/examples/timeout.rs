@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use rootcause::Result;
 use ino_shell::{Shell, cmd};
+use rootcause::Result;
 
 fn main() -> Result<()> {
     let sh = Shell::new()?;
