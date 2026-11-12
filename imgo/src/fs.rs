@@ -126,8 +126,8 @@ pub fn destination_path(source: &Path, output: ImageFormat) -> PathBuf {
 /// outside the workspace are namespaced by their rootless absolute path.
 #[must_use]
 pub fn backup_path(workspace: &Path, source: &Path) -> PathBuf {
-    let relative = source.strip_prefix(workspace).unwrap_or_else(|_| {
-        source.strip_prefix(Path::new("/")).unwrap_or(source)
-    });
+    let relative = source
+        .strip_prefix(workspace)
+        .unwrap_or_else(|_| source.trim_prefix("/"));
     workspace.join(BACKUP_DIR_NAME).join(relative)
 }

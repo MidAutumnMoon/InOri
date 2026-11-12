@@ -1328,7 +1328,6 @@ dependencies = [
  "indicatif",
  "ino_color",
  "ino_tracing",
- "itertools",
  "rayon",
  "rlimit",
  "rootcause",

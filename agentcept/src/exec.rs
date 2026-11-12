@@ -20,7 +20,7 @@ use rootcause::report;
 /// Returns exit code 127 if lookup or `exec` fails.
 pub fn real(name: &OsStr, args: &[OsString]) -> ExitCode {
     match exec_real(name, args) {
-        Ok(never) => match never {},
+        Ok(never) => never,
         Err(report) => {
             eprintln!("agentcept: {report}");
             ExitCode::from(127)
@@ -45,7 +45,7 @@ pub fn prefer(
         // Warnings must survive the imminent `exec`, so they cannot go
         // through the lossy non-blocking tracing writer.
         match exec_replacement(replacement, name, args) {
-            Ok(never) => match never {},
+            Ok(never) => never,
             Err(report) => {
                 eprintln!("agentcept: {report}");
                 eprintln!(
@@ -100,7 +100,7 @@ impl FileId {
 fn exec_real(
     name: &OsStr,
     args: &[OsString],
-) -> Result<std::convert::Infallible> {
+) -> Result<!> {
     let myself = FileId::discover()?;
 
     if name.as_encoded_bytes().contains(&b'/') {
@@ -128,7 +128,7 @@ fn exec_replacement(
     replacement: &OsStr,
     name: &OsStr,
     args: &[OsString],
-) -> Result<std::convert::Infallible> {
+) -> Result<!> {
     let myself = FileId::discover()?;
     let path = locate_replacement(myself, replacement)?;
     exec_as(&path, name, args)
@@ -203,7 +203,7 @@ fn exec_as(
     path: &Path,
     argv0: &OsStr,
     args: &[OsString],
-) -> Result<std::convert::Infallible> {
+) -> Result<!> {
     let mut command = Command::new(path);
     command.arg0(argv0);
     command.args(args);

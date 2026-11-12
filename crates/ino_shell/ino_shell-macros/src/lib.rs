@@ -146,10 +146,7 @@ fn emit(token: &Token, call_site: Span) -> Result<Fragment> {
             (ts, None)
         }
         TokenKind::Splat => {
-            let name = token
-                .text
-                .strip_suffix("...")
-                .unwrap_or(token.text.as_str());
+            let name = token.text.trim_suffix("...");
             validate_ident(name)?;
             let ts = respan(parse_ts(&format!("({name})")), call_site);
             (ts, Some(name.to_owned()))
