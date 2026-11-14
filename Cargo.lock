@@ -267,7 +267,6 @@ dependencies = [
  "gix-discover",
  "ino_color",
  "ino_path",
- "ino_shell",
  "ino_tracing",
  "path-clean",
  "qrcode",
@@ -792,18 +791,6 @@ dependencies = [
  "tap",
  "thiserror",
 ]
-
-[[package]]
-name = "ino_shell"
-version = "1.0.0"
-dependencies = [
- "ino_shell-macros",
- "rootcause",
-]
-
-[[package]]
-name = "ino_shell-macros"
-version = "1.0.0"
 
 [[package]]
 name = "ino_tracing"

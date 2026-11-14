@@ -1,14 +1,13 @@
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 use std::process::ExitCode;
 
 use bpaf::OptionParser;
 use bpaf::Parser;
 use bpaf::construct;
 use bpaf::short;
-use ino_shell::Shell;
-use ino_shell::cmd;
 use rootcause::prelude::ResultExt as _;
 use tracing::debug;
 
@@ -74,10 +73,20 @@ fn run(source: Source) -> rootcause::Result<()> {
 /// Reads the clipboard via `wl-paste`, so this works only under Wayland.
 fn read_clipboard() -> rootcause::Result<String> {
     debug!("data source is clipboard");
-    let sh = Shell::new().context("Unable to create a shell")?;
-    Ok(cmd!(sh, "wl-paste --no-newline")
-        .read()
-        .context("Unable to read from clipboard")?)
+    let output = Command::new("wl-paste")
+        .arg("--no-newline")
+        .output()
+        .context("Unable to execute wl-paste")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        rootcause::bail!(
+            "wl-paste exited with {}: {}",
+            output.status,
+            stderr.trim()
+        );
+    }
+    Ok(String::from_utf8(output.stdout)
+        .context("Clipboard content is not valid UTF-8")?)
 }
 
 fn read_stdin() -> rootcause::Result<String> {
@@ -113,7 +122,7 @@ fn write_tempfile(svg: &str) -> rootcause::Result<PathBuf> {
 }
 
 fn open_viewer(svg_path: &Path) -> rootcause::Result<()> {
-    let status = std::process::Command::new("xdg-open")
+    let status = Command::new("xdg-open")
         .arg(svg_path)
         .status()
         .context("Unable to execute xdg-open")?;

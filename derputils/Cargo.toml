@@ -12,7 +12,6 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
-ino_shell.workspace = true
 ino_color.workspace = true
 ino_path.workspace = true
 bpaf.workspace = true
