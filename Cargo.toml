@@ -61,7 +61,6 @@ tracing-subscriber = {
 #
 
 [profile.release]
-lto = "thin"
 strip = "debuginfo"
 
 [profile.release.build-override]
