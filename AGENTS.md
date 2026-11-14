@@ -93,8 +93,7 @@ Don't commit on behalf of the user. Don't write commit message
 
 After making changes (scope to the relevant app/crate):
 
-1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>` Don't act immediately on clippy suggestions. Don't suppress warnings.
+1. **Lint**: `cargo clippy --all-features --all-targets --package <crate>`. MUST NOT suppress warning without permission. Skip and report warnings that might signal architectural problems. Fix other warnings properly instead of taking clippy suggestions as-is.
 2. **Test**: `cargo test --all-features --package <crate>`
-3. Collect, dedup and report all triggered clippy warning to the user and require user review. Because new warnings are symptom of deeper architecural problems, don't suppress or workaround them without user's review. But ensure tests pass before considering the change complete.
 
 Do not pipe command output through `head` or `tail`, especially `cargo test`.
