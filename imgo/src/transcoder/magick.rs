@@ -513,6 +513,7 @@ impl Operation for CleanScan {
             command.args(["-threshold", &format!("{}%", self.threshold)]);
         }
         command.args(["-depth", "1", "-colors", "2"]);
+        command.args(["-define", "png:compression-filter=0"]);
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
         run_command(self.id(), input, &mut command)
