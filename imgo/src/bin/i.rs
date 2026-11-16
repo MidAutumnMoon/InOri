@@ -355,12 +355,10 @@ mod tests {
 
     #[test]
     fn parses_command_short_aliases() {
-        let CliOpts::CleanScan { transcoder, .. } =
-            parse(&["c", "--otsu"]).unwrap()
+        let CliOpts::CleanScan { transcoder, .. } = parse(&["c"]).unwrap()
         else {
             panic!("expected the clean-scan command");
         };
-        assert!(transcoder.otsu);
         assert!(transcoder.sharpen);
     }
 

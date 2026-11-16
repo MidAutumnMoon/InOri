@@ -56,7 +56,8 @@ impl Meta for Jxl {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        NonZeroU64::MIN
+        // SAFETY: It's literally 2.
+        unsafe { NonZeroU64::new_unchecked(2) }
     }
 }
 
@@ -110,12 +111,13 @@ fn encode_expert(input: &Path, output: &Path) -> rootcause::Result<()> {
     command.arg("--allow_expert_options");
     command.args(["--effort", "8"]);
     command.args(["--modular", "1"]);
+    command.args(["--patches", "1"]);
     command.args(["--lossless_jpeg", "1"]);
     command.args(["--distance", "0"]);
-    command.args(["--iterations", "100"]);
-    command.args(["--modular_nb_prev_channels", "6"]);
+    // command.args(["--iterations", "100"]);
+    // command.args(["--modular_nb_prev_channels", "6"]);
     command.args(["--modular_group_size", "2"]);
-    command.args(["--modular_predictor", "15"]);
+    // command.args(["--modular_predictor", "15"]);
     command.args(["--num_threads", "-1"]);
     command.args([input, output]);
     run_command("cjxl expert lossless", input, &mut command)

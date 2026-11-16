@@ -424,11 +424,8 @@ impl Operation for FlattenSandTone {
 #[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CleanScan {
-    /// Fixed global threshold percentage. Cannot be supplied with `--otsu`.
+    /// Fixed global threshold percentage.
     pub threshold: u8,
-
-    /// Select a global threshold from the image histogram.
-    pub otsu: bool,
 
     /// Disable the mild pre-threshold unsharp mask.
     pub sharpen: bool,
@@ -439,28 +436,20 @@ pub struct CleanScan {
 pub fn clean_scan_cli() -> impl Parser<CleanScan> {
     let threshold = long("threshold")
         .argument::<u8>("PERCENT")
-        .help("Global threshold percentage; cannot be combined with `--otsu`")
+        .help("Global threshold percentage")
         .fallback(CleanScan::default().threshold)
         .display_fallback();
-    let otsu = long("otsu")
-        .switch()
-        .help("Select a global threshold from the image histogram");
     let no_sharpen = long("no-sharpen")
         .switch()
         .help("Disable the mild pre-threshold unsharp mask");
     let sharpen = no_sharpen.map(|no_sharpen| !no_sharpen);
-    construct!(CleanScan {
-        threshold,
-        otsu,
-        sharpen,
-    })
+    construct!(CleanScan { threshold, sharpen })
 }
 
 impl Default for CleanScan {
     fn default() -> Self {
         Self {
             threshold: DEFAULT_CLEAN_SCAN_THRESHOLD,
-            otsu: false,
             sharpen: true,
         }
     }
@@ -489,9 +478,6 @@ impl Operation for CleanScan {
         if self.threshold > 100 {
             bail!("clean-scan threshold must be in 0..=100");
         }
-        if self.otsu && self.threshold != DEFAULT_CLEAN_SCAN_THRESHOLD {
-            bail!("--threshold cannot be customized together with --otsu");
-        }
         Ok(())
     }
 
@@ -505,14 +491,12 @@ impl Operation for CleanScan {
         command.args(["-colorspace", "Gray"]);
         command.arg("-strip");
         if self.sharpen {
-            command.args(["-unsharp", "0x2+1+0.4"]);
+            command.args(["-unsharp", "0x0.7+1+0.4"]);
         }
-        if self.otsu {
-            command.args(["-auto-threshold", "OTSU"]);
-        } else {
-            command.args(["-threshold", &format!("{}%", self.threshold)]);
-        }
-        command.args(["-depth", "1", "-colors", "2"]);
+        command.args(["-threshold", &format!("{}%", self.threshold)]);
+        command.args(["-depth", "1"]);
+        command.args(["-define", "png:color-type=0"]);
+        command.args(["-define", "png:bit-depth=1"]);
         command.args(["-define", "png:compression-filter=0"]);
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
