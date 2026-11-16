@@ -3,7 +3,6 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Path;
 use std::str::FromStr;
-use std::thread::available_parallelism;
 
 use bpaf::Parser;
 use bpaf::construct;
@@ -461,7 +460,8 @@ impl Meta for CleanScan {
     }
 
     fn default_jobs(&self) -> NonZeroU64 {
-        available_cores()
+        // SAFETY: It's 2
+        unsafe { NonZeroU64::new_unchecked(3) }
     }
 
     fn input_formats(&self) -> &'static [ImageFormat] {
@@ -506,16 +506,6 @@ impl Operation for CleanScan {
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
         tools.insert(Tool::Magick);
     }
-}
-
-fn available_cores() -> NonZeroU64 {
-    let cores = available_parallelism().map_or(1, usize::from);
-    let selected = u64::try_from(cores).unwrap_or(1);
-    #[expect(
-        clippy::unwrap_used,
-        reason = "available parallelism is always at least one"
-    )]
-    NonZeroU64::new(selected).unwrap()
 }
 
 #[cfg(test)]
