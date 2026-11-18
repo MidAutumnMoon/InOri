@@ -1,27 +1,14 @@
-# AGENTS.md
-
-## Project Overview
+# InOri
 
 InOri is a Rust workspace monorepo containing CLI tools and shared utility crates, authored by MidAutumnMoon and licensed under GPL-3.0-or-later.
 
-- **Repository**: <https://github.com/MidAutumnMoon/InOri>
+- Repository: <https://github.com/MidAutumnMoon/InOri>
 
 ## Make changes
 
 - Make systematic changes. Don't be scoped to the spot you are looking at.
 - Make breaking changes. Trace, find, redesign, from top to bottom.
 - Challenge existing designs.
-
-## Look Things Up
-
-- When unsure about a library, tool, or API, use web search or Context7 before guessing.
-- Prefer Context7 for library docs — it pulls real examples and up-to-date signatures.
-- Don't hallucinate option names, function signatures, or CLI flags. Look it up.
-- Use `$CARGO_HOME` instead of `~/.cargo`.
-
-## No `| tail` / `| head`
-
-Do not pipe any command output through `head` or `tail`, tools will properly handle large output natively.
 
 ## Workspace Layout
 
@@ -43,42 +30,13 @@ Do not pipe any command output through `head` or `tail`, tools will properly han
 | `ino_path`    | Path utilities (executable detection, etc.)                                |
 | `ino_tracing` | Opinionated `tracing-subscriber` initialization                            |
 
-## Fitting New Code
+## Repo conventions
 
-- Recover the domain truth before choosing a shape: valid states, natural owner, boundaries, and relevant failure or resource constraints.
-- Give each fact one authoritative home. Prefer representations and APIs that enforce invariants over comments or caller discipline.
-- Read the surrounding code first. Extend an abstraction only when the new behavior shares its policy and ownership; otherwise reshape proportionally instead of adding special cases, parallel paths, or copied logic.
-- Keep dependencies and data flow explicit. Do not recover required context from ambient state or reconstruct information discarded earlier.
-- Design for real pressures, not hypothetical reuse. Preserve existing behavior unless a change is requested; consolidate experiments before landing.
-
-## Coding Conventions
-
-### Error Handling
-
-- Use [`rootcause`](https://docs.rs/rootcause/) for application, and [`thiserror`](https://docs.rs/thiserror/) for library. For past experiences and gotchas, see [`.ai/rootcause.md`](./.ai/rootcause.md).
-- Prefer richer return types instead of convention.
-- Avoid `unwrap()` and `panic` in production code (Clippy will warn).
-
-### String
-
+- This is a Rust cargo workspace.
+- Use [`rootcause`](https://docs.rs/rootcause/) for application, and [`thiserror`](https://docs.rs/thiserror/) for library. For past experiences and gotchas, see [`.ai/rootcause.md`](./.ai/rootcause.md). Avoid `unwrap()` and `panic` outside tests.
 - Use [`indoc`](https://docs.rs/indoc/) for multi-line strings.
-- Ignore `max_width` for long single-line strings. No need to workaround the limit by concatenating or splitting strings.
-
-### Logging
-
-- Use the `tracing` crate for all logging.
-- Initialize the subscriber via `ino_tracing` at the start of `main()`.
-
-### CLI Structure
-
-- New apps should use the `bpaf` CLI parser.
-- For experience and gotchas on using bpaf, see [`.ai/bpaf.md`](./.ai/bpaf.md).
-
-### Dependency Management
-
-- Workspace-level dependencies are declared in the root `Cargo.toml`.
-- Crate-level `Cargo.toml` files reference them with `foo.workspace = true`.
-- Renovate bot is configured for automated dependency updates.
+- Use `tracing` for logging.
+- Use `bpaf` to handle CLI parsing. For experience and gotchas on using bpaf, see [`.ai/bpaf.md`](./.ai/bpaf.md).
 
 ## VCS
 
