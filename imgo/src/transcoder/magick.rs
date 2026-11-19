@@ -18,7 +18,10 @@ use crate::transcoder::Operation;
 use crate::transcoder::Tool;
 use crate::transcoder::run_command;
 
-const DEFAULT_CLEAN_SCAN_THRESHOLD: u8 = 55;
+const DEFAULT_CLEAN_SCAN_BLACK_THRESHOLD: u8 = 2;
+const DEFAULT_CLEAN_SCAN_WHITE_THRESHOLD: u8 = 98;
+const CLEAN_SCAN_POSTERIZE_LEVELS: &str = "4";
+const CLEAN_SCAN_BIT_DEPTH: &str = "2";
 const SAND_TONE_SIGMA_DIVISOR: f64 = 1400.0;
 const SAND_TONE_MIN_BASE_SIGMA: f64 = 0.8;
 const SAND_TONE_MAX_BASE_SIGMA: f64 = 2.8;
@@ -418,38 +421,47 @@ impl Operation for FlattenSandTone {
     }
 }
 
-/// Convert degraded near-bilevel pages to crisp one-bit grayscale.
+/// Convert near-bilevel pages to 2-bit Floyd-Steinberg dithered grayscale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CleanScan {
-    /// Fixed global threshold percentage.
-    pub threshold: u8,
+    /// Snap luminance percentages at or below this value to pure black.
+    pub black_threshold: u8,
 
-    /// Disable the mild pre-threshold unsharp mask.
-    pub sharpen: bool,
+    /// Snap luminance percentages at or above this value to pure white.
+    pub white_threshold: u8,
 }
 
 /// CLI parser for [`CleanScan`].
 #[must_use]
 pub fn clean_scan_cli() -> impl Parser<CleanScan> {
-    let threshold = long("threshold")
+    let defaults = CleanScan::default();
+    let black_threshold = long("black-threshold")
         .argument::<u8>("PERCENT")
-        .help("Global threshold percentage")
-        .fallback(CleanScan::default().threshold)
+        .help(
+            "Luminance percentage snapped to pure black before dithering",
+        )
+        .fallback(defaults.black_threshold)
         .display_fallback();
-    let no_sharpen = long("no-sharpen")
-        .switch()
-        .help("Disable the mild pre-threshold unsharp mask");
-    let sharpen = no_sharpen.map(|no_sharpen| !no_sharpen);
-    construct!(CleanScan { threshold, sharpen })
+    let white_threshold = long("white-threshold")
+        .argument::<u8>("PERCENT")
+        .help(
+            "Luminance percentage snapped to pure white before dithering",
+        )
+        .fallback(defaults.white_threshold)
+        .display_fallback();
+    construct!(CleanScan {
+        black_threshold,
+        white_threshold,
+    })
 }
 
 impl Default for CleanScan {
     fn default() -> Self {
         Self {
-            threshold: DEFAULT_CLEAN_SCAN_THRESHOLD,
-            sharpen: true,
+            black_threshold: DEFAULT_CLEAN_SCAN_BLACK_THRESHOLD,
+            white_threshold: DEFAULT_CLEAN_SCAN_WHITE_THRESHOLD,
         }
     }
 }
@@ -475,8 +487,16 @@ impl Meta for CleanScan {
 
 impl Operation for CleanScan {
     fn validate(&self) -> rootcause::Result<()> {
-        if self.threshold > 100 {
-            bail!("clean-scan threshold must be in 0..=100");
+        if self.black_threshold > 100 {
+            bail!("clean-scan black threshold must be in 0..=100");
+        }
+        if self.white_threshold > 100 {
+            bail!("clean-scan white threshold must be in 0..=100");
+        }
+        if self.black_threshold >= self.white_threshold {
+            bail!(
+                "clean-scan black threshold must be less than white threshold"
+            );
         }
         Ok(())
     }
@@ -490,13 +510,26 @@ impl Operation for CleanScan {
         command.arg("-alpha").arg("off");
         command.args(["-colorspace", "Gray"]);
         command.arg("-strip");
-        if self.sharpen {
-            command.args(["-unsharp", "0x0.7+1+0.4"]);
+        if self.black_threshold > 0 {
+            command.args([
+                "-black-threshold",
+                &format!("{}%", self.black_threshold),
+            ]);
         }
-        command.args(["-threshold", &format!("{}%", self.threshold)]);
-        command.args(["-depth", "1"]);
+        if self.white_threshold < 100 {
+            command.args([
+                "-white-threshold",
+                &format!("{}%", self.white_threshold),
+            ]);
+        }
+        command.args(["-dither", "FloydSteinberg"]);
+        command.args(["-posterize", CLEAN_SCAN_POSTERIZE_LEVELS]);
+        command.args(["-depth", CLEAN_SCAN_BIT_DEPTH]);
         command.args(["-define", "png:color-type=0"]);
-        command.args(["-define", "png:bit-depth=1"]);
+        command.args([
+            "-define",
+            &format!("png:bit-depth={CLEAN_SCAN_BIT_DEPTH}"),
+        ]);
         command.args(["-define", "png:compression-filter=0"]);
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
@@ -548,5 +581,51 @@ mod tests {
         assert_eq!(high.mask_opening, 2);
         assert_eq!(high.mask_closing, 4);
         assert_eq!(high.mask_threshold, "10%");
+    }
+
+    #[test]
+    fn clean_scan_validation() -> rootcause::Result<()> {
+        let defaults = CleanScan::default();
+        if defaults
+            != (CleanScan {
+                black_threshold: 2,
+                white_threshold: 98,
+            })
+        {
+            bail!("unexpected CleanScan defaults: {defaults:?}");
+        }
+        defaults.validate()?;
+
+        let full_range = CleanScan {
+            black_threshold: 0,
+            white_threshold: 100,
+        };
+        full_range.validate()?;
+
+        for bad in [
+            CleanScan {
+                black_threshold: 101,
+                white_threshold: 98,
+            },
+            CleanScan {
+                black_threshold: 2,
+                white_threshold: 101,
+            },
+            CleanScan {
+                black_threshold: 50,
+                white_threshold: 50,
+            },
+            CleanScan {
+                black_threshold: 60,
+                white_threshold: 40,
+            },
+        ] {
+            if bad.validate().is_ok() {
+                bail!(
+                    "expected invalid thresholds to be rejected: {bad:?}"
+                );
+            }
+        }
+        Ok(())
     }
 }

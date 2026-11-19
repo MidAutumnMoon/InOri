@@ -52,7 +52,7 @@ Direct expert transcoder commands remain separate tools, not workflow phases:
 i avif --quality 65 --chroma auto <files...>
 i jxl <files...>
 i denoise --mode artifact <files...>
-i clean-scan --threshold 55 <files...>
+i clean-scan <files...>
 ```
 
 ### Review layout

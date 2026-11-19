@@ -59,7 +59,7 @@ enum CliOpts {
         shared: SharedOpts,
     },
 
-    /// Convert degraded near-bilevel manga scans to one-bit PNG.
+    /// Convert near-bilevel manga scans to 2-bit Floyd-Steinberg PNG.
     CleanScan {
         transcoder: CleanScan,
         shared: SharedOpts,
@@ -196,7 +196,7 @@ fn cli() -> OptionParser<CliOpts> {
         let shared = shared_cli();
         construct!(CliOpts::CleanScan { transcoder, shared })
             .to_options()
-            .descr("Convert degraded near-bilevel manga scans to one-bit PNG.")
+            .descr("Convert near-bilevel manga scans to 2-bit Floyd-Steinberg PNG.")
             .command("clean-scan")
             .short('c')
     };
@@ -359,7 +359,33 @@ mod tests {
         else {
             panic!("expected the clean-scan command");
         };
-        assert!(transcoder.sharpen);
+        assert_eq!(transcoder.black_threshold, 2);
+        assert_eq!(transcoder.white_threshold, 98);
+
+        let CliOpts::CleanScan {
+            transcoder: custom, ..
+        } = parse(&[
+            "clean-scan",
+            "--black-threshold",
+            "0",
+            "--white-threshold",
+            "96",
+        ])
+        .unwrap()
+        else {
+            panic!("expected the clean-scan command");
+        };
+        assert_eq!(custom.black_threshold, 0);
+        assert_eq!(custom.white_threshold, 96);
+
+        assert!(matches!(
+            parse(&["clean-scan", "--threshold", "55"]),
+            Err(ParseFailure::Stderr(_))
+        ));
+        assert!(matches!(
+            parse(&["clean-scan", "--no-sharpen"]),
+            Err(ParseFailure::Stderr(_))
+        ));
     }
 
     #[test]

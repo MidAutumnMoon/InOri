@@ -279,11 +279,18 @@ mod tests {
         .validate_for(ImageFormat::PNG)
         .unwrap_err();
 
-        // Recipe::single(Step::CleanScan(CleanScan {
-        //     threshold: 50,
-        //     sharpen: true,
-        // }))
-        // .validate_for(ImageFormat::PNG)
-        // .unwrap_err();
+        Recipe::single(Step::CleanScan(CleanScan {
+            black_threshold: 50,
+            white_threshold: 50,
+        }))
+        .validate_for(ImageFormat::PNG)
+        .unwrap_err();
+
+        Recipe::single(Step::CleanScan(CleanScan {
+            black_threshold: 2,
+            white_threshold: 101,
+        }))
+        .validate_for(ImageFormat::PNG)
+        .unwrap_err();
     }
 }

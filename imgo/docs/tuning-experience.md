@@ -372,34 +372,21 @@ coherence. At least 0.35% coverage and 45% local microtexture are required.
 This routed the formerly missed pages at 5.9–8.2% coverage and approximately
 52% local microtexture while the clean color control remained at 0%.
 
-### Clean scan: unsharp plus threshold
+### Clean scan: endpoint snap plus 2-bit Floyd-Steinberg
 
-The current one-bit conversion is:
+The current cleanup is:
 
 ```text
 -background white -alpha remove -alpha off
 -colorspace Gray -strip
--unsharp 0x2+1+0.4
--threshold 55%
--depth 1 -colors 2
+-black-threshold 2% -white-threshold 98%
+-dither FloydSteinberg -posterize 4
+-depth 2
 ```
 
-For `0x2+1+0.4`:
+(Written with `png:color-type=0` and `png:bit-depth=2`.)
 
-- radius `0`: let ImageMagick choose the kernel radius;
-- sigma `2`: edge scale in pixels;
-- gain `1`: add the full original-minus-blurred difference;
-- threshold `0.4`: apply only differences above 40% of QuantumRange.
-
-The high threshold makes sharpening selective, but it still changes which pixels cross the later binary threshold. Operator order is part of the preset.
-
-`-threshold 55%` maps values above 55% to white and the rest to black. The value came from the degraded-scan references; it is not a generic manga constant. Sweep threshold while watching thin lines, gray fills, closed screentone dots, and background dirt.
-
-`-auto-threshold OTSU` chooses a cluster-based threshold from each image histogram. It can adapt to a shifted scan, but page-to-page variation can also create inconsistent line weights. Compare fixed and Otsu on a whole cohort, not one page. ImageMagick can expose the chosen Otsu value through its `auto-threshold:verbose` property; record it when diagnosing outliers.
-
-`--otsu` and a customized fixed `--threshold` are mutually exclusive in the
-recipe contract. This prevents a plan from carrying a threshold value that the
-selected mode silently ignores.
+On non-integer screentones (e.g., 45° light halftone around 5–6 px pitch with anti-aliased gray skirts), memoryless `-threshold` creates low-frequency spiral beating in local ink coverage. Pre-threshold `-unsharp` or `-level 10%,90%` clips faint dot halos and causes the same phase beating. Snapping only near-black/white extremes (`-black-threshold 2% -white-threshold 98%`) cleans paper dust without disturbing the halftone skirts, and 2-bit Floyd-Steinberg (`-posterize 4`) preserves gray coverage across dot phases while staying compact for lossless JXL.
 
 The intermediate PNG uses compression level 1 for speed because it is consumed immediately by AVIF/JXL. Do not use intermediate PNG bytes to judge a preprocessing preset; measure the final encoded result.
 
