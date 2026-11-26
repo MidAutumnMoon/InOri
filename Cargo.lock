@@ -728,7 +728,7 @@ dependencies = [
  "ino_tracing",
  "natord",
  "rayon",
- "rlimit",
+ "rlimit 0.12.0",
  "rootcause",
  "serde",
  "serde_json",
@@ -1293,6 +1293,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlimit"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89be6f31978e7fb890f29af88b6040c1524cb9b254d20724190c2bb4d438d550"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rootcause"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1325,7 +1334,7 @@ dependencies = [
  "ino_color",
  "ino_tracing",
  "rayon",
- "rlimit",
+ "rlimit 0.11.0",
  "rootcause",
  "serde_json",
  "tap",
