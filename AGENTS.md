@@ -38,14 +38,6 @@ InOri is a Rust workspace monorepo containing CLI tools and shared utility crate
 - Use `tracing` for logging.
 - Use `bpaf` to handle CLI parsing. For experience and gotchas on using bpaf, see [`.ai/bpaf.md`](./.ai/bpaf.md).
 
-## VCS
-
-Use `jj` vcs exclusively. For example, `jj status`, `jj new`.
-
-External pager is configured. Use `jj diff --git` and `jj show --git` for traditional git style diff output.
-
-Don't commit on behalf of the user. Don't write commit message
-
 ## Verify Changes
 
 After making changes (scope to the relevant app/crate):
@@ -54,3 +46,7 @@ After making changes (scope to the relevant app/crate):
 2. **Test**: `cargo test --all-features --package <crate>`
 
 Do not pipe command output through `head` or `tail`, especially `cargo test`.
+
+## VCS
+
+Use `jj` vcs exclusively. For example, `jj status`, `jj new`. Don't commit on behalf of the user without permission.
