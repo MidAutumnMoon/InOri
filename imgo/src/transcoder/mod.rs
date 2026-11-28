@@ -84,6 +84,23 @@ pub trait Meta: Send + Sync {
     fn default_jobs(&self) -> NonZeroU64;
 }
 
+/// What running one operation did with its output path.
+#[derive(Debug)]
+pub enum Outcome {
+    /// `output` holds the produced bytes; the messages are operator warnings.
+    Produced(Vec<String>),
+    /// The operation skipped this input: `output` is untouched and must not
+    /// be committed.
+    Skipped(String),
+}
+
+impl Outcome {
+    #[must_use]
+    pub const fn produced() -> Self {
+        Self::Produced(Vec::new())
+    }
+}
+
 /// One recipe operation. Implementations own parameter policy and process
 /// execution, so an operation may try several equivalent encodings and retain
 /// the smallest.
@@ -104,7 +121,11 @@ pub trait Operation: Meta {
     ///
     /// Returns an error when parameters are invalid, process execution fails,
     /// or the output cannot be materialized.
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()>;
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome>;
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>);
 }

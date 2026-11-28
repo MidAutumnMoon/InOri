@@ -37,6 +37,7 @@ use crate::fs::selected_image;
 use crate::img::Image;
 use crate::img::ImageFormat;
 use crate::recipe::Recipe;
+use crate::transcoder::Outcome;
 use crate::transcoder::Pixel;
 
 /// Shared CLI options for direct, single-recipe commands.
@@ -111,6 +112,8 @@ pub struct Job {
 pub struct BatchSummary {
     pub processed: usize,
     pub already_complete: usize,
+    /// Inputs an operation skipped; source and output stay untouched.
+    pub skipped: usize,
 }
 
 #[derive(Debug)]
@@ -182,15 +185,12 @@ pub fn run_jobs(
                 std::fs::copy(reviewed, output).context_with(|| {
                     format!("reuse reviewed output {}", reviewed.display())
                 })?;
-                Ok(vec![format!(
+                return Ok(Outcome::Produced(vec![format!(
                     "Reused reviewed candidate for {}",
                     job.image.path.display()
-                )])
-            } else {
-                job.recipe
-                    .execute(input, job.image.format, output)
-                    .map(|()| Vec::new())
+                )]));
             }
+            job.recipe.execute(input, job.image.format, output)
         },
     )
 }
@@ -272,7 +272,7 @@ pub fn run_pipeline_pixel(
             transcoder.transform(&mut rgba)?;
             rgba.save(output)
                 .context_with(|| format!("encode {}", output.display()))?;
-            Ok(warnings)
+            Ok(Outcome::Produced(warnings))
         },
     )
 }
@@ -334,19 +334,33 @@ where
     T: Send + Sync,
     ImageOf: Fn(&T) -> &Image + Send + Sync,
     OutputOf: Fn(&T) -> rootcause::Result<ImageFormat> + Send + Sync,
-    Execute: Fn(&T, &Path, &Path) -> rootcause::Result<Vec<String>>
-        + Send
-        + Sync,
+    Execute:
+        Fn(&T, &Path, &Path) -> rootcause::Result<Outcome> + Send + Sync,
 {
     if items.is_empty() {
         ceprintln!(Yellow, "No images to process.");
         return Ok(BatchSummary::default());
     }
 
+    let total = items.len();
     let prepared = preflight_states(
         workspace, &items, no_backup, &image_of, &output_of,
     )?;
-    let bar = progress_bar(items.len())?;
+    let mut work = Vec::with_capacity(total);
+    for (item, state) in items.into_iter().zip(prepared) {
+        if let PreparedState::Pending(pending) = state {
+            work.push((item, pending));
+        }
+    }
+    let mut summary = BatchSummary {
+        already_complete: total - work.len(),
+        ..BatchSummary::default()
+    };
+    if work.is_empty() {
+        return Ok(summary);
+    }
+
+    let bar = progress_bar(work.len())?;
     let thread_count = usize::try_from(parallelism.get())?;
     let pool = ThreadPoolBuilder::new()
         .num_threads(thread_count)
@@ -354,31 +368,41 @@ where
         .context("build image worker pool")?;
 
     let results = pool.install(|| {
-        items
-            .into_par_iter()
-            .zip(prepared.into_par_iter())
-            .map(|(item, state)| {
+        work.into_par_iter()
+            .map(|(item, pending)| {
                 let image = image_of(&item);
-                let result = match state {
-                    PreparedState::Complete => Ok(false),
-                    PreparedState::Pending(pending) => process_one(
-                        image,
-                        pending,
-                        &bar,
-                        |input, temporary| {
-                            execute(&item, input, temporary)
-                        },
-                    )
-                    .map(|()| true),
-                };
-                if let Err(error) = &result {
-                    bar.suspend(|| {
-                        ceprintln!(
-                            Red,
-                            "Failed to process {}: {error}",
-                            image.path.display()
-                        );
-                    });
+                let result = process_one(
+                    image,
+                    pending,
+                    &bar,
+                    |input, temporary| execute(&item, input, temporary),
+                );
+                match &result {
+                    Ok(Outcome::Produced(warnings)) => {
+                        for warning in warnings {
+                            bar.suspend(|| {
+                                ceprintln!(Yellow, "{warning}");
+                            });
+                        }
+                    }
+                    Ok(Outcome::Skipped(reason)) => {
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Yellow,
+                                "Skipped {}: {reason}",
+                                image.path.display()
+                            );
+                        });
+                    }
+                    Err(error) => {
+                        bar.suspend(|| {
+                            ceprintln!(
+                                Red,
+                                "Failed to process {}: {error}",
+                                image.path.display()
+                            );
+                        });
+                    }
                 }
                 bar.inc(1);
                 result
@@ -387,28 +411,27 @@ where
     });
     bar.finish();
 
-    let mut summary = BatchSummary::default();
     let mut failures = Vec::new();
     for result in results {
         match result {
-            Ok(true) => summary.processed += 1,
-            Ok(false) => summary.already_complete += 1,
+            Ok(Outcome::Produced(_)) => summary.processed += 1,
+            Ok(Outcome::Skipped(_)) => summary.skipped += 1,
             Err(error) => failures.push(error),
         }
     }
     if !failures.is_empty() {
-        let total = failures.len();
-        let overflow = total.saturating_sub(10);
+        let failed = failures.len();
+        let overflow = failed.saturating_sub(10);
         let shown: ReportCollection =
             failures.into_iter().take(10).collect();
         let suffix = if overflow > 0 {
-            format!(" (showing the first 10 of {total})")
+            format!(" (showing the first 10 of {failed})")
         } else {
             String::new()
         };
         return Err(shown
             .context(format!(
-                "{total} image(s) failed; completed outputs remain \
+                "{failed} image(s) failed; completed outputs remain \
                  resumable{suffix}",
             ))
             .into());
@@ -553,8 +576,8 @@ fn process_one(
     image: &Image,
     pending: PendingJob,
     bar: &ProgressBar,
-    execute: impl FnOnce(&Path, &Path) -> rootcause::Result<Vec<String>>,
-) -> rootcause::Result<()> {
+    execute: impl FnOnce(&Path, &Path) -> rootcause::Result<Outcome>,
+) -> rootcause::Result<Outcome> {
     let PendingJob {
         input,
         destination,
@@ -578,10 +601,10 @@ fn process_one(
             format!("create output beside {}", destination.display())
         })?;
 
-    let warnings = execute(&input, temporary.path())?;
-    for warning in warnings {
-        bar.suspend(|| ceprintln!(Yellow, "{warning}"));
-    }
+    let warnings = match execute(&input, temporary.path())? {
+        Outcome::Skipped(reason) => return Ok(Outcome::Skipped(reason)),
+        Outcome::Produced(warnings) => warnings,
+    };
     let metadata = std::fs::metadata(temporary.path())?;
     if metadata.len() == 0 {
         bail!(
@@ -626,7 +649,7 @@ fn process_one(
         .context_with(|| {
             format!("commit encoded output to {}", destination.display())
         })?;
-    Ok(())
+    Ok(Outcome::Produced(warnings))
 }
 
 fn progress_bar(length: usize) -> rootcause::Result<ProgressBar> {
@@ -675,7 +698,7 @@ mod tests {
                 assert_eq!(input, source);
                 calls.fetch_add(1, Ordering::Relaxed);
                 std::fs::write(output, b"encoded")?;
-                Ok(Vec::new())
+                Ok(Outcome::produced())
             },
         )?;
         assert_eq!(
@@ -683,6 +706,7 @@ mod tests {
             BatchSummary {
                 processed: 1,
                 already_complete: 0,
+                skipped: 0,
             }
         );
         assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -703,7 +727,7 @@ mod tests {
             NonZeroU64::MIN,
             |image| image,
             |_| Ok(ImageFormat::AVIF),
-            |_, _, _| {
+            |_, _, _| -> rootcause::Result<Outcome> {
                 calls.fetch_add(1, Ordering::Relaxed);
                 rootcause::bail!("completed work must not execute again")
             },
@@ -743,7 +767,7 @@ mod tests {
                     rootcause::bail!("deliberate failure");
                 }
                 std::fs::write(output, b"encoded")?;
-                Ok(Vec::new())
+                Ok(Outcome::produced())
             },
         );
         result.unwrap_err();
@@ -752,6 +776,74 @@ mod tests {
         assert!(!successful.exists());
         assert!(workspace.join(".backup/b.png").exists());
         assert_eq!(std::fs::read(workspace.join("b.avif"))?, b"encoded");
+        Ok(())
+    }
+
+    #[test]
+    fn declined_inputs_stay_untouched() -> rootcause::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let workspace = temporary.path();
+        let source = workspace.join("page.png");
+        std::fs::write(&source, b"original")?;
+        let image = Image {
+            path: source.clone(),
+            format: ImageFormat::PNG,
+        };
+
+        let summary = orchestrate(
+            workspace,
+            vec![image],
+            false,
+            NonZeroU64::MIN,
+            |image| image,
+            |_| Ok(ImageFormat::AVIF),
+            |_, _, _| {
+                Ok(Outcome::Skipped("deliberate decline".to_owned()))
+            },
+        )?;
+
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(std::fs::read(&source)?, b"original");
+        assert!(!workspace.join(".backup").exists());
+        assert!(!workspace.join("page.avif").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn reviewed_bytes_override_clean_scan_color_gate()
+    -> rootcause::Result<()> {
+        use crate::transcoder::magick::CleanScan;
+
+        let temporary = tempfile::tempdir()?;
+        let workspace = temporary.path();
+        let source = workspace.join("page.png");
+        let reviewed = workspace.join("reviewed.png");
+        std::fs::write(&reviewed, b"reviewed bytes")?;
+        image::RgbaImage::from_pixel(
+            16,
+            16,
+            image::Rgba([220, 40, 80, 255]),
+        )
+        .save(&source)?;
+
+        let summary = run_jobs(
+            workspace,
+            vec![Job {
+                image: Image {
+                    path: source.clone(),
+                    format: ImageFormat::PNG,
+                },
+                recipe: Arc::new(Recipe::single(Step::CleanScan(
+                    CleanScan::default(),
+                ))),
+                reviewed_output: Some(reviewed),
+            }],
+            false,
+            NonZeroU64::MIN,
+        )?;
+
+        assert_eq!(summary.processed, 1);
+        assert_eq!(std::fs::read(&source)?, b"reviewed bytes");
         Ok(())
     }
 

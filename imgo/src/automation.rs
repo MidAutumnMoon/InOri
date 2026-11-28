@@ -42,6 +42,7 @@ use crate::pipeline::Job;
 use crate::pipeline::run_jobs;
 use crate::recipe::Recipe;
 use crate::recipe::Step;
+use crate::transcoder::Outcome;
 use crate::transcoder::Tool;
 use crate::transcoder::avif::Avif;
 use crate::transcoder::avif::Chroma;
@@ -511,8 +512,8 @@ pub fn run_plan(options: &RunOpts) -> rootcause::Result<()> {
         options.jobs.unwrap_or(NonZeroU64::MIN),
     )?;
     println!(
-        "Processed {}, already complete {}.",
-        summary.processed, summary.already_complete
+        "Processed {}, already complete {}, skipped {}.",
+        summary.processed, summary.already_complete, summary.skipped
     );
     Ok(())
 }
@@ -738,6 +739,7 @@ fn render_review(
                 .primary_extension()
                 .context("recipe output has no extension")?;
             let selected = name == &group.selected_recipe;
+            let role = if selected { "selected" } else { "candidate" };
             let artifact_name = candidate_artifact_file_name(
                 candidate_index + 1,
                 name,
@@ -767,7 +769,18 @@ fn render_review(
                     .prefix(".candidate-")
                     .suffix(&format!(".{extension}"))
                     .tempfile_in(&directory)?;
-                recipe.execute(&source, input_format, temporary.path())?;
+                if let Outcome::Skipped(reason) = recipe.execute(
+                    &source,
+                    input_format,
+                    temporary.path(),
+                )? {
+                    println!("  {role:9} {name:34} skipped ({reason})");
+                    writeln!(
+                        &mut report,
+                        "{name}: skipped, reason={reason}"
+                    )?;
+                    continue;
+                }
                 if std::fs::metadata(temporary.path())?.len() == 0 {
                     bail!(
                         "candidate recipe {name} produced an empty output"
@@ -802,7 +815,6 @@ fn render_review(
             });
 
             let ratio = size_percent(metadata.len(), planned.bytes);
-            let role = if selected { "selected" } else { "candidate" };
             let state = if reused { "reused" } else { "encoded" };
             println!(
                 "  {role:9} {name:34} {:>10} bytes ({ratio:5.1}%, {state})",

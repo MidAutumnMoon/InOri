@@ -14,6 +14,7 @@ use serde::Serialize;
 use crate::img::ImageFormat;
 use crate::transcoder::Meta;
 use crate::transcoder::Operation;
+use crate::transcoder::Outcome;
 use crate::transcoder::Tool;
 use crate::transcoder::run_command;
 
@@ -194,7 +195,11 @@ impl Operation for Avif {
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         self.validate()?;
 
         let mut command = Tool::AvifEnc.command();
@@ -223,7 +228,8 @@ impl Operation for Avif {
         }
         command.arg("--").args([input, output]);
 
-        run_command(self.id(), input, &mut command)
+        run_command(self.id(), input, &mut command)?;
+        Ok(Outcome::produced())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {

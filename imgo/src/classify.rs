@@ -10,7 +10,8 @@ const TILE_TOTAL: usize = TILE_COUNT * TILE_COUNT;
 
 const REGION_TILE_COUNT: usize = 16;
 const REGION_TILE_TOTAL: usize = REGION_TILE_COUNT * REGION_TILE_COUNT;
-const COLOR_CHANNEL_DELTA: u8 = 8;
+/// A pixel reads as chromatic when its channel range exceeds this value.
+pub const CHROMATIC_CHANNEL_DELTA: u8 = 8;
 const IMAGE_COLOR_PERCENT: f64 = 1.0;
 const NEAR_BLACK_MAX: u8 = 8;
 const NEAR_WHITE_MIN: u8 = 247;
@@ -399,6 +400,34 @@ pub fn analyze(image: Image) -> rootcause::Result<AnalyzedImage> {
     Ok(AnalyzedImage { image, features })
 }
 
+/// Percentage of decoded pixels that read as chromatic.
+#[must_use]
+pub fn color_percent(pixels: &image::RgbaImage) -> f64 {
+    let (chunks, remainder) = pixels.as_raw().as_chunks::<4>();
+    debug_assert!(
+        remainder.is_empty(),
+        "RgbaImage storage must contain complete four-byte pixels"
+    );
+    let total = u64::try_from(chunks.len()).unwrap_or(u64::MAX);
+    if total == 0 {
+        return 0.0;
+    }
+    let mut chromatic = 0_u64;
+    for &[red, green, blue, alpha] in chunks {
+        let (red, green, blue) = composite_rgb(red, green, blue, alpha);
+        if is_chromatic(red, green, blue) {
+            chromatic += 1;
+        }
+    }
+    count_as_f64(chromatic) * 100.0 / count_as_f64(total)
+}
+
+#[inline]
+fn is_chromatic(red: u8, green: u8, blue: u8) -> bool {
+    red.max(green).max(blue) - red.min(green).min(blue)
+        > CHROMATIC_CHANNEL_DELTA
+}
+
 #[expect(
     clippy::indexing_slicing,
     reason = "RGBA chunks and coordinates are derived from checked image dimensions"
@@ -422,9 +451,7 @@ fn analyze_rgba(pixels: &image::RgbaImage) -> ImageFeatures {
     );
     for &[red, green, blue, alpha] in rgba_pixels {
         let (red, green, blue) = composite_rgb(red, green, blue, alpha);
-        let maximum = red.max(green).max(blue);
-        let minimum = red.min(green).min(blue);
-        if maximum - minimum > COLOR_CHANNEL_DELTA {
+        if is_chromatic(red, green, blue) {
             colorful_pixels += 1;
         }
         let luminance = luma(red, green, blue);

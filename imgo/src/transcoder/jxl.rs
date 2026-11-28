@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::img::ImageFormat;
 use crate::transcoder::Meta;
 use crate::transcoder::Operation;
+use crate::transcoder::Outcome;
 use crate::transcoder::Tool;
 use crate::transcoder::run_command;
 
@@ -62,7 +63,11 @@ impl Meta for Jxl {
 }
 
 impl Operation for Jxl {
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         let directory =
             tempfile::tempdir().context("create JXL work directory")?;
         let standard_path = directory.path().join("standard.jxl");
@@ -89,7 +94,7 @@ impl Operation for Jxl {
         std::fs::copy(&selected, output).context_with(|| {
             format!("copy selected JXL output to {}", output.display())
         })?;
-        Ok(())
+        Ok(Outcome::produced())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {

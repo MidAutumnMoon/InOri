@@ -12,14 +12,17 @@ use rootcause::prelude::ResultExt as _;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::classify::color_percent;
 use crate::img::ImageFormat;
 use crate::transcoder::Meta;
 use crate::transcoder::Operation;
+use crate::transcoder::Outcome;
 use crate::transcoder::Tool;
 use crate::transcoder::run_command;
 
 const DEFAULT_CLEAN_SCAN_BLACK_THRESHOLD: u8 = 2;
 const DEFAULT_CLEAN_SCAN_WHITE_THRESHOLD: u8 = 98;
+const CLEAN_SCAN_SKIP_COLOR_PERCENT: f64 = 0.1;
 const CLEAN_SCAN_POSTERIZE_LEVELS: &str = "4";
 const CLEAN_SCAN_BIT_DEPTH: &str = "2";
 const SAND_TONE_SIGMA_DIVISOR: f64 = 1400.0;
@@ -154,7 +157,11 @@ impl Operation for Denoise {
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         self.validate()?;
         let mut command = Tool::Magick.command();
         command.arg(input);
@@ -184,7 +191,8 @@ impl Operation for Denoise {
         }
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
-        run_command(self.id(), input, &mut command)
+        run_command(self.id(), input, &mut command)?;
+        Ok(Outcome::produced())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
@@ -295,7 +303,11 @@ impl Operation for FlattenSandTone {
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         let (width, height) = image::image_dimensions(input)
             .context_with(|| {
                 format!("read dimensions of {}", input.display())
@@ -413,7 +425,8 @@ impl Operation for FlattenSandTone {
             "png:compression-level=1",
         ]);
         command.arg(output);
-        run_command(self.id(), input, &mut command)
+        run_command(self.id(), input, &mut command)?;
+        Ok(Outcome::produced())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
@@ -431,6 +444,9 @@ pub struct CleanScan {
 
     /// Snap luminance percentages at or above this value to pure white.
     pub white_threshold: u8,
+
+    /// Convert pages with color content to gray instead of skipping them.
+    pub allow_color: bool,
 }
 
 /// CLI parser for [`CleanScan`].
@@ -451,9 +467,13 @@ pub fn clean_scan_cli() -> impl Parser<CleanScan> {
         )
         .fallback(defaults.white_threshold)
         .display_fallback();
+    let allow_color = long("allow-color").switch().help(
+        "Convert pages with color content to gray instead of skipping them",
+    );
     construct!(CleanScan {
         black_threshold,
         white_threshold,
+        allow_color,
     })
 }
 
@@ -462,6 +482,7 @@ impl Default for CleanScan {
         Self {
             black_threshold: DEFAULT_CLEAN_SCAN_BLACK_THRESHOLD,
             white_threshold: DEFAULT_CLEAN_SCAN_WHITE_THRESHOLD,
+            allow_color: false,
         }
     }
 }
@@ -485,6 +506,27 @@ impl Meta for CleanScan {
     }
 }
 
+impl CleanScan {
+    fn color_refusal(
+        &self,
+        input: &Path,
+    ) -> rootcause::Result<Option<String>> {
+        if self.allow_color {
+            return Ok(None);
+        }
+        let decoded = image::open(input).context_with(|| {
+            format!(
+                "decode {} to check for color content",
+                input.display()
+            )
+        })?;
+        let color = color_percent(&decoded.into_rgba8());
+        Ok((color >= CLEAN_SCAN_SKIP_COLOR_PERCENT).then(|| {
+            format!("color content ({color:.2}% chromatic pixels)")
+        }))
+    }
+}
+
 impl Operation for CleanScan {
     fn validate(&self) -> rootcause::Result<()> {
         if self.black_threshold > 100 {
@@ -501,8 +543,15 @@ impl Operation for CleanScan {
         Ok(())
     }
 
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         self.validate()?;
+        if let Some(reason) = self.color_refusal(input)? {
+            return Ok(Outcome::Skipped(reason));
+        }
 
         let mut command = Tool::Magick.command();
         command.arg(input);
@@ -533,7 +582,8 @@ impl Operation for CleanScan {
         command.args(["-define", "png:compression-filter=0"]);
         command.args(["-define", "png:compression-level=1"]);
         command.arg(output);
-        run_command(self.id(), input, &mut command)
+        run_command(self.id(), input, &mut command)?;
+        Ok(Outcome::produced())
     }
 
     fn required_tools(&self, tools: &mut BTreeSet<Tool>) {
@@ -590,6 +640,7 @@ mod tests {
             != (CleanScan {
                 black_threshold: 2,
                 white_threshold: 98,
+                ..CleanScan::default()
             })
         {
             bail!("unexpected CleanScan defaults: {defaults:?}");
@@ -599,6 +650,7 @@ mod tests {
         let full_range = CleanScan {
             black_threshold: 0,
             white_threshold: 100,
+            ..CleanScan::default()
         };
         full_range.validate()?;
 
@@ -606,18 +658,22 @@ mod tests {
             CleanScan {
                 black_threshold: 101,
                 white_threshold: 98,
+                ..CleanScan::default()
             },
             CleanScan {
                 black_threshold: 2,
                 white_threshold: 101,
+                ..CleanScan::default()
             },
             CleanScan {
                 black_threshold: 50,
                 white_threshold: 50,
+                ..CleanScan::default()
             },
             CleanScan {
                 black_threshold: 60,
                 white_threshold: 40,
+                ..CleanScan::default()
             },
         ] {
             if bad.validate().is_ok() {
@@ -626,6 +682,40 @@ mod tests {
                 );
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::panic_in_result_fn, reason = "test assertions")]
+    fn clean_scan_declines_color_content() -> rootcause::Result<()> {
+        use image::Rgba;
+        use image::RgbaImage;
+
+        let directory = tempfile::tempdir()?;
+        let near_gray_path = directory.path().join("near-gray.png");
+        let color_path = directory.path().join("color.png");
+
+        RgbaImage::from_pixel(64, 64, Rgba([100, 108, 100, 255]))
+            .save(&near_gray_path)?;
+
+        let mut color =
+            RgbaImage::from_pixel(64, 64, Rgba([255, 255, 255, 255]));
+        for y in 0..8 {
+            for x in 0..8 {
+                color.put_pixel(x, y, Rgba([220, 40, 80, 255]));
+            }
+        }
+        color.save(&color_path)?;
+
+        let skip = CleanScan::default();
+        assert!(skip.color_refusal(&near_gray_path)?.is_none());
+        assert!(skip.color_refusal(&color_path)?.is_some());
+
+        let forced = CleanScan {
+            allow_color: true,
+            ..CleanScan::default()
+        };
+        assert!(forced.color_refusal(&color_path)?.is_none());
         Ok(())
     }
 }

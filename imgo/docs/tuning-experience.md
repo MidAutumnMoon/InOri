@@ -390,6 +390,29 @@ On non-integer screentones (e.g., 45° light halftone around 5–6 px pitch with
 
 The intermediate PNG uses compression level 1 for speed because it is consumed immediately by AVIF/JXL. Do not use intermediate PNG bytes to judge a preprocessing preset; measure the final encoded result.
 
+### Clean scan: color content is skipped
+
+`clean-scan` forces 2-bit gray, so it skips color content. A page is left
+untouched when at least 0.1% of its decoded pixels are chromatic
+(`max(R,G,B) - min(R,G,B) > 8`, alpha composited over white); `--allow-color`
+overrides. Container colorspace is deliberately ignored: the reference corpus
+stores both color and grayscale pages as 8-bit sRGB WebP.
+
+Measured on the 12-book, 2031-page mixed corpus:
+
+| Population | Chromatic pixels |
+|---|---:|
+| 1934 perceptually grayscale pages | exactly 0% |
+| one grayscale page re-encoded: WebP q30, q50, q75 | exactly 0% |
+| same page re-encoded: JPEG q70, q85 (4:2:0 and 4:4:4) | exactly 0% |
+| same page tinted toward cream, 8% colorize | exactly 0% |
+| smallest genuinely colored page (colophon with a red logo) | 1.02% |
+| remaining 96 colored pages | above 1% |
+
+The 0.1% threshold sits ten times below the nearest color page and above the
+measured noise floor. A stronger 20% cream tint measured 95%, above the
+threshold.
+
 ## Classifier constants
 
 Classifier thresholds route review work; they do not prove semantic image types.

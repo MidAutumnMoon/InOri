@@ -131,6 +131,12 @@ with meaningful smooth grayscale. The strong class gets its own group, so one
 page cannot make an averaged mixed group destructive. It still has
 `review_required = true`, and direct AVIF remains a candidate.
 
+`clean-scan` skips color content: a page with at least 0.1% chromatic pixels
+is left untouched unless `--allow-color` (or a plan recipe's
+`"allow_color": true`) overrides it. A reviewed artifact is a human selection
+and commits as-is; a review candidate the operation skips is listed as skipped
+and gets no artifact.
+
 Manga sand-tone routing is also automatic because the storage policy
 explicitly discards that styling. Two evidence paths share page-level guards
 of at least 25% near-black/white occupancy, mean binary error at least

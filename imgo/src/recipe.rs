@@ -13,6 +13,7 @@ use tempfile::NamedTempFile;
 use crate::img::ImageFormat;
 use crate::transcoder::Meta as _;
 use crate::transcoder::Operation as _;
+use crate::transcoder::Outcome;
 use crate::transcoder::Tool;
 use crate::transcoder::avif::Avif;
 use crate::transcoder::jxl::Jxl;
@@ -91,7 +92,11 @@ impl Step {
         }
     }
 
-    fn run(&self, input: &Path, output: &Path) -> rootcause::Result<()> {
+    fn run(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> rootcause::Result<Outcome> {
         match self {
             Self::Avif(step) => step.run(input, output),
             Self::Jxl(step) => step.run(input, output),
@@ -192,43 +197,52 @@ impl Recipe {
         input: &Path,
         input_format: ImageFormat,
         output: &Path,
-    ) -> rootcause::Result<()> {
+    ) -> rootcause::Result<Outcome> {
         self.validate_for(input_format)?;
 
-        let mut current_path = input.to_path_buf();
-        let mut intermediates: Vec<NamedTempFile> = Vec::new();
+        let mut current: Option<NamedTempFile> = None;
+        let mut last = Outcome::produced();
 
         for (index, step) in self.steps.iter().enumerate() {
             let is_final = index + 1 == self.steps.len();
-            if is_final {
-                step.run(&current_path, output)
-                    .context_with(|| format!("run {}", step.id()))?;
+            let input_path =
+                current.as_ref().map_or(input, |temp| temp.path());
+            let produced = if is_final {
+                None
             } else {
                 let extension =
                     step.output_format()
                         .primary_extension()
                         .context("step output format has no extension")?;
-                let temporary = Builder::new()
-                    .suffix(&format!(".{extension}"))
-                    .tempfile()
-                    .context_with(|| {
-                        format!(
-                            "create intermediate output for {}",
-                            step.id()
-                        )
-                    })?;
-                step.run(&current_path, temporary.path())
-                    .context_with(|| format!("run {}", step.id()))?;
-                intermediates.push(temporary);
-                current_path = intermediates
-                    .last()
-                    .context("intermediate output was not retained")?
-                    .path()
-                    .to_path_buf();
+                Some(
+                    Builder::new()
+                        .suffix(&format!(".{extension}"))
+                        .tempfile()
+                        .context_with(|| {
+                            format!(
+                                "create intermediate output for {}",
+                                step.id()
+                            )
+                        })?,
+                )
+            };
+            let target =
+                produced.as_ref().map_or(output, |temp| temp.path());
+            match step
+                .run(input_path, target)
+                .context_with(|| format!("run {}", step.id()))?
+            {
+                Outcome::Skipped(reason) => {
+                    return Ok(Outcome::Skipped(reason));
+                }
+                Outcome::Produced(warnings) => {
+                    last = Outcome::Produced(warnings);
+                }
             }
+            current = produced;
         }
 
-        Ok(())
+        Ok(last)
     }
 }
 
@@ -264,6 +278,31 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::panic_in_result_fn, reason = "test assertions")]
+    fn a_declining_step_stops_the_recipe() -> rootcause::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("color.png");
+        let output = directory.path().join("out.jxl");
+        image::RgbaImage::from_pixel(
+            32,
+            32,
+            image::Rgba([220, 40, 80, 255]),
+        )
+        .save(&source)?;
+
+        let recipe = Recipe::pair(
+            Step::CleanScan(CleanScan::default()),
+            Step::Jxl(Jxl::default()),
+        );
+        let outcome =
+            recipe.execute(&source, ImageFormat::PNG, &output)?;
+
+        assert!(matches!(outcome, Outcome::Skipped(_)));
+        assert!(!output.exists());
+        Ok(())
+    }
+
+    #[test]
     fn operation_owns_parameter_validation() {
         Recipe::single(Step::Avif(Avif {
             quality: 101,
@@ -282,6 +321,7 @@ mod tests {
         Recipe::single(Step::CleanScan(CleanScan {
             black_threshold: 50,
             white_threshold: 50,
+            ..CleanScan::default()
         }))
         .validate_for(ImageFormat::PNG)
         .unwrap_err();
@@ -289,6 +329,7 @@ mod tests {
         Recipe::single(Step::CleanScan(CleanScan {
             black_threshold: 2,
             white_threshold: 101,
+            ..CleanScan::default()
         }))
         .validate_for(ImageFormat::PNG)
         .unwrap_err();

@@ -60,6 +60,7 @@ enum CliOpts {
     },
 
     /// Convert near-bilevel manga scans to 2-bit Floyd-Steinberg PNG.
+    /// Color pages are skipped.
     CleanScan {
         transcoder: CleanScan,
         shared: SharedOpts,
@@ -196,7 +197,10 @@ fn cli() -> OptionParser<CliOpts> {
         let shared = shared_cli();
         construct!(CliOpts::CleanScan { transcoder, shared })
             .to_options()
-            .descr("Convert near-bilevel manga scans to 2-bit Floyd-Steinberg PNG.")
+            .descr(
+                "Convert near-bilevel manga scans to 2-bit Floyd-Steinberg \
+                 PNG. Color pages are skipped.",
+            )
             .command("clean-scan")
             .short('c')
     };
